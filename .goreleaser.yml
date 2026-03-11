@@ -1,0 +1,87 @@
+version: 2
+
+project_name: csghub-lite
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: csghub-lite
+    main: ./cmd/csghub-lite
+    binary: csghub-lite
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    ignore:
+      - goos: windows
+        goarch: arm64
+    ldflags:
+      - -s -w -X main.version={{.Version}}
+
+archives:
+  - id: default
+    formats:
+      - tar.gz
+    format_overrides:
+      - goos: windows
+        formats:
+          - zip
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    files:
+      - README.md
+      - LICENSE*
+
+brews:
+  - name: csghub-lite
+    repository:
+      owner: opencsgs
+      name: homebrew-tap
+      token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
+    directory: Formula
+    homepage: "https://github.com/opencsgs/csghub-lite"
+    description: "Lightweight tool for running LLMs locally with CSGHub platform"
+    license: "Apache-2.0"
+    dependencies:
+      - name: llama.cpp
+        type: recommended
+    test: |
+      system "#{bin}/csghub-lite", "--version"
+    install: |
+      bin.install "csghub-lite"
+
+nfpms:
+  - id: packages
+    package_name: csghub-lite
+    vendor: OpenCSG
+    homepage: "https://github.com/opencsgs/csghub-lite"
+    description: "Lightweight tool for running LLMs locally with CSGHub platform"
+    license: "Apache-2.0"
+    formats:
+      - deb
+      - rpm
+    bindir: /usr/local/bin
+
+checksum:
+  name_template: "checksums.txt"
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^ci:"
+
+release:
+  github:
+    owner: opencsgs
+    name: csghub-lite
+  extra_files:
+    - glob: scripts/install.sh

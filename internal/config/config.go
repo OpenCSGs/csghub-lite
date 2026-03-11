@@ -1,0 +1,140 @@
+package config
+
+import (
+	"encoding/json"
+	"os"
+	"path/filepath"
+	"sync"
+)
+
+const (
+	DefaultServerURL = "https://hub.opencsg.com"
+	DefaultListenAddr = ":11435"
+	AppDir           = ".csghub-lite"
+	ConfigFile       = "config.json"
+	ModelsDir        = "models"
+)
+
+type Config struct {
+	ServerURL  string `json:"server_url"`
+	Token      string `json:"token,omitempty"`
+	ListenAddr string `json:"listen_addr"`
+	ModelDir   string `json:"model_dir"`
+}
+
+var (
+	globalConfig *Config
+	configOnce   sync.Once
+	configMu     sync.RWMutex
+)
+
+func AppHome() (string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(home, AppDir), nil
+}
+
+func DefaultModelDir() (string, error) {
+	home, err := AppHome()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(home, ModelsDir), nil
+}
+
+func ConfigPath() (string, error) {
+	home, err := AppHome()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(home, ConfigFile), nil
+}
+
+func Load() (*Config, error) {
+	var loadErr error
+	configOnce.Do(func() {
+		globalConfig = &Config{
+			ServerURL:  DefaultServerURL,
+			ListenAddr: DefaultListenAddr,
+		}
+
+		modelDir, err := DefaultModelDir()
+		if err != nil {
+			loadErr = err
+			return
+		}
+		globalConfig.ModelDir = modelDir
+
+		cfgPath, err := ConfigPath()
+		if err != nil {
+			loadErr = err
+			return
+		}
+
+		data, err := os.ReadFile(cfgPath)
+		if err != nil {
+			if os.IsNotExist(err) {
+				return
+			}
+			loadErr = err
+			return
+		}
+
+		if err := json.Unmarshal(data, globalConfig); err != nil {
+			loadErr = err
+			return
+		}
+
+		if globalConfig.ServerURL == "" {
+			globalConfig.ServerURL = DefaultServerURL
+		}
+		if globalConfig.ListenAddr == "" {
+			globalConfig.ListenAddr = DefaultListenAddr
+		}
+		if globalConfig.ModelDir == "" {
+			globalConfig.ModelDir = modelDir
+		}
+	})
+	return globalConfig, loadErr
+}
+
+func Get() *Config {
+	configMu.RLock()
+	defer configMu.RUnlock()
+	if globalConfig == nil {
+		cfg, _ := Load()
+		return cfg
+	}
+	return globalConfig
+}
+
+func Save(cfg *Config) error {
+	configMu.Lock()
+	defer configMu.Unlock()
+
+	cfgPath, err := ConfigPath()
+	if err != nil {
+		return err
+	}
+
+	if err := os.MkdirAll(filepath.Dir(cfgPath), 0o755); err != nil {
+		return err
+	}
+
+	data, err := json.MarshalIndent(cfg, "", "  ")
+	if err != nil {
+		return err
+	}
+
+	globalConfig = cfg
+	return os.WriteFile(cfgPath, data, 0o644)
+}
+
+func Reset() {
+	configMu.Lock()
+	defer configMu.Unlock()
+	globalConfig = nil
+	configOnce = sync.Once{}
+}

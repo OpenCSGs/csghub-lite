@@ -1,0 +1,32 @@
+package cli
+
+import (
+	"fmt"
+
+	"github.com/opencsgs/csghub-lite/internal/config"
+	"github.com/opencsgs/csghub-lite/internal/server"
+	"github.com/spf13/cobra"
+)
+
+func newServeCmd() *cobra.Command {
+	var listenAddr string
+
+	cmd := &cobra.Command{
+		Use:   "serve",
+		Short: "Start the csghub-lite API server",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			cfg, err := config.Load()
+			if err != nil {
+				return fmt.Errorf("loading config: %w", err)
+			}
+			if listenAddr != "" {
+				cfg.ListenAddr = listenAddr
+			}
+			srv := server.New(cfg)
+			return srv.Run(cmd.Context())
+		},
+	}
+
+	cmd.Flags().StringVar(&listenAddr, "listen", "", "address to listen on (default :11435)")
+	return cmd
+}

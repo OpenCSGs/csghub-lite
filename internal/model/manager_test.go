@@ -1,0 +1,158 @@
+package model
+
+import (
+	"testing"
+	"time"
+
+	"github.com/opencsgs/csghub-lite/internal/config"
+)
+
+func TestManager_List_Empty(t *testing.T) {
+	dir := t.TempDir()
+	cfg := &config.Config{ModelDir: dir}
+	mgr := NewManager(cfg)
+
+	models, err := mgr.List()
+	if err != nil {
+		t.Fatalf("List error: %v", err)
+	}
+	if len(models) != 0 {
+		t.Errorf("len = %d, want 0", len(models))
+	}
+}
+
+func TestManager_List_WithModels(t *testing.T) {
+	dir := t.TempDir()
+	cfg := &config.Config{ModelDir: dir}
+	mgr := NewManager(cfg)
+
+	// Create two models
+	for _, m := range []*LocalModel{
+		{Namespace: "ns1", Name: "model1", Format: FormatGGUF, Size: 100, DownloadedAt: time.Now()},
+		{Namespace: "ns2", Name: "model2", Format: FormatSafeTensors, Size: 200, DownloadedAt: time.Now()},
+	} {
+		SaveManifest(dir, m)
+	}
+
+	models, err := mgr.List()
+	if err != nil {
+		t.Fatalf("List error: %v", err)
+	}
+	if len(models) != 2 {
+		t.Errorf("len = %d, want 2", len(models))
+	}
+}
+
+func TestManager_Get(t *testing.T) {
+	dir := t.TempDir()
+	cfg := &config.Config{ModelDir: dir}
+	mgr := NewManager(cfg)
+
+	lm := &LocalModel{
+		Namespace: "test",
+		Name:      "model",
+		Format:    FormatGGUF,
+		Size:      1024,
+	}
+	SaveManifest(dir, lm)
+
+	got, err := mgr.Get("test/model")
+	if err != nil {
+		t.Fatalf("Get error: %v", err)
+	}
+	if got.FullName() != "test/model" {
+		t.Errorf("FullName = %q, want %q", got.FullName(), "test/model")
+	}
+}
+
+func TestManager_Get_InvalidID(t *testing.T) {
+	dir := t.TempDir()
+	cfg := &config.Config{ModelDir: dir}
+	mgr := NewManager(cfg)
+
+	_, err := mgr.Get("invalid")
+	if err == nil {
+		t.Error("expected error for invalid model ID")
+	}
+}
+
+func TestManager_Remove(t *testing.T) {
+	dir := t.TempDir()
+	cfg := &config.Config{ModelDir: dir}
+	mgr := NewManager(cfg)
+
+	lm := &LocalModel{
+		Namespace: "test",
+		Name:      "removeme",
+		Format:    FormatGGUF,
+	}
+	SaveManifest(dir, lm)
+
+	if err := mgr.Remove("test/removeme"); err != nil {
+		t.Fatalf("Remove error: %v", err)
+	}
+
+	// Should not exist anymore
+	_, err := mgr.Get("test/removeme")
+	if err == nil {
+		t.Error("model should be removed")
+	}
+}
+
+func TestManager_Remove_NotFound(t *testing.T) {
+	dir := t.TempDir()
+	cfg := &config.Config{ModelDir: dir}
+	mgr := NewManager(cfg)
+
+	err := mgr.Remove("nonexistent/model")
+	if err == nil {
+		t.Error("expected error for non-existent model")
+	}
+}
+
+func TestManager_Exists(t *testing.T) {
+	dir := t.TempDir()
+	cfg := &config.Config{ModelDir: dir}
+	mgr := NewManager(cfg)
+
+	lm := &LocalModel{Namespace: "test", Name: "exists"}
+	SaveManifest(dir, lm)
+
+	if !mgr.Exists("test/exists") {
+		t.Error("Exists() = false, want true")
+	}
+	if mgr.Exists("test/nope") {
+		t.Error("Exists() = true, want false for non-existent model")
+	}
+	if mgr.Exists("invalid") {
+		t.Error("Exists() = true, want false for invalid ID")
+	}
+}
+
+func TestManager_ModelPath(t *testing.T) {
+	dir := t.TempDir()
+	cfg := &config.Config{ModelDir: dir}
+	mgr := NewManager(cfg)
+
+	lm := &LocalModel{Namespace: "test", Name: "pathtest"}
+	SaveManifest(dir, lm)
+
+	path, err := mgr.ModelPath("test/pathtest")
+	if err != nil {
+		t.Fatalf("ModelPath error: %v", err)
+	}
+	if path == "" {
+		t.Error("ModelPath returned empty string")
+	}
+}
+
+func TestManager_ModelPath_NotFound(t *testing.T) {
+	dir := t.TempDir()
+	cfg := &config.Config{ModelDir: dir}
+	mgr := NewManager(cfg)
+
+	_, err := mgr.ModelPath("nonexistent/model")
+	if err == nil {
+		t.Error("expected error for non-existent model")
+	}
+}

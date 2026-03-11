@@ -1,0 +1,20 @@
+package server
+
+import "net/http"
+
+func (s *Server) routes() *http.ServeMux {
+	mux := http.NewServeMux()
+
+	mux.HandleFunc("GET /", s.handleHealth)
+	mux.HandleFunc("GET /api/health", s.handleHealth)
+	mux.HandleFunc("GET /api/tags", s.handleTags)
+	mux.HandleFunc("GET /api/ps", s.handlePs)
+	mux.HandleFunc("POST /api/show", s.handleShow)
+	mux.HandleFunc("POST /api/pull", s.handlePull)
+	mux.HandleFunc("POST /api/stop", s.handleStop)
+	mux.HandleFunc("DELETE /api/delete", s.handleDelete)
+	mux.HandleFunc("POST /api/generate", s.handleGenerate)
+	mux.HandleFunc("POST /api/chat", s.handleChat)
+
+	return mux
+}

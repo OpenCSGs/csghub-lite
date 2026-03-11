@@ -1,0 +1,94 @@
+package csghub
+
+import "time"
+
+// APIResponse wraps all CSGHub API responses.
+type APIResponse[T any] struct {
+	Msg  string `json:"msg"`
+	Data T      `json:"data"`
+}
+
+// ListResponse wraps paginated list endpoints.
+type ListResponse[T any] struct {
+	Msg   string `json:"msg"`
+	Data  []T    `json:"data"`
+	Total int    `json:"total"`
+}
+
+// Model represents a model returned by the CSGHub API.
+type Model struct {
+	ID           int           `json:"id"`
+	Name         string        `json:"name"`
+	Nickname     string        `json:"nickname"`
+	Description  string        `json:"description"`
+	Likes        int           `json:"likes"`
+	Downloads    int           `json:"downloads"`
+	Path         string        `json:"path"`
+	RepositoryID int           `json:"repository_id"`
+	Private      bool          `json:"private"`
+	Tags         []Tag         `json:"tags"`
+	Repository   Repository    `json:"repository"`
+	DefaultBranch string       `json:"default_branch"`
+	CreatedAt    time.Time     `json:"created_at"`
+	UpdatedAt    time.Time     `json:"updated_at"`
+	License      string        `json:"license"`
+	Source       string        `json:"source"`
+	SyncStatus   string        `json:"sync_status"`
+	Metadata     ModelMetadata `json:"metadata"`
+	HFPath       string        `json:"hf_path"`
+}
+
+type Tag struct {
+	Name     string `json:"name"`
+	Category string `json:"category"`
+	Group    string `json:"group"`
+	BuiltIn  bool   `json:"built_in"`
+	ShowName string `json:"show_name"`
+}
+
+type Repository struct {
+	HTTPCloneURL string `json:"http_clone_url"`
+	SSHCloneURL  string `json:"ssh_clone_url"`
+}
+
+type ModelMetadata struct {
+	ModelParams       float64 `json:"model_params"`
+	TensorType        string  `json:"tensor_type"`
+	Architecture      string  `json:"architecture"`
+	MiniGPUMemoryGB   float64 `json:"mini_gpu_memory_gb"`
+	MiniGPUFinetuneGB float64 `json:"mini_gpu_finetune_gb"`
+	ModelType         string  `json:"model_type"`
+	ClassName         string  `json:"class_name"`
+}
+
+// RepoFile represents a file in a model repository.
+type RepoFile struct {
+	Name            string     `json:"name"`
+	Type            string     `json:"type"` // "file" or "dir"
+	Size            int64      `json:"size"`
+	Path            string     `json:"path"`
+	Mode            string     `json:"mode"`
+	SHA             string     `json:"sha"`
+	LFS             bool       `json:"lfs"`
+	LFSSHA256       string     `json:"lfs_sha256"`
+	LFSPointerSize  int64      `json:"lfs_pointer_size"`
+	LFSRelativePath string     `json:"lfs_relative_path"`
+	LastCommitSHA   string     `json:"last_commit_sha"`
+	Commit          FileCommit `json:"commit"`
+}
+
+type FileCommit struct {
+	ID             string    `json:"id"`
+	CommitterName  string    `json:"committer_name"`
+	CommitterEmail string    `json:"committer_email"`
+	CommitterDate  time.Time `json:"committer_date"`
+	Message        string    `json:"message"`
+}
+
+// ModelListParams holds parameters for listing models.
+type ModelListParams struct {
+	Search string
+	Sort   string
+	Page   int
+	PerPage int
+}
