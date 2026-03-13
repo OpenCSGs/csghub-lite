@@ -15,8 +15,6 @@ import (
 )
 
 func newRunCmd() *cobra.Command {
-	var verbose bool
-
 	cmd := &cobra.Command{
 		Use:   "run MODEL",
 		Short: "Download (if needed) and chat with a model",
@@ -25,16 +23,12 @@ chat session. Type your message and press Enter to send. Use '/bye' to exit.
 
 Multiline input: end a line with '\' to continue on the next line.`,
 		Args: cobra.ExactArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			return runRun(cmd, args, verbose)
-		},
+		RunE: runRun,
 	}
-
-	cmd.Flags().BoolVar(&verbose, "verbose", false, "show detailed llama-server output")
 	return cmd
 }
 
-func runRun(cmd *cobra.Command, args []string, verbose bool) error {
+func runRun(cmd *cobra.Command, args []string) error {
 	cfg, err := config.Load()
 	if err != nil {
 		return fmt.Errorf("loading config: %w", err)
@@ -67,22 +61,14 @@ func runRun(cmd *cobra.Command, args []string, verbose bool) error {
 		fmt.Println("\nPull complete.")
 	}
 
-	modelDir, err := mgr.ModelPath(modelID)
-	if err != nil {
-		return err
-	}
-
-	lm, err := mgr.Get(modelID)
-	if err != nil {
-		return err
-	}
-
 	fmt.Printf("Loading %s...\n", modelID)
-	eng, err := inference.LoadEngineWithProgress(modelDir, lm, convertProgress, verbose)
+
+	serverURL, err := ensureServer(cfg)
 	if err != nil {
-		return fmt.Errorf("loading model: %w", err)
+		return fmt.Errorf("starting server: %w", err)
 	}
-	defer eng.Close()
+
+	eng := inference.NewRemoteEngine(serverURL, modelID)
 
 	fmt.Printf("Model %s ready. Type '/bye' to exit, '/clear' to reset context.\n\n", modelID)
 
@@ -167,15 +153,4 @@ func printHelp() {
 Tips:
   - End a line with '\' for multiline input
   - Press Ctrl+D to exit`)
-}
-
-func convertProgress(step string, current, total int) {
-	if total > 0 {
-		fmt.Printf("\r  Converting SafeTensors → GGUF: %s [%d/%d]", step, current, total)
-		if current == total {
-			fmt.Println()
-		}
-	} else {
-		fmt.Printf("  %s...\n", step)
-	}
 }

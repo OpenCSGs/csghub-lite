@@ -61,17 +61,17 @@ func (s *Server) handlePs(w http.ResponseWriter, r *http.Request) {
 	defer s.mu.RUnlock()
 
 	var models []api.RunningModel
-	for id, eng := range s.engines {
+	for id, me := range s.engines {
 		lm, err := s.manager.Get(id)
 		if err != nil {
 			continue
 		}
-		_ = eng
 		models = append(models, api.RunningModel{
-			Name:   lm.FullName(),
-			Model:  lm.FullName(),
-			Size:   lm.Size,
-			Format: string(lm.Format),
+			Name:      lm.FullName(),
+			Model:     lm.FullName(),
+			Size:      lm.Size,
+			Format:    string(lm.Format),
+			ExpiresAt: me.expiresAt(),
 		})
 	}
 
@@ -87,9 +87,9 @@ func (s *Server) handleStop(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.mu.Lock()
-	eng, ok := s.engines[req.Model]
+	me, ok := s.engines[req.Model]
 	if ok {
-		eng.Close()
+		me.engine.Close()
 		delete(s.engines, req.Model)
 	}
 	s.mu.Unlock()
@@ -169,8 +169,8 @@ func (s *Server) handleDelete(w http.ResponseWriter, r *http.Request) {
 
 	// Close engine if running
 	s.mu.Lock()
-	if eng, ok := s.engines[req.Model]; ok {
-		eng.Close()
+	if me, ok := s.engines[req.Model]; ok {
+		me.engine.Close()
 		delete(s.engines, req.Model)
 	}
 	s.mu.Unlock()
@@ -196,6 +196,7 @@ func (s *Server) handleGenerate(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	defer s.touchEngine(req.Model)
 
 	opts := inference.DefaultOptions()
 	if req.Options != nil {
@@ -272,6 +273,7 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	defer s.touchEngine(req.Model)
 
 	opts := inference.DefaultOptions()
 	if req.Options != nil {

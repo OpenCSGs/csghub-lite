@@ -1,0 +1,136 @@
+package inference
+
+import (
+	"bufio"
+	"bytes"
+	"context"
+	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
+	"strings"
+
+	"github.com/opencsgs/csghub-lite/pkg/api"
+)
+
+// remoteEngine implements Engine by forwarding requests to a csghub-lite
+// API server over HTTP. The server manages the actual llama-server subprocess
+// and its lifecycle (keep-alive, eviction).
+type remoteEngine struct {
+	baseURL   string
+	modelName string
+	client    *http.Client
+}
+
+// NewRemoteEngine creates an Engine that delegates to a running csghub-lite server.
+func NewRemoteEngine(baseURL, modelName string) Engine {
+	return &remoteEngine{
+		baseURL:   strings.TrimRight(baseURL, "/"),
+		modelName: modelName,
+		client:    &http.Client{Timeout: 0},
+	}
+}
+
+func (e *remoteEngine) Generate(ctx context.Context, prompt string, opts Options, onToken TokenCallback) (string, error) {
+	messages := []Message{
+		{Role: "user", Content: prompt},
+	}
+	return e.Chat(ctx, messages, opts, onToken)
+}
+
+func (e *remoteEngine) Chat(ctx context.Context, messages []Message, opts Options, onToken TokenCallback) (string, error) {
+	stream := onToken != nil
+
+	apiMessages := make([]api.Message, len(messages))
+	for i, m := range messages {
+		apiMessages[i] = api.Message{Role: m.Role, Content: m.Content}
+	}
+
+	reqBody := api.ChatRequest{
+		Model:    e.modelName,
+		Messages: apiMessages,
+		Stream:   &stream,
+		Options: &api.ModelOptions{
+			Temperature: opts.Temperature,
+			TopP:        opts.TopP,
+			TopK:        opts.TopK,
+			MaxTokens:   opts.MaxTokens,
+		},
+	}
+
+	body, err := json.Marshal(reqBody)
+	if err != nil {
+		return "", fmt.Errorf("marshaling request: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, e.baseURL+"/api/chat", bytes.NewReader(body))
+	if err != nil {
+		return "", fmt.Errorf("creating request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := e.client.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("chat request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		errBody, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		return "", fmt.Errorf("server error %d: %s", resp.StatusCode, string(errBody))
+	}
+
+	if stream {
+		return e.handleSSEStream(resp.Body, onToken)
+	}
+	return e.handleJSONResponse(resp.Body)
+}
+
+func (e *remoteEngine) handleSSEStream(body io.Reader, onToken TokenCallback) (string, error) {
+	scanner := bufio.NewScanner(body)
+	var full strings.Builder
+
+	for scanner.Scan() {
+		line := scanner.Text()
+		if !strings.HasPrefix(line, "data: ") {
+			continue
+		}
+		data := strings.TrimPrefix(line, "data: ")
+		if data == "[DONE]" {
+			break
+		}
+
+		var chatResp api.ChatResponse
+		if err := json.Unmarshal([]byte(data), &chatResp); err != nil {
+			continue
+		}
+		if chatResp.Done {
+			break
+		}
+		if chatResp.Message != nil && chatResp.Message.Content != "" {
+			full.WriteString(chatResp.Message.Content)
+			onToken(chatResp.Message.Content)
+		}
+	}
+
+	return full.String(), scanner.Err()
+}
+
+func (e *remoteEngine) handleJSONResponse(body io.Reader) (string, error) {
+	var chatResp api.ChatResponse
+	if err := json.NewDecoder(body).Decode(&chatResp); err != nil {
+		return "", fmt.Errorf("decoding response: %w", err)
+	}
+	if chatResp.Message == nil {
+		return "", fmt.Errorf("no message in response")
+	}
+	return chatResp.Message.Content, nil
+}
+
+func (e *remoteEngine) Close() error {
+	return nil
+}
+
+func (e *remoteEngine) ModelName() string {
+	return e.modelName
+}

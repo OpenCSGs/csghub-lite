@@ -16,13 +16,28 @@ import (
 	"github.com/opencsgs/csghub-lite/internal/model"
 )
 
+const (
+	DefaultKeepAlive  = 5 * time.Minute
+	evictorInterval   = 30 * time.Second
+)
+
+type managedEngine struct {
+	engine    inference.Engine
+	lastUsed  time.Time
+	keepAlive time.Duration
+}
+
+func (m *managedEngine) expiresAt() time.Time {
+	return m.lastUsed.Add(m.keepAlive)
+}
+
 type Server struct {
 	cfg     *config.Config
 	manager *model.Manager
 	http    *http.Server
 
 	mu      sync.RWMutex
-	engines map[string]inference.Engine
+	engines map[string]*managedEngine
 }
 
 func New(cfg *config.Config) *Server {
@@ -30,7 +45,7 @@ func New(cfg *config.Config) *Server {
 	s := &Server{
 		cfg:     cfg,
 		manager: mgr,
-		engines: make(map[string]inference.Engine),
+		engines: make(map[string]*managedEngine),
 	}
 
 	mux := s.routes()
@@ -47,6 +62,8 @@ func New(cfg *config.Config) *Server {
 func (s *Server) Run(ctx context.Context) error {
 	ctx, stop := signal.NotifyContext(ctx, syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
+
+	go s.startEvictor(ctx)
 
 	errCh := make(chan error, 1)
 	go func() {
@@ -69,20 +86,55 @@ func (s *Server) Run(ctx context.Context) error {
 	}
 }
 
+// startEvictor periodically closes engines that have exceeded their keep-alive.
+func (s *Server) startEvictor(ctx context.Context) {
+	ticker := time.NewTicker(evictorInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case now := <-ticker.C:
+			s.evictExpired(now)
+		}
+	}
+}
+
+func (s *Server) evictExpired(now time.Time) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for id, me := range s.engines {
+		if now.After(me.expiresAt()) {
+			log.Printf("evicting idle model %s (unused for %s)", id, me.keepAlive)
+			me.engine.Close()
+			delete(s.engines, id)
+		}
+	}
+}
+
+// touchEngine updates lastUsed for the given model. Must be called after
+// every inference request so the evictor knows the engine is still active.
+func (s *Server) touchEngine(modelID string) {
+	s.mu.Lock()
+	if me, ok := s.engines[modelID]; ok {
+		me.lastUsed = time.Now()
+	}
+	s.mu.Unlock()
+}
+
 func (s *Server) getOrLoadEngine(modelID string) (inference.Engine, error) {
 	s.mu.RLock()
-	eng, ok := s.engines[modelID]
+	me, ok := s.engines[modelID]
 	s.mu.RUnlock()
 	if ok {
-		return eng, nil
+		return me.engine, nil
 	}
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	// Double-check after acquiring write lock
-	if eng, ok := s.engines[modelID]; ok {
-		return eng, nil
+	if me, ok := s.engines[modelID]; ok {
+		return me.engine, nil
 	}
 
 	modelDir, err := s.manager.ModelPath(modelID)
@@ -95,20 +147,24 @@ func (s *Server) getOrLoadEngine(modelID string) (inference.Engine, error) {
 		return nil, err
 	}
 
-	eng, err = inference.LoadEngine(modelDir, lm)
+	eng, err := inference.LoadEngine(modelDir, lm)
 	if err != nil {
 		return nil, err
 	}
 
-	s.engines[modelID] = eng
+	s.engines[modelID] = &managedEngine{
+		engine:    eng,
+		lastUsed:  time.Now(),
+		keepAlive: DefaultKeepAlive,
+	}
 	return eng, nil
 }
 
 func (s *Server) closeAllEngines() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	for id, eng := range s.engines {
-		eng.Close()
+	for id, me := range s.engines {
+		me.engine.Close()
 		delete(s.engines, id)
 	}
 }
