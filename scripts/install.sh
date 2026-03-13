@@ -261,8 +261,73 @@ install_llama_server() {
     info "llama-server installed successfully."
 }
 
+check_existing() {
+    _existing="$(command -v "$BINARY_NAME" 2>/dev/null || true)"
+    if [ -z "$_existing" ]; then
+        return 0
+    fi
+
+    _old_ver="$("$_existing" --version 2>/dev/null | head -1 || echo "unknown")"
+
+    printf "\n"
+    warn "Existing installation detected:"
+    printf "  ${BOLD}Binary:${NC}  %s\n" "$_existing"
+    printf "  ${BOLD}Version:${NC} %s\n" "$_old_ver"
+
+    _has_running=false
+    if pgrep -x "$BINARY_NAME" >/dev/null 2>&1; then
+        _has_running=true
+        warn "Running ${BINARY_NAME} process(es) detected."
+    fi
+
+    if [ "${CSGHUB_LITE_FORCE:-}" = "1" ]; then
+        if [ "$_has_running" = true ]; then
+            info "Force mode: stopping running processes..."
+            pkill -x "$BINARY_NAME" 2>/dev/null || true
+            sleep 1
+            pkill -9 -x "$BINARY_NAME" 2>/dev/null || true
+        fi
+        return 0
+    fi
+
+    printf "\n"
+    if [ "$_has_running" = true ]; then
+        printf "${YELLOW}Stop running instances and replace with the new version? [y/N] ${NC}"
+    else
+        printf "${YELLOW}Replace the existing installation? [y/N] ${NC}"
+    fi
+
+    _answer=""
+    if [ -t 0 ]; then
+        read -r _answer
+    elif [ -e /dev/tty ]; then
+        read -r _answer < /dev/tty
+    else
+        printf "\n"
+        info "Non-interactive mode: proceeding with replacement."
+        _answer="y"
+    fi
+
+    case "$_answer" in
+        [yY]|[yY][eE][sS])
+            if [ "$_has_running" = true ]; then
+                info "Stopping running processes..."
+                pkill -x "$BINARY_NAME" 2>/dev/null || true
+                sleep 1
+                pkill -9 -x "$BINARY_NAME" 2>/dev/null || true
+            fi
+            ;;
+        *)
+            printf "\n"
+            info "Installation cancelled."
+            exit 0
+            ;;
+    esac
+    printf "\n"
+}
+
 main() {
-    TOTAL_STEPS=5
+    TOTAL_STEPS=6
     printf "\n${BOLD}Installing ${BINARY_NAME}${NC}\n\n"
 
     # Step 1: Detect environment
@@ -272,8 +337,12 @@ main() {
     REGION="$(detect_region)"
     info "OS: ${OS}, Arch: ${ARCH}, Region: ${REGION}"
 
-    # Step 2: Resolve version
-    step 2 "$TOTAL_STEPS" "Resolving version..."
+    # Step 2: Check existing installation
+    step 2 "$TOTAL_STEPS" "Checking for existing installation..."
+    check_existing
+
+    # Step 3: Resolve version
+    step 3 "$TOTAL_STEPS" "Resolving version..."
     VERSION="${CSGHUB_LITE_VERSION:-}"
     if [ -z "$VERSION" ]; then
         VERSION="$(get_latest_version)" || true
@@ -283,8 +352,8 @@ main() {
     fi
     info "Version: ${VERSION}"
 
-    # Step 3: Download
-    step 3 "$TOTAL_STEPS" "Downloading ${BINARY_NAME} ${VERSION}..."
+    # Step 4: Download
+    step 4 "$TOTAL_STEPS" "Downloading ${BINARY_NAME} ${VERSION}..."
     EXT="tar.gz"
     [ "$OS" = "windows" ] && EXT="zip"
     ARCHIVE_NAME="${BINARY_NAME}_${VERSION#v}_${OS}-${ARCH}.${EXT}"
@@ -300,8 +369,8 @@ main() {
     fi
     info "Download complete."
 
-    # Step 4: Extract and install
-    step 4 "$TOTAL_STEPS" "Installing..."
+    # Step 5: Extract and install
+    step 5 "$TOTAL_STEPS" "Installing..."
     case "$EXT" in
         tar.gz) tar xzf "$ARCHIVE_PATH" -C "$TMPDIR" ;;
         zip)    unzip -q "$ARCHIVE_PATH" -d "$TMPDIR" ;;
@@ -336,8 +405,8 @@ main() {
         warn "Current PATH resolves ${BINARY_NAME} to ${ACTIVE_BIN}, not ${TARGET}"
     fi
 
-    # Step 5: Install llama-server
-    step 5 "$TOTAL_STEPS" "Setting up inference engine..."
+    # Step 6: Install llama-server
+    step 6 "$TOTAL_STEPS" "Setting up inference engine..."
     install_llama_server
 
     # Done

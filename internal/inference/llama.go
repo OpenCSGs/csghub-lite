@@ -14,8 +14,39 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"time"
 )
+
+// cappedWriter keeps only the last maxBytes of data written to it.
+// Safe for concurrent use.
+type cappedWriter struct {
+	mu       sync.Mutex
+	buf      bytes.Buffer
+	maxBytes int
+}
+
+func newCappedWriter(maxBytes int) *cappedWriter {
+	return &cappedWriter{maxBytes: maxBytes}
+}
+
+func (w *cappedWriter) Write(p []byte) (int, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.buf.Write(p)
+	if w.buf.Len() > w.maxBytes {
+		b := w.buf.Bytes()
+		w.buf.Reset()
+		w.buf.Write(b[len(b)-w.maxBytes:])
+	}
+	return len(p), nil
+}
+
+func (w *cappedWriter) String() string {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.buf.String()
+}
 
 // llamaEngine manages a llama-server subprocess and communicates via its
 // OpenAI-compatible HTTP API. This avoids CGO complexity while providing
@@ -26,6 +57,7 @@ type llamaEngine struct {
 	modelPath string
 	modelName string
 	client    *http.Client
+	logBuf    *cappedWriter
 }
 
 func findLlamaBinary() string {
@@ -65,7 +97,7 @@ func findFreePort() (int, error) {
 	return l.Addr().(*net.TCPAddr).Port, nil
 }
 
-func newLlamaEngine(modelPath, modelName string) (*llamaEngine, error) {
+func newLlamaEngine(modelPath, modelName string, verbose bool) (*llamaEngine, error) {
 	binary := findLlamaBinary()
 	if binary == "" {
 		return nil, fmt.Errorf("llama-server not found in PATH.\n" +
@@ -95,8 +127,15 @@ func newLlamaEngine(modelPath, modelName string) (*llamaEngine, error) {
 	}
 
 	engine.cmd = exec.Command(binary, args...)
-	engine.cmd.Stdout = os.Stderr
-	engine.cmd.Stderr = os.Stderr
+	if verbose {
+		engine.cmd.Stdout = os.Stderr
+		engine.cmd.Stderr = os.Stderr
+	} else {
+		w := newCappedWriter(8192)
+		engine.cmd.Stdout = w
+		engine.cmd.Stderr = w
+		engine.logBuf = w
+	}
 
 	// Ensure shared libraries co-located with the binary can be found
 	binDir := filepath.Dir(binary)
@@ -135,7 +174,14 @@ func (e *llamaEngine) waitForReady(timeout time.Duration) error {
 		}
 		time.Sleep(500 * time.Millisecond)
 	}
-	return fmt.Errorf("timeout waiting for llama-server to be ready")
+
+	msg := "timeout waiting for llama-server to be ready"
+	if e.logBuf != nil {
+		if tail := strings.TrimSpace(e.logBuf.String()); tail != "" {
+			msg += "\n\nllama-server output:\n" + tail
+		}
+	}
+	return fmt.Errorf("%s", msg)
 }
 
 func (e *llamaEngine) baseURL() string {

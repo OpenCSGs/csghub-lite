@@ -15,6 +15,8 @@ import (
 )
 
 func newRunCmd() *cobra.Command {
+	var verbose bool
+
 	cmd := &cobra.Command{
 		Use:   "run MODEL",
 		Short: "Download (if needed) and chat with a model",
@@ -23,12 +25,16 @@ chat session. Type your message and press Enter to send. Use '/bye' to exit.
 
 Multiline input: end a line with '\' to continue on the next line.`,
 		Args: cobra.ExactArgs(1),
-		RunE: runRun,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runRun(cmd, args, verbose)
+		},
 	}
+
+	cmd.Flags().BoolVar(&verbose, "verbose", false, "show detailed llama-server output")
 	return cmd
 }
 
-func runRun(cmd *cobra.Command, args []string) error {
+func runRun(cmd *cobra.Command, args []string, verbose bool) error {
 	cfg, err := config.Load()
 	if err != nil {
 		return fmt.Errorf("loading config: %w", err)
@@ -72,7 +78,7 @@ func runRun(cmd *cobra.Command, args []string) error {
 	}
 
 	fmt.Printf("Loading %s...\n", modelID)
-	eng, err := inference.LoadEngineWithProgress(modelDir, lm, convertProgress)
+	eng, err := inference.LoadEngineWithProgress(modelDir, lm, convertProgress, verbose)
 	if err != nil {
 		return fmt.Errorf("loading model: %w", err)
 	}

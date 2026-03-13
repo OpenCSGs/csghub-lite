@@ -199,9 +199,66 @@ function Install-LlamaServer {
     Info "Installed llama-server to $target"
 }
 
+function Check-Existing {
+    $existing = Get-Command "csghub-lite.exe" -ErrorAction SilentlyContinue
+    if (-not $existing) {
+        Info "No existing installation found."
+        return
+    }
+
+    $oldVersion = "unknown"
+    try {
+        $oldVersion = (& $existing.Source --version 2>$null) | Select-Object -First 1
+        if (-not $oldVersion) { $oldVersion = "unknown" }
+    } catch {}
+
+    Write-Host ""
+    Warn "Existing installation detected:"
+    Write-Host "  Binary:  $($existing.Source)"
+    Write-Host "  Version: $oldVersion"
+
+    $procs = Get-Process -Name "csghub-lite" -ErrorAction SilentlyContinue
+    $hasRunning = $false
+    if ($procs) {
+        $hasRunning = $true
+        Warn "Running csghub-lite process(es) detected."
+    }
+
+    if ($env:CSGHUB_LITE_FORCE -eq "1") {
+        if ($hasRunning) {
+            Info "Force mode: stopping running processes..."
+            $procs | Stop-Process -Force -ErrorAction SilentlyContinue
+            Start-Sleep -Seconds 2
+        }
+        return
+    }
+
+    Write-Host ""
+    if ($hasRunning) {
+        $prompt = "Stop running instances and replace with the new version? [y/N]"
+    } else {
+        $prompt = "Replace the existing installation? [y/N]"
+    }
+
+    $answer = Read-Host $prompt
+    if ($answer -notmatch '^[yY](es)?$') {
+        Info "Installation cancelled."
+        exit 0
+    }
+
+    if ($hasRunning) {
+        Info "Stopping running processes..."
+        $procs | Stop-Process -Force -ErrorAction SilentlyContinue
+        Start-Sleep -Seconds 2
+    }
+}
+
 # ---- Main ----
 $script:Region = Detect-Region
 Info "Detected region: $script:Region"
+
+Info "Checking for existing installation..."
+Check-Existing
 
 Info "Installing csghub-lite..."
 Install-CsghubLite
