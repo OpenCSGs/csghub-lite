@@ -268,4 +268,16 @@ if ($autoInstall -eq "1") {
     Install-LlamaServer
 }
 
-Info "Done. Open a new terminal and run: csghub-lite --version"
+Write-Host ""
+Write-Host "Quick start:" -ForegroundColor White
+Write-Host "  csghub-lite --help                      # Show all commands"
+Write-Host "  csghub-lite --version                   # Check version"
+Write-Host "  csghub-lite login                       # Set CSGHub token"
+Write-Host "  csghub-lite run Qwen/Qwen3-0.6B-GGUF   # Run a model"
+Write-Host "  csghub-lite serve                       # Run API server in background"
+Write-Host "  csghub-lite ps                          # List running models"
+Write-Host ""
+Write-Host "Want more?" -ForegroundColor White
+Write-Host "  Visit https://opencsg.com for advanced features,"
+Write-Host "  enterprise solutions, and the full CSGHub platform."
+Write-Host ""

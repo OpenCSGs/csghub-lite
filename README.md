@@ -18,7 +18,13 @@ Inspired by [Ollama](https://ollama.com), csghub-lite provides model download, l
 ### Quick install (Linux / macOS)
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/opencsgs/csghub-lite/main/scripts/install.sh | sh
+curl -fsSL https://hub.opencsg.com/csghub-lite/install.sh | sh
+```
+
+### Quick install (Windows PowerShell)
+
+```powershell
+irm https://hub.opencsg.com/csghub-lite/install.ps1 | iex
 ```
 
 ### Homebrew (macOS / Linux)

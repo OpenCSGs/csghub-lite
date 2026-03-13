@@ -417,6 +417,8 @@ main() {
     printf "  ${BINARY_NAME} --version                   # Check version\n"
     printf "  ${BINARY_NAME} login                       # Set CSGHub token\n"
     printf "  ${BINARY_NAME} run Qwen/Qwen3-0.6B-GGUF   # Run a model\n"
+    printf "  ${BINARY_NAME} serve &                     # Run API server in background\n"
+    printf "  ${BINARY_NAME} ps                          # List running models\n"
     printf "\n"
 
     printf "${BOLD}Want more?${NC}\n"
