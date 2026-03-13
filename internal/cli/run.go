@@ -39,7 +39,7 @@ func runRun(cmd *cobra.Command, args []string) error {
 
 	// Pull model if not present
 	if !mgr.Exists(modelID) {
-		fmt.Printf("Model %s not found locally. Pulling from %s...\n", modelID, cfg.ServerURL)
+		fmt.Printf("Model %s not found locally. Pulling from %s...\n", modelID, cfg.DisplayURL())
 		var lastFile string
 		progress := func(p csghub.SnapshotProgress) {
 			if p.FileName != lastFile {

@@ -8,12 +8,20 @@ import (
 )
 
 const (
-	DefaultServerURL = "https://hub.opencsg.com"
+	DefaultServerURL  = "https://hub.opencsg.com"
+	DefaultDisplayURL = "https://opencsg.com"
 	DefaultListenAddr = ":11435"
-	AppDir           = ".csghub-lite"
-	ConfigFile       = "config.json"
-	ModelsDir        = "models"
+	AppDir            = ".csghub-lite"
+	ConfigFile        = "config.json"
+	ModelsDir         = "models"
 )
+
+func (c *Config) DisplayURL() string {
+	if c.ServerURL == DefaultServerURL || c.ServerURL == "" {
+		return DefaultDisplayURL
+	}
+	return c.ServerURL
+}
 
 type Config struct {
 	ServerURL  string `json:"server_url"`
