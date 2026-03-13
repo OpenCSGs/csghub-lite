@@ -16,5 +16,8 @@ func (s *Server) routes() *http.ServeMux {
 	mux.HandleFunc("POST /api/generate", s.handleGenerate)
 	mux.HandleFunc("POST /api/chat", s.handleChat)
 
+	mux.HandleFunc("POST /v1/chat/completions", s.handleOpenAIChatCompletions)
+	mux.HandleFunc("GET /v1/models", s.handleOpenAIModels)
+
 	return mux
 }

@@ -132,6 +132,8 @@ The server listens on `localhost:11435` by default.
 | `DELETE` | `/api/delete` | Delete a model |
 | `POST` | `/api/generate` | Text generation (streaming) |
 | `POST` | `/api/chat` | Chat completions (streaming) |
+| `POST` | `/v1/chat/completions` | OpenAI-compatible chat completions |
+| `GET` | `/v1/models` | OpenAI-compatible model listing |
 
 ### Example: Chat
 
@@ -162,6 +164,30 @@ curl http://localhost:11435/api/ps
 
 ```bash
 curl -X POST http://localhost:11435/api/stop -d '{"model": "Qwen/Qwen3-0.6B-GGUF"}'
+```
+
+### Example: OpenAI-compatible chat
+
+```bash
+curl http://localhost:11435/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "Qwen/Qwen3-0.6B-GGUF",
+    "messages": [{"role": "user", "content": "Hello!"}],
+    "stream": false
+  }'
+```
+
+Works with any OpenAI-compatible client (e.g. Python `openai` library):
+
+```python
+from openai import OpenAI
+client = OpenAI(base_url="http://localhost:11435/v1", api_key="unused")
+response = client.chat.completions.create(
+    model="Qwen/Qwen3-0.6B-GGUF",
+    messages=[{"role": "user", "content": "Hello!"}],
+)
+print(response.choices[0].message.content)
 ```
 
 ## Configuration

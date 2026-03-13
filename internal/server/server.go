@@ -7,6 +7,7 @@ import (
 	"log"
 	"net/http"
 	"os/signal"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -67,7 +68,13 @@ func (s *Server) Run(ctx context.Context) error {
 
 	errCh := make(chan error, 1)
 	go func() {
+		addr := s.cfg.ListenAddr
+		if strings.HasPrefix(addr, ":") {
+			addr = "localhost" + addr
+		}
 		fmt.Printf("csghub-lite server listening on %s\n", s.cfg.ListenAddr)
+		fmt.Printf("  Ollama API: http://%s/api/chat\n", addr)
+		fmt.Printf("  OpenAI API: http://%s/v1/chat/completions\n", addr)
 		if err := s.http.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			errCh <- err
 		}
