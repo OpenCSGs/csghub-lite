@@ -27,13 +27,6 @@ curl -fsSL https://hub.opencsg.com/csghub-lite/install.sh | sh
 irm https://hub.opencsg.com/csghub-lite/install.ps1 | iex
 ```
 
-### Homebrew (macOS / Linux)
-
-```bash
-brew tap opencsgs/tap
-brew install csghub-lite
-```
-
 ### From source
 
 ```bash
