@@ -35,7 +35,7 @@ package: clean-dist build-all
 		TMPDIR=$$(mktemp -d); \
 		cp bin/$(BINARY_NAME)-$(VERSION)-$${platform} $${TMPDIR}/$(BINARY_NAME); \
 		cp README.md $${TMPDIR}/; \
-		tar czf $${ARCHIVE} -C $${TMPDIR} .; \
+		COPYFILE_DISABLE=1 tar czf $${ARCHIVE} -C $${TMPDIR} .; \
 		rm -rf $${TMPDIR}; \
 		echo "Created $${ARCHIVE}"; \
 	done

@@ -189,7 +189,13 @@ install_llama_server() {
             esac ;;
         linux)
             case "$ARCH" in
-                amd64) _llama_asset="llama-${_llama_tag}-bin-ubuntu-x64.tar.gz" ;;
+                amd64)
+                    if command -v nvidia-smi >/dev/null 2>&1; then
+                        _llama_asset="llama-${_llama_tag}-bin-ubuntu-vulkan-x64.tar.gz"
+                        info "NVIDIA GPU detected, using Vulkan build for GPU acceleration."
+                    else
+                        _llama_asset="llama-${_llama_tag}-bin-ubuntu-x64.tar.gz"
+                    fi ;;
                 arm64) _llama_asset="llama-${_llama_tag}-bin-ubuntu-arm64.tar.gz" ;;
             esac ;;
     esac

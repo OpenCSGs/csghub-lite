@@ -125,6 +125,9 @@ func newLlamaEngine(modelPath, modelName string, verbose bool) (*llamaEngine, er
 		"--port", fmt.Sprintf("%d", port),
 		"-c", "4096",
 	}
+	if hasGPU() {
+		args = append(args, "-ngl", "9999")
+	}
 
 	engine.cmd = exec.Command(binary, args...)
 	if verbose {
@@ -313,6 +316,18 @@ func (e *llamaEngine) Close() error {
 
 func (e *llamaEngine) ModelName() string {
 	return e.modelName
+}
+
+func hasGPU() bool {
+	if _, err := exec.LookPath("nvidia-smi"); err == nil {
+		return true
+	}
+	if runtime.GOOS == "linux" {
+		if _, err := os.Stat("/dev/kfd"); err == nil {
+			return true
+		}
+	}
+	return false
 }
 
 func appendLibPath(env []string, key, dir string) []string {

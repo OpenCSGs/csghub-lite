@@ -175,7 +175,15 @@ function Install-LlamaServer {
         return
     }
 
-    $assetName = "llama-${llamaTag}-bin-win-cpu-${archToken}.zip"
+    $hasCuda = [bool](Get-Command "nvidia-smi" -ErrorAction SilentlyContinue)
+    if ($hasCuda -and $archToken -eq "x64") {
+        $assetName = "llama-${llamaTag}-bin-win-cuda-12.4-x64.zip"
+        $cudartName = "cudart-llama-bin-win-cuda-12.4-x64.zip"
+        Info "NVIDIA GPU detected, using CUDA build for GPU acceleration."
+    } else {
+        $assetName = "llama-${llamaTag}-bin-win-cpu-${archToken}.zip"
+        $cudartName = $null
+    }
     $githubDl = "https://github.com/$LlamaCppRepo/releases/download/$llamaTag/$assetName"
     $gitlabDl = "$GitLabApi/$GitLabLlamaId/packages/generic/llama-cpp/$llamaTag/$assetName"
 
@@ -184,8 +192,32 @@ function Install-LlamaServer {
     $zipPath = Join-Path $tmpDir $assetName
 
     if (-not (Region-Download -OutFile $zipPath -GitHubUrl $githubDl -GitLabUrl $gitlabDl)) {
-        Warn "Failed to download llama.cpp."
-        return
+        if ($hasCuda) {
+            Warn "CUDA build download failed, falling back to CPU build."
+            $assetName = "llama-${llamaTag}-bin-win-cpu-${archToken}.zip"
+            $cudartName = $null
+            $githubDl = "https://github.com/$LlamaCppRepo/releases/download/$llamaTag/$assetName"
+            $gitlabDl = "$GitLabApi/$GitLabLlamaId/packages/generic/llama-cpp/$llamaTag/$assetName"
+            $zipPath = Join-Path $tmpDir $assetName
+            if (-not (Region-Download -OutFile $zipPath -GitHubUrl $githubDl -GitLabUrl $gitlabDl)) {
+                Warn "Failed to download llama.cpp."
+                return
+            }
+        } else {
+            Warn "Failed to download llama.cpp."
+            return
+        }
+    }
+
+    if ($cudartName) {
+        $cudartGh = "https://github.com/$LlamaCppRepo/releases/download/$llamaTag/$cudartName"
+        $cudartGl = "$GitLabApi/$GitLabLlamaId/packages/generic/llama-cpp/$llamaTag/$cudartName"
+        $cudartZip = Join-Path $tmpDir $cudartName
+        if (Region-Download -OutFile $cudartZip -GitHubUrl $cudartGh -GitLabUrl $cudartGl) {
+            Expand-Archive -Path $cudartZip -DestinationPath $tmpDir -Force
+        } else {
+            Warn "Failed to download CUDA runtime. GPU acceleration may not work."
+        }
     }
 
     Expand-Archive -Path $zipPath -DestinationPath $tmpDir -Force
