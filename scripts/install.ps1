@@ -196,10 +196,12 @@ function Install-LlamaServer {
     }
 
     New-Item -ItemType Directory -Force -Path $InstallDir | Out-Null
-    $target = Join-Path $InstallDir "llama-server.exe"
-    Copy-Item -Path $server.FullName -Destination $target -Force
+    Copy-Item -Path $server.FullName -Destination (Join-Path $InstallDir "llama-server.exe") -Force
+    Get-ChildItem -Path $server.Directory.FullName -Filter "*.dll" | ForEach-Object {
+        Copy-Item -Path $_.FullName -Destination (Join-Path $InstallDir $_.Name) -Force
+    }
     Ensure-PathContains -dir $InstallDir
-    Info "Installed llama-server to $target"
+    Info "Installed llama-server to $InstallDir"
 }
 
 function Check-Existing {

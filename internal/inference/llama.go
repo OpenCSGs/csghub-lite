@@ -145,6 +145,8 @@ func newLlamaEngine(modelPath, modelName string, verbose bool) (*llamaEngine, er
 		env = appendLibPath(env, "DYLD_LIBRARY_PATH", binDir)
 	case "linux":
 		env = appendLibPath(env, "LD_LIBRARY_PATH", binDir)
+	case "windows":
+		env = appendLibPath(env, "PATH", binDir)
 	}
 	engine.cmd.Env = env
 
