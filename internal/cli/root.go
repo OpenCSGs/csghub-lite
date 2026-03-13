@@ -32,6 +32,7 @@ and the full CSGHub platform.`,
 		newLoginCmd(),
 		newSearchCmd(),
 		newConfigCmd(),
+		newUninstallCmd(),
 	)
 
 	return cmd

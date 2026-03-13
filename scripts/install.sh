@@ -218,6 +218,7 @@ install_llama_server() {
         rm -rf "$_tmpdir"
         return
     fi
+    _llama_extract_dir="$(dirname "$_llama_bin")"
     chmod +x "$_llama_bin"
 
     _llama_dir="${CSGHUB_LITE_LLAMA_SERVER_INSTALL_DIR:-}"
@@ -229,12 +230,32 @@ install_llama_server() {
         fi
     fi
     mkdir -p "$_llama_dir"
-    _target="${_llama_dir}/llama-server"
+
+    # Install llama-server binary and all shared libraries it depends on
     if [ -w "$_llama_dir" ]; then
-        mv "$_llama_bin" "$_target"
+        mv "$_llama_bin" "$_llama_dir/"
+        find "$_llama_extract_dir" -name "*.dylib" -o -name "*.so" -o -name "*.so.*" | while read -r _lib; do
+            mv "$_lib" "$_llama_dir/"
+        done
     else
         info "Requires sudo to install llama-server."
-        sudo mv "$_llama_bin" "$_target"
+        sudo mv "$_llama_bin" "$_llama_dir/"
+        find "$_llama_extract_dir" -name "*.dylib" -o -name "*.so" -o -name "*.so.*" | while read -r _lib; do
+            sudo mv "$_lib" "$_llama_dir/"
+        done
+    fi
+
+    # Fix @rpath on macOS so llama-server can find co-located dylibs
+    if [ "$OS" = "darwin" ] && command -v install_name_tool >/dev/null 2>&1; then
+        _llama_installed="${_llama_dir}/llama-server"
+        if [ -f "$_llama_installed" ]; then
+            # Add @executable_path to rpath (ignore error if already present)
+            if [ -w "$_llama_installed" ]; then
+                install_name_tool -add_rpath @executable_path "$_llama_installed" 2>/dev/null || true
+            else
+                sudo install_name_tool -add_rpath @executable_path "$_llama_installed" 2>/dev/null || true
+            fi
+        fi
     fi
     rm -rf "$_tmpdir"
     info "llama-server installed successfully."
@@ -323,6 +344,7 @@ main() {
     printf "\n${GREEN}${BOLD}✔ ${BINARY_NAME} ${VERSION} installed successfully!${NC}\n\n"
 
     printf "${BOLD}Quick start:${NC}\n"
+    printf "  ${BINARY_NAME} --help                      # Show all commands\n"
     printf "  ${BINARY_NAME} --version                   # Check version\n"
     printf "  ${BINARY_NAME} login                       # Set CSGHub token\n"
     printf "  ${BINARY_NAME} run Qwen/Qwen3-0.6B-GGUF   # Run a model\n"

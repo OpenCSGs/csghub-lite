@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"time"
@@ -96,6 +97,17 @@ func newLlamaEngine(modelPath, modelName string) (*llamaEngine, error) {
 	engine.cmd = exec.Command(binary, args...)
 	engine.cmd.Stdout = os.Stderr
 	engine.cmd.Stderr = os.Stderr
+
+	// Ensure shared libraries co-located with the binary can be found
+	binDir := filepath.Dir(binary)
+	env := os.Environ()
+	switch runtime.GOOS {
+	case "darwin":
+		env = appendLibPath(env, "DYLD_LIBRARY_PATH", binDir)
+	case "linux":
+		env = appendLibPath(env, "LD_LIBRARY_PATH", binDir)
+	}
+	engine.cmd.Env = env
 
 	if err := engine.cmd.Start(); err != nil {
 		return nil, fmt.Errorf("starting llama-server: %w", err)
@@ -253,4 +265,14 @@ func (e *llamaEngine) Close() error {
 
 func (e *llamaEngine) ModelName() string {
 	return e.modelName
+}
+
+func appendLibPath(env []string, key, dir string) []string {
+	for i, e := range env {
+		if strings.HasPrefix(e, key+"=") {
+			env[i] = e + string(os.PathListSeparator) + dir
+			return env
+		}
+	}
+	return append(env, key+"="+dir)
 }
