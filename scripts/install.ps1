@@ -93,7 +93,10 @@ function Ensure-PathContains([string]$dir) {
     if ($parts -notcontains $dir) {
         $newPath = if ($userPath) { "$dir;$userPath" } else { $dir }
         [Environment]::SetEnvironmentVariable("Path", $newPath, "User")
-        Warn "Added $dir to User PATH. Open a new terminal to apply."
+        if ($env:Path -notlike "*$dir*") {
+            $env:Path = "$dir;$env:Path"
+        }
+        Info "Added $dir to PATH."
     }
 }
 
