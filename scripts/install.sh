@@ -18,11 +18,15 @@ GITLAB_LLAMA_ID="393"
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+CYAN='\033[0;36m'
+BOLD='\033[1m'
 NC='\033[0m'
 
 info() { printf "${GREEN}[INFO]${NC} %s\n" "$1"; }
 warn() { printf "${YELLOW}[WARN]${NC} %s\n" "$1"; }
 error() { printf "${RED}[ERROR]${NC} %s\n" "$1" >&2; exit 1; }
+step() { printf "${CYAN}[%s/%s]${NC} %s\n" "$1" "$2" "$3"; }
 
 detect_os() {
     case "$(uname -s)" in
@@ -78,12 +82,9 @@ download_text() {
 try_download() {
     _td_dest="$1"; shift
     for _td_url in "$@"; do
-        info "Trying ${_td_url}..."
         if download "$_td_url" "$_td_dest"; then
-            info "Downloaded from ${_td_url}"
             return 0
         fi
-        warn "Failed: ${_td_url}"
     done
     return 1
 }
@@ -139,7 +140,7 @@ get_latest_version() {
 
 install_llama_server() {
     if command -v llama-server >/dev/null 2>&1; then
-        info "llama-server found: $(command -v llama-server)"
+        info "llama-server already installed."
         return
     fi
 
@@ -154,17 +155,16 @@ install_llama_server() {
     if [ -n "$_custom" ]; then
         info "Installing llama.cpp via custom command..."
         if sh -c "$_custom" >/dev/null 2>&1 && command -v llama-server >/dev/null 2>&1; then
-            info "llama-server installed: $(command -v llama-server)"
+            info "llama-server installed successfully."
             return
         fi
-        warn "Custom install command failed: ${_custom}"
+        warn "Custom install command failed."
     fi
 
     OS="$(detect_os)"
     ARCH="$(detect_arch)"
-    info "Installing llama.cpp prebuilt binary for ${OS}/${ARCH}..."
+    info "Downloading llama.cpp for ${OS}/${ARCH}..."
 
-    # Get latest llama.cpp release tag
     _gh_url="${GITHUB_API}/${LLAMA_CPP_REPO}/releases/latest"
     _gl_url="${GITLAB_API}/${GITLAB_LLAMA_ID}/releases/permalink/latest"
     _llama_json="$(region_download_text "$_gh_url" "$_gl_url" 2>/dev/null || true)"
@@ -179,9 +179,7 @@ install_llama_server() {
         warn "Failed to parse llama.cpp release tag."
         return
     fi
-    info "llama.cpp release: ${_llama_tag}"
 
-    # Construct platform-specific asset filename
     _llama_asset=""
     case "$OS" in
         darwin)
@@ -235,26 +233,28 @@ install_llama_server() {
     if [ -w "$_llama_dir" ]; then
         mv "$_llama_bin" "$_target"
     else
-        info "Requires sudo to install llama-server to ${_llama_dir}"
+        info "Requires sudo to install llama-server."
         sudo mv "$_llama_bin" "$_target"
     fi
     rm -rf "$_tmpdir"
-    info "llama-server installed to ${_target}"
+    info "llama-server installed successfully."
 }
 
 main() {
-    info "Installing ${BINARY_NAME}..."
+    TOTAL_STEPS=5
+    printf "\n${BOLD}Installing ${BINARY_NAME}${NC}\n\n"
 
+    # Step 1: Detect environment
+    step 1 "$TOTAL_STEPS" "Detecting environment..."
     OS="$(detect_os)"
     ARCH="$(detect_arch)"
-    info "Detected OS: ${OS}, Arch: ${ARCH}"
-
     REGION="$(detect_region)"
-    info "Detected region: ${REGION}"
+    info "OS: ${OS}, Arch: ${ARCH}, Region: ${REGION}"
 
+    # Step 2: Resolve version
+    step 2 "$TOTAL_STEPS" "Resolving version..."
     VERSION="${CSGHUB_LITE_VERSION:-}"
     if [ -z "$VERSION" ]; then
-        info "Fetching latest version..."
         VERSION="$(get_latest_version)" || true
         if [ -z "$VERSION" ]; then
             error "Could not determine latest version. Set CSGHUB_LITE_VERSION env var manually."
@@ -262,6 +262,8 @@ main() {
     fi
     info "Version: ${VERSION}"
 
+    # Step 3: Download
+    step 3 "$TOTAL_STEPS" "Downloading ${BINARY_NAME} ${VERSION}..."
     EXT="tar.gz"
     [ "$OS" = "windows" ] && EXT="zip"
     ARCHIVE_NAME="${BINARY_NAME}_${VERSION#v}_${OS}-${ARCH}.${EXT}"
@@ -269,15 +271,16 @@ main() {
     _github_url="https://github.com/${REPO}/releases/download/${VERSION}/${ARCHIVE_NAME}"
     _gitlab_url="${GITLAB_API}/${GITLAB_CSGHUB_ID}/packages/generic/${BINARY_NAME}/${VERSION#v}/${ARCHIVE_NAME}"
 
-    info "Preparing download..."
     TMPDIR="$(mktemp -d)"
     ARCHIVE_PATH="${TMPDIR}/${ARCHIVE_NAME}"
     if ! region_download "$ARCHIVE_PATH" "$_github_url" "$_gitlab_url"; then
         rm -rf "$TMPDIR"
         error "Failed to download ${BINARY_NAME} ${VERSION}."
     fi
+    info "Download complete."
 
-    info "Extracting..."
+    # Step 4: Extract and install
+    step 4 "$TOTAL_STEPS" "Installing..."
     case "$EXT" in
         tar.gz) tar xzf "$ARCHIVE_PATH" -C "$TMPDIR" ;;
         zip)    unzip -q "$ARCHIVE_PATH" -d "$TMPDIR" ;;
@@ -293,7 +296,6 @@ main() {
         EXISTING_BIN="$(command -v "$BINARY_NAME" 2>/dev/null || true)"
         if [ -n "$EXISTING_BIN" ]; then
             INSTALL_DIR="$(dirname "$EXISTING_BIN")"
-            info "Using existing ${BINARY_NAME} directory: ${INSTALL_DIR}"
         else
             INSTALL_DIR="${INSTALL_DIR_DEFAULT}"
         fi
@@ -308,20 +310,28 @@ main() {
     fi
     rm -rf "$TMPDIR"
 
-    info "Installed ${BINARY_NAME} ${VERSION} to ${TARGET}"
     ACTIVE_BIN="$(command -v "$BINARY_NAME" 2>/dev/null || true)"
     if [ -n "$ACTIVE_BIN" ] && [ "$ACTIVE_BIN" != "$TARGET" ]; then
         warn "Current PATH resolves ${BINARY_NAME} to ${ACTIVE_BIN}, not ${TARGET}"
     fi
 
-    info ""
-    info "Quick start:"
-    info "  ${BINARY_NAME} --version          # Check version"
-    info "  ${BINARY_NAME} login              # Set CSGHub token"
-    info "  ${BINARY_NAME} run Qwen/Qwen3-0.6B-GGUF  # Run a model"
-    info ""
-
+    # Step 5: Install llama-server
+    step 5 "$TOTAL_STEPS" "Setting up inference engine..."
     install_llama_server
+
+    # Done
+    printf "\n${GREEN}${BOLD}✔ ${BINARY_NAME} ${VERSION} installed successfully!${NC}\n\n"
+
+    printf "${BOLD}Quick start:${NC}\n"
+    printf "  ${BINARY_NAME} --version                   # Check version\n"
+    printf "  ${BINARY_NAME} login                       # Set CSGHub token\n"
+    printf "  ${BINARY_NAME} run Qwen/Qwen3-0.6B-GGUF   # Run a model\n"
+    printf "\n"
+
+    printf "${BOLD}Want more?${NC}\n"
+    printf "  Visit ${CYAN}https://opencsg.com${NC} for advanced features,\n"
+    printf "  enterprise solutions, and the full CSGHub platform.\n"
+    printf "\n"
 }
 
 main "$@"
