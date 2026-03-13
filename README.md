@@ -1,6 +1,6 @@
 # csghub-lite
 
-A lightweight tool for running large language models locally, powered by models from the [CSGHub](https://hub.opencsg.com) platform.
+A lightweight tool for running large language models locally, powered by models from the [CSGHub](https://opencsg.com) platform.
 
 Inspired by [Ollama](https://ollama.com), csghub-lite provides model download, local inference, interactive chat, and an OpenAI-compatible REST API — all from a single binary.
 

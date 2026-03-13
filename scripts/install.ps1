@@ -98,10 +98,10 @@ function Ensure-PathContains([string]$dir) {
 }
 
 function Install-CsghubLite {
-    $arch = [System.Runtime.InteropServices.RuntimeInformation]::ProcessArchitecture.ToString().ToLowerInvariant()
+    $arch = $env:PROCESSOR_ARCHITECTURE
     switch ($arch) {
-        "x64"   { $archToken = "amd64" }
-        "arm64" { $archToken = "arm64" }
+        "AMD64" { $archToken = "amd64" }
+        "ARM64" { $archToken = "arm64" }
         default { Fail "Unsupported architecture: $arch" }
     }
 
@@ -165,8 +165,8 @@ function Install-LlamaServer {
     $llamaTag = $release.tag_name
     Info "llama.cpp release: $llamaTag"
 
-    $arch = [System.Runtime.InteropServices.RuntimeInformation]::ProcessArchitecture.ToString().ToLowerInvariant()
-    $archToken = if ($arch -eq "x64") { "x64" } elseif ($arch -eq "arm64") { "arm64" } else { $null }
+    $arch = $env:PROCESSOR_ARCHITECTURE
+    $archToken = if ($arch -eq "AMD64") { "x64" } elseif ($arch -eq "ARM64") { "arm64" } else { $null }
     if (-not $archToken) {
         Warn "Unsupported architecture for llama-server: $arch"
         return
@@ -273,7 +273,7 @@ Write-Host "Quick start:" -ForegroundColor White
 Write-Host "  csghub-lite --help                      # Show all commands"
 Write-Host "  csghub-lite --version                   # Check version"
 Write-Host "  csghub-lite login                       # Set CSGHub token"
-Write-Host "  csghub-lite run Qwen/Qwen3-0.6B-GGUF   # Run a model"
+Write-Host "  csghub-lite run Qwen/Qwen3-0.6B-GGUF    # Run a model"
 Write-Host "  csghub-lite serve                       # Run API server in background"
 Write-Host "  csghub-lite ps                          # List running models"
 Write-Host ""
