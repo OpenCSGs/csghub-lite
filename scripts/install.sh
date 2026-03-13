@@ -1,14 +1,20 @@
 #!/bin/sh
 # csghub-lite install script
 # Usage: curl -fsSL https://raw.githubusercontent.com/opencsgs/csghub-lite/main/scripts/install.sh | sh
-
 set -eu
 
-REPO="opencsgs/csghub-lite"
-INSTALL_DIR="/usr/local/bin"
-BINARY_NAME="csghub-lite"
+REPO="${REPO:-OpenCSGs/csghub-lite}"
+INSTALL_DIR="${INSTALL_DIR:-}"
+INSTALL_DIR_DEFAULT="/usr/local/bin"
+BINARY_NAME="${BINARY_NAME:-csghub-lite}"
+LLAMA_CPP_REPO="ggml-org/llama.cpp"
 
-# Colors (when terminal supports them)
+GITHUB_API="https://api.github.com/repos"
+GITLAB_HOST="https://git-devops.opencsg.com"
+GITLAB_API="${GITLAB_HOST}/api/v4/projects"
+GITLAB_CSGHUB_ID="392"
+GITLAB_LLAMA_ID="393"
+
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
@@ -19,65 +25,221 @@ warn() { printf "${YELLOW}[WARN]${NC} %s\n" "$1"; }
 error() { printf "${RED}[ERROR]${NC} %s\n" "$1" >&2; exit 1; }
 
 detect_os() {
-    OS="$(uname -s)"
-    case "$OS" in
+    case "$(uname -s)" in
         Linux)  echo "linux" ;;
         Darwin) echo "darwin" ;;
         MINGW*|MSYS*|CYGWIN*) echo "windows" ;;
-        *) error "Unsupported operating system: $OS" ;;
+        *) error "Unsupported operating system: $(uname -s)" ;;
     esac
 }
 
 detect_arch() {
-    ARCH="$(uname -m)"
-    case "$ARCH" in
+    case "$(uname -m)" in
         x86_64|amd64)  echo "amd64" ;;
         aarch64|arm64) echo "arm64" ;;
-        *) error "Unsupported architecture: $ARCH" ;;
+        *) error "Unsupported architecture: $(uname -m)" ;;
     esac
 }
 
-get_latest_version() {
-    if command -v curl >/dev/null 2>&1; then
-        curl -fsSL "https://api.github.com/repos/${REPO}/releases/latest" | grep '"tag_name"' | sed -E 's/.*"tag_name": *"([^"]+)".*/\1/'
-    elif command -v wget >/dev/null 2>&1; then
-        wget -qO- "https://api.github.com/repos/${REPO}/releases/latest" | grep '"tag_name"' | sed -E 's/.*"tag_name": *"([^"]+)".*/\1/'
+detect_region() {
+    _region="${CSGHUB_LITE_REGION:-}"
+    if [ -n "$_region" ]; then echo "$_region"; return; fi
+    _country="$(curl -fsSL --connect-timeout 3 --max-time 5 https://ipinfo.io/country 2>/dev/null | tr -d '[:space:]' || true)"
+    if [ "$_country" = "CN" ]; then
+        echo "CN"
+    elif [ -n "$_country" ]; then
+        echo "INTL"
     else
-        error "curl or wget is required"
+        echo "CN"
     fi
 }
 
 download() {
-    URL="$1"
-    DEST="$2"
     if command -v curl >/dev/null 2>&1; then
-        curl -fsSL -o "$DEST" "$URL"
+        curl -fsSL --connect-timeout 10 --max-time 120 -o "$2" "$1"
     elif command -v wget >/dev/null 2>&1; then
-        wget -qO "$DEST" "$URL"
+        wget --timeout=10 -qO "$2" "$1"
     else
         error "curl or wget is required"
     fi
 }
 
-check_llama_server() {
+download_text() {
+    if command -v curl >/dev/null 2>&1; then
+        curl -fsSL --connect-timeout 10 --max-time 30 "$1"
+    elif command -v wget >/dev/null 2>&1; then
+        wget --timeout=10 -qO- "$1"
+    else
+        error "curl or wget is required"
+    fi
+}
+
+# Try downloading a file from multiple URLs in order (first arg = destination)
+try_download() {
+    _td_dest="$1"; shift
+    for _td_url in "$@"; do
+        info "Trying ${_td_url}..."
+        if download "$_td_url" "$_td_dest"; then
+            info "Downloaded from ${_td_url}"
+            return 0
+        fi
+        warn "Failed: ${_td_url}"
+    done
+    return 1
+}
+
+# Try fetching text from multiple URLs in order
+try_download_text() {
+    for _tdt_url in "$@"; do
+        _tdt_result="$(download_text "$_tdt_url" 2>/dev/null || true)"
+        if [ -n "$_tdt_result" ]; then
+            printf "%s\n" "$_tdt_result"
+            return 0
+        fi
+    done
+    return 1
+}
+
+# Region-aware file download: GitLab first for CN, GitHub first for INTL
+region_download() {
+    _rd_dest="$1"
+    _rd_github="$2"
+    _rd_gitlab="$3"
+    if [ "$REGION" = "CN" ]; then
+        try_download "$_rd_dest" "$_rd_gitlab" "$_rd_github"
+    else
+        try_download "$_rd_dest" "$_rd_github" "$_rd_gitlab"
+    fi
+}
+
+# Region-aware text download
+region_download_text() {
+    _rdt_github="$1"
+    _rdt_gitlab="$2"
+    if [ "$REGION" = "CN" ]; then
+        try_download_text "$_rdt_gitlab" "$_rdt_github"
+    else
+        try_download_text "$_rdt_github" "$_rdt_gitlab"
+    fi
+}
+
+get_latest_version() {
+    _gh_url="${GITHUB_API}/${REPO}/releases/latest"
+    _gl_url="${GITLAB_API}/${GITLAB_CSGHUB_ID}/releases/permalink/latest"
+    _json="$(region_download_text "$_gh_url" "$_gl_url" 2>/dev/null || true)"
+    if [ -n "$_json" ]; then
+        _tag="$(printf "%s\n" "$_json" | grep '"tag_name"' | sed -E 's/.*"tag_name": *"([^"]+)".*/\1/')"
+        if [ -n "$_tag" ]; then
+            printf "%s\n" "$_tag"
+            return 0
+        fi
+    fi
+    return 1
+}
+
+install_llama_server() {
     if command -v llama-server >/dev/null 2>&1; then
         info "llama-server found: $(command -v llama-server)"
         return
     fi
 
     warn "llama-server not found. It is required for model inference."
+    _auto="${CSGHUB_LITE_AUTO_INSTALL_LLAMA_SERVER:-1}"
+    if [ "$_auto" != "1" ]; then
+        warn "Auto-install disabled (CSGHUB_LITE_AUTO_INSTALL_LLAMA_SERVER=${_auto})."
+        return
+    fi
+
+    _custom="${CSGHUB_LITE_LLAMA_CPP_INSTALL_CMD:-}"
+    if [ -n "$_custom" ]; then
+        info "Installing llama.cpp via custom command..."
+        if sh -c "$_custom" >/dev/null 2>&1 && command -v llama-server >/dev/null 2>&1; then
+            info "llama-server installed: $(command -v llama-server)"
+            return
+        fi
+        warn "Custom install command failed: ${_custom}"
+    fi
+
     OS="$(detect_os)"
+    ARCH="$(detect_arch)"
+    info "Installing llama.cpp prebuilt binary for ${OS}/${ARCH}..."
+
+    # Get latest llama.cpp release tag
+    _gh_url="${GITHUB_API}/${LLAMA_CPP_REPO}/releases/latest"
+    _gl_url="${GITLAB_API}/${GITLAB_LLAMA_ID}/releases/permalink/latest"
+    _llama_json="$(region_download_text "$_gh_url" "$_gl_url" 2>/dev/null || true)"
+    if [ -z "$_llama_json" ]; then
+        warn "Failed to query llama.cpp release metadata."
+        warn "Install manually from: https://github.com/${LLAMA_CPP_REPO}/releases"
+        return
+    fi
+
+    _llama_tag="$(printf "%s\n" "$_llama_json" | grep '"tag_name"' | sed -E 's/.*"tag_name": *"([^"]+)".*/\1/')"
+    if [ -z "$_llama_tag" ]; then
+        warn "Failed to parse llama.cpp release tag."
+        return
+    fi
+    info "llama.cpp release: ${_llama_tag}"
+
+    # Construct platform-specific asset filename
+    _llama_asset=""
     case "$OS" in
         darwin)
-            warn "Install it with: brew install llama.cpp"
-            ;;
+            case "$ARCH" in
+                amd64) _llama_asset="llama-${_llama_tag}-bin-macos-x64.tar.gz" ;;
+                arm64) _llama_asset="llama-${_llama_tag}-bin-macos-arm64.tar.gz" ;;
+            esac ;;
         linux)
-            warn "Install it from: https://github.com/ggml-org/llama.cpp/releases"
-            ;;
-        *)
-            warn "Download it from: https://github.com/ggml-org/llama.cpp/releases"
-            ;;
+            case "$ARCH" in
+                amd64) _llama_asset="llama-${_llama_tag}-bin-ubuntu-x64.tar.gz" ;;
+                arm64) _llama_asset="llama-${_llama_tag}-bin-ubuntu-arm64.tar.gz" ;;
+            esac ;;
     esac
+    if [ -z "$_llama_asset" ]; then
+        warn "No compatible llama.cpp asset for ${OS}/${ARCH}."
+        warn "Install manually from: https://github.com/${LLAMA_CPP_REPO}/releases"
+        return
+    fi
+
+    _github_dl="https://github.com/${LLAMA_CPP_REPO}/releases/download/${_llama_tag}/${_llama_asset}"
+    _gitlab_dl="${GITLAB_API}/${GITLAB_LLAMA_ID}/packages/generic/llama-cpp/${_llama_tag}/${_llama_asset}"
+
+    _tmpdir="$(mktemp -d)"
+    _archive="${_tmpdir}/${_llama_asset}"
+    if ! region_download "$_archive" "$_github_dl" "$_gitlab_dl"; then
+        warn "Failed to download llama.cpp."
+        warn "Install manually from: https://github.com/${LLAMA_CPP_REPO}/releases"
+        rm -rf "$_tmpdir"
+        return
+    fi
+
+    tar xzf "$_archive" -C "$_tmpdir"
+    _llama_bin="$(find "$_tmpdir" -name "llama-server" -type f | head -1)"
+    if [ -z "$_llama_bin" ]; then
+        warn "llama-server not found in archive."
+        rm -rf "$_tmpdir"
+        return
+    fi
+    chmod +x "$_llama_bin"
+
+    _llama_dir="${CSGHUB_LITE_LLAMA_SERVER_INSTALL_DIR:-}"
+    if [ -z "$_llama_dir" ]; then
+        if command -v csghub-lite >/dev/null 2>&1; then
+            _llama_dir="$(dirname "$(command -v csghub-lite)")"
+        else
+            _llama_dir="${INSTALL_DIR_DEFAULT}"
+        fi
+    fi
+    mkdir -p "$_llama_dir"
+    _target="${_llama_dir}/llama-server"
+    if [ -w "$_llama_dir" ]; then
+        mv "$_llama_bin" "$_target"
+    else
+        info "Requires sudo to install llama-server to ${_llama_dir}"
+        sudo mv "$_llama_bin" "$_target"
+    fi
+    rm -rf "$_tmpdir"
+    info "llama-server installed to ${_target}"
 }
 
 main() {
@@ -87,47 +249,56 @@ main() {
     ARCH="$(detect_arch)"
     info "Detected OS: ${OS}, Arch: ${ARCH}"
 
+    REGION="$(detect_region)"
+    info "Detected region: ${REGION}"
+
     VERSION="${CSGHUB_LITE_VERSION:-}"
     if [ -z "$VERSION" ]; then
         info "Fetching latest version..."
-        VERSION="$(get_latest_version)"
+        VERSION="$(get_latest_version)" || true
         if [ -z "$VERSION" ]; then
             error "Could not determine latest version. Set CSGHUB_LITE_VERSION env var manually."
         fi
     fi
     info "Version: ${VERSION}"
 
-    # Determine archive name and extension
     EXT="tar.gz"
-    if [ "$OS" = "windows" ]; then
-        EXT="zip"
-    fi
-    ARCHIVE_NAME="${BINARY_NAME}_${VERSION#v}_${OS}_${ARCH}.${EXT}"
-    DOWNLOAD_URL="https://github.com/${REPO}/releases/download/${VERSION}/${ARCHIVE_NAME}"
+    [ "$OS" = "windows" ] && EXT="zip"
+    ARCHIVE_NAME="${BINARY_NAME}_${VERSION#v}_${OS}-${ARCH}.${EXT}"
 
-    info "Downloading ${DOWNLOAD_URL}..."
+    _github_url="https://github.com/${REPO}/releases/download/${VERSION}/${ARCHIVE_NAME}"
+    _gitlab_url="${GITLAB_API}/${GITLAB_CSGHUB_ID}/packages/generic/${BINARY_NAME}/${VERSION#v}/${ARCHIVE_NAME}"
+
+    info "Preparing download..."
     TMPDIR="$(mktemp -d)"
     ARCHIVE_PATH="${TMPDIR}/${ARCHIVE_NAME}"
-    download "$DOWNLOAD_URL" "$ARCHIVE_PATH"
+    if ! region_download "$ARCHIVE_PATH" "$_github_url" "$_gitlab_url"; then
+        rm -rf "$TMPDIR"
+        error "Failed to download ${BINARY_NAME} ${VERSION}."
+    fi
 
     info "Extracting..."
     case "$EXT" in
-        tar.gz)
-            tar xzf "$ARCHIVE_PATH" -C "$TMPDIR"
-            ;;
-        zip)
-            unzip -q "$ARCHIVE_PATH" -d "$TMPDIR"
-            ;;
+        tar.gz) tar xzf "$ARCHIVE_PATH" -C "$TMPDIR" ;;
+        zip)    unzip -q "$ARCHIVE_PATH" -d "$TMPDIR" ;;
     esac
 
-    # Find the binary
     BINARY_PATH="$(find "$TMPDIR" -name "$BINARY_NAME" -type f | head -1)"
     if [ -z "$BINARY_PATH" ]; then
         error "Binary not found in archive"
     fi
     chmod +x "$BINARY_PATH"
 
-    # Install to INSTALL_DIR (may require sudo)
+    if [ -z "$INSTALL_DIR" ]; then
+        EXISTING_BIN="$(command -v "$BINARY_NAME" 2>/dev/null || true)"
+        if [ -n "$EXISTING_BIN" ]; then
+            INSTALL_DIR="$(dirname "$EXISTING_BIN")"
+            info "Using existing ${BINARY_NAME} directory: ${INSTALL_DIR}"
+        else
+            INSTALL_DIR="${INSTALL_DIR_DEFAULT}"
+        fi
+    fi
+
     TARGET="${INSTALL_DIR}/${BINARY_NAME}"
     if [ -w "$INSTALL_DIR" ]; then
         mv "$BINARY_PATH" "$TARGET"
@@ -135,19 +306,22 @@ main() {
         info "Requires sudo to install to ${INSTALL_DIR}"
         sudo mv "$BINARY_PATH" "$TARGET"
     fi
-
     rm -rf "$TMPDIR"
 
     info "Installed ${BINARY_NAME} ${VERSION} to ${TARGET}"
+    ACTIVE_BIN="$(command -v "$BINARY_NAME" 2>/dev/null || true)"
+    if [ -n "$ACTIVE_BIN" ] && [ "$ACTIVE_BIN" != "$TARGET" ]; then
+        warn "Current PATH resolves ${BINARY_NAME} to ${ACTIVE_BIN}, not ${TARGET}"
+    fi
+
     info ""
     info "Quick start:"
     info "  ${BINARY_NAME} --version          # Check version"
     info "  ${BINARY_NAME} login              # Set CSGHub token"
-    info "  ${BINARY_NAME} search qwen        # Search models"
     info "  ${BINARY_NAME} run Qwen/Qwen3-0.6B-GGUF  # Run a model"
     info ""
 
-    check_llama_server
+    install_llama_server
 }
 
 main "$@"

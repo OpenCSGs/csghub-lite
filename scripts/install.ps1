@@ -1,0 +1,214 @@
+Param(
+    [string]$InstallDir = "$HOME\bin"
+)
+
+$ErrorActionPreference = "Stop"
+
+$Repo = "OpenCSGs/csghub-lite"
+$BinaryName = "csghub-lite.exe"
+$LlamaCppRepo = "ggml-org/llama.cpp"
+
+$GitHubApi = "https://api.github.com/repos"
+$GitLabHost = "https://git-devops.opencsg.com"
+$GitLabApi = "$GitLabHost/api/v4/projects"
+$GitLabCsghubId = "392"
+$GitLabLlamaId = "393"
+
+function Info([string]$msg) { Write-Host "[INFO] $msg" -ForegroundColor Green }
+function Warn([string]$msg) { Write-Host "[WARN] $msg" -ForegroundColor Yellow }
+function Fail([string]$msg) { Write-Host "[ERROR] $msg" -ForegroundColor Red; exit 1 }
+
+function Detect-Region {
+    $region = $env:CSGHUB_LITE_REGION
+    if ($region) { return $region }
+    try {
+        $country = (Invoke-WebRequest -Uri "https://ipinfo.io/country" -UseBasicParsing -TimeoutSec 5).Content.Trim()
+        if ($country -eq "CN") { return "CN" }
+        if ($country) { return "INTL" }
+    } catch {}
+    return "CN"
+}
+
+function Download-File([string]$Url, [string]$OutFile) {
+    Invoke-WebRequest -Uri $Url -OutFile $OutFile -UseBasicParsing
+}
+
+function Try-Download {
+    param([string]$OutFile, [string[]]$Urls)
+    foreach ($url in $Urls) {
+        try {
+            Info "Trying $url"
+            Download-File -Url $url -OutFile $OutFile
+            Info "Downloaded from $url"
+            return $true
+        } catch {
+            Warn "Failed: $url"
+        }
+    }
+    return $false
+}
+
+function Try-DownloadText {
+    param([string[]]$Urls)
+    foreach ($url in $Urls) {
+        try {
+            return (Invoke-RestMethod -Uri $url -UseBasicParsing -TimeoutSec 30)
+        } catch {
+            continue
+        }
+    }
+    return $null
+}
+
+function Region-Download {
+    param([string]$OutFile, [string]$GitHubUrl, [string]$GitLabUrl)
+    if ($script:Region -eq "CN") {
+        return Try-Download -OutFile $OutFile -Urls @($GitLabUrl, $GitHubUrl)
+    } else {
+        return Try-Download -OutFile $OutFile -Urls @($GitHubUrl, $GitLabUrl)
+    }
+}
+
+function Region-DownloadText {
+    param([string]$GitHubUrl, [string]$GitLabUrl)
+    if ($script:Region -eq "CN") {
+        return Try-DownloadText -Urls @($GitLabUrl, $GitHubUrl)
+    } else {
+        return Try-DownloadText -Urls @($GitHubUrl, $GitLabUrl)
+    }
+}
+
+function Get-LatestVersion {
+    $ghUrl = "$GitHubApi/$Repo/releases/latest"
+    $glUrl = "$GitLabApi/$GitLabCsghubId/releases/permalink/latest"
+    $release = Region-DownloadText -GitHubUrl $ghUrl -GitLabUrl $glUrl
+    if ($release -and $release.tag_name) { return $release.tag_name }
+    return $null
+}
+
+function Ensure-PathContains([string]$dir) {
+    $userPath = [Environment]::GetEnvironmentVariable("Path", "User")
+    $parts = @()
+    if ($userPath) { $parts = $userPath.Split(';') }
+    if ($parts -notcontains $dir) {
+        $newPath = if ($userPath) { "$dir;$userPath" } else { $dir }
+        [Environment]::SetEnvironmentVariable("Path", $newPath, "User")
+        Warn "Added $dir to User PATH. Open a new terminal to apply."
+    }
+}
+
+function Install-CsghubLite {
+    $arch = [System.Runtime.InteropServices.RuntimeInformation]::ProcessArchitecture.ToString().ToLowerInvariant()
+    switch ($arch) {
+        "x64"   { $archToken = "amd64" }
+        "arm64" { $archToken = "arm64" }
+        default { Fail "Unsupported architecture: $arch" }
+    }
+
+    $version = if ($env:CSGHUB_LITE_VERSION) { $env:CSGHUB_LITE_VERSION } else { Get-LatestVersion }
+    if (-not $version) { Fail "Could not determine latest version. Set CSGHUB_LITE_VERSION manually." }
+    Info "Version: $version"
+
+    $versionNum = $version.TrimStart('v')
+    $archiveName = "csghub-lite_${versionNum}_windows-${archToken}.zip"
+    $githubUrl = "https://github.com/$Repo/releases/download/$version/$archiveName"
+    $gitlabUrl = "$GitLabApi/$GitLabCsghubId/packages/generic/csghub-lite/${versionNum}/${archiveName}"
+
+    $tmpDir = Join-Path ([IO.Path]::GetTempPath()) ("csghub-lite-install-" + [Guid]::NewGuid().ToString("N"))
+    New-Item -ItemType Directory -Force -Path $tmpDir | Out-Null
+    $zipPath = Join-Path $tmpDir $archiveName
+
+    if (-not (Region-Download -OutFile $zipPath -GitHubUrl $githubUrl -GitLabUrl $gitlabUrl)) {
+        Fail "Failed to download csghub-lite."
+    }
+
+    Expand-Archive -Path $zipPath -DestinationPath $tmpDir -Force
+    $bin = Get-ChildItem -Path $tmpDir -Recurse -Filter "csghub-lite.exe" | Select-Object -First 1
+    if (-not $bin) { Fail "csghub-lite.exe not found in archive." }
+
+    New-Item -ItemType Directory -Force -Path $InstallDir | Out-Null
+    $target = Join-Path $InstallDir "csghub-lite.exe"
+    Copy-Item -Path $bin.FullName -Destination $target -Force
+    Ensure-PathContains -dir $InstallDir
+    Info "Installed csghub-lite to $target"
+}
+
+function Install-LlamaServer {
+    if (Get-Command "llama-server.exe" -ErrorAction SilentlyContinue) {
+        Info "llama-server already exists in PATH."
+        return
+    }
+
+    $customCmd = $env:CSGHUB_LITE_LLAMA_CPP_INSTALL_CMD
+    if ($customCmd) {
+        Info "Installing llama.cpp via custom command..."
+        try {
+            powershell -NoProfile -ExecutionPolicy Bypass -Command $customCmd | Out-Null
+            if (Get-Command "llama-server.exe" -ErrorAction SilentlyContinue) {
+                Info "llama-server installed."
+                return
+            }
+        } catch {
+            Warn "Custom install command failed: $customCmd"
+        }
+    }
+
+    # Get latest llama.cpp release tag
+    $ghUrl = "$GitHubApi/$LlamaCppRepo/releases/latest"
+    $glUrl = "$GitLabApi/$GitLabLlamaId/releases/permalink/latest"
+    $release = Region-DownloadText -GitHubUrl $ghUrl -GitLabUrl $glUrl
+    if (-not $release -or -not $release.tag_name) {
+        Warn "Failed to query llama.cpp release metadata."
+        return
+    }
+
+    $llamaTag = $release.tag_name
+    Info "llama.cpp release: $llamaTag"
+
+    $arch = [System.Runtime.InteropServices.RuntimeInformation]::ProcessArchitecture.ToString().ToLowerInvariant()
+    $archToken = if ($arch -eq "x64") { "x64" } elseif ($arch -eq "arm64") { "arm64" } else { $null }
+    if (-not $archToken) {
+        Warn "Unsupported architecture for llama-server: $arch"
+        return
+    }
+
+    $assetName = "llama-${llamaTag}-bin-win-cpu-${archToken}.zip"
+    $githubDl = "https://github.com/$LlamaCppRepo/releases/download/$llamaTag/$assetName"
+    $gitlabDl = "$GitLabApi/$GitLabLlamaId/packages/generic/llama-cpp/$llamaTag/$assetName"
+
+    $tmpDir = Join-Path ([IO.Path]::GetTempPath()) ("llama-install-" + [Guid]::NewGuid().ToString("N"))
+    New-Item -ItemType Directory -Force -Path $tmpDir | Out-Null
+    $zipPath = Join-Path $tmpDir $assetName
+
+    if (-not (Region-Download -OutFile $zipPath -GitHubUrl $githubDl -GitLabUrl $gitlabDl)) {
+        Warn "Failed to download llama.cpp."
+        return
+    }
+
+    Expand-Archive -Path $zipPath -DestinationPath $tmpDir -Force
+    $server = Get-ChildItem -Path $tmpDir -Recurse -Filter "llama-server.exe" | Select-Object -First 1
+    if (-not $server) {
+        Warn "llama-server.exe not found in archive."
+        return
+    }
+
+    New-Item -ItemType Directory -Force -Path $InstallDir | Out-Null
+    $target = Join-Path $InstallDir "llama-server.exe"
+    Copy-Item -Path $server.FullName -Destination $target -Force
+    Ensure-PathContains -dir $InstallDir
+    Info "Installed llama-server to $target"
+}
+
+# ---- Main ----
+$script:Region = Detect-Region
+Info "Detected region: $script:Region"
+
+Info "Installing csghub-lite..."
+Install-CsghubLite
+
+$autoInstall = if ($env:CSGHUB_LITE_AUTO_INSTALL_LLAMA_SERVER) { $env:CSGHUB_LITE_AUTO_INSTALL_LLAMA_SERVER } else { "1" }
+if ($autoInstall -eq "1") {
+    Install-LlamaServer
+}
+
+Info "Done. Open a new terminal and run: csghub-lite --version"

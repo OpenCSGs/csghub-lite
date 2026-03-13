@@ -1,32 +1,57 @@
 BINARY_NAME := csghub-lite
-VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
+RELEASE_TAG ?= $(shell git describe --tags --exact-match 2>/dev/null || true)
+VERSION := $(if $(RELEASE_TAG),$(patsubst v%,%,$(RELEASE_TAG)),$(shell git describe --tags --always --dirty 2>/dev/null || echo "dev"))
 LDFLAGS := -ldflags "-s -w -X main.version=$(VERSION)"
 
-.PHONY: build build-all install test test-cover lint clean release-snapshot
+.PHONY: build build-all clean-dist package release install test test-cover lint clean release-snapshot
 
 build:
-	go build $(LDFLAGS) -o bin/$(BINARY_NAME) ./cmd/csghub-lite
+	go build $(LDFLAGS) -o bin/$(BINARY_NAME)-$(VERSION) ./cmd/csghub-lite
 
 build-all: build-darwin-arm64 build-darwin-amd64 build-linux-amd64 build-linux-arm64 build-windows-amd64
 
 build-darwin-arm64:
-	GOOS=darwin GOARCH=arm64 go build $(LDFLAGS) -o bin/$(BINARY_NAME)-darwin-arm64 ./cmd/csghub-lite
+	GOOS=darwin GOARCH=arm64 go build $(LDFLAGS) -o bin/$(BINARY_NAME)-$(VERSION)-darwin-arm64 ./cmd/csghub-lite
 
 build-darwin-amd64:
-	GOOS=darwin GOARCH=amd64 go build $(LDFLAGS) -o bin/$(BINARY_NAME)-darwin-amd64 ./cmd/csghub-lite
+	GOOS=darwin GOARCH=amd64 go build $(LDFLAGS) -o bin/$(BINARY_NAME)-$(VERSION)-darwin-amd64 ./cmd/csghub-lite
 
 build-linux-amd64:
-	GOOS=linux GOARCH=amd64 go build $(LDFLAGS) -o bin/$(BINARY_NAME)-linux-amd64 ./cmd/csghub-lite
+	GOOS=linux GOARCH=amd64 go build $(LDFLAGS) -o bin/$(BINARY_NAME)-$(VERSION)-linux-amd64 ./cmd/csghub-lite
 
 build-linux-arm64:
-	GOOS=linux GOARCH=arm64 go build $(LDFLAGS) -o bin/$(BINARY_NAME)-linux-arm64 ./cmd/csghub-lite
+	GOOS=linux GOARCH=arm64 go build $(LDFLAGS) -o bin/$(BINARY_NAME)-$(VERSION)-linux-arm64 ./cmd/csghub-lite
 
 build-windows-amd64:
-	GOOS=windows GOARCH=amd64 go build $(LDFLAGS) -o bin/$(BINARY_NAME)-windows-amd64.exe ./cmd/csghub-lite
+	GOOS=windows GOARCH=amd64 go build $(LDFLAGS) -o bin/$(BINARY_NAME)-$(VERSION)-windows-amd64.exe ./cmd/csghub-lite
+
+clean-dist:
+	@rm -rf dist
+	@mkdir -p dist
+
+package: clean-dist build-all
+	@for platform in darwin-arm64 darwin-amd64 linux-amd64 linux-arm64; do \
+		ARCHIVE="dist/$(BINARY_NAME)_$(VERSION)_$${platform}.tar.gz"; \
+		TMPDIR=$$(mktemp -d); \
+		cp bin/$(BINARY_NAME)-$(VERSION)-$${platform} $${TMPDIR}/$(BINARY_NAME); \
+		cp README.md $${TMPDIR}/; \
+		tar czf $${ARCHIVE} -C $${TMPDIR} .; \
+		rm -rf $${TMPDIR}; \
+		echo "Created $${ARCHIVE}"; \
+	done
+	@TMPDIR=$$(mktemp -d); \
+	cp bin/$(BINARY_NAME)-$(VERSION)-windows-amd64.exe $${TMPDIR}/$(BINARY_NAME).exe; \
+	cp README.md $${TMPDIR}/; \
+	cd $${TMPDIR} && zip -q -r $(CURDIR)/dist/$(BINARY_NAME)_$(VERSION)_windows-amd64.zip *; \
+	rm -rf $${TMPDIR}; \
+	echo "Created dist/$(BINARY_NAME)_$(VERSION)_windows-amd64.zip"
+
+release:
+	@scripts/push.sh
 
 install: build
 	install -d $(DESTDIR)/usr/local/bin
-	install -m 755 bin/$(BINARY_NAME) $(DESTDIR)/usr/local/bin/$(BINARY_NAME)
+	install -m 755 bin/$(BINARY_NAME)-$(VERSION) $(DESTDIR)/usr/local/bin/$(BINARY_NAME)
 
 test:
 	go test -race -count=1 ./...
