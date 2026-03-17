@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"time"
 )
 
 // ProgressFunc is called during download with current and total bytes.
@@ -19,18 +20,23 @@ type ProgressFunc func(downloaded, total int64)
 // Git LFS batch API if /resolve/ returns 404.
 // For non-LFS files it uses the /raw/ endpoint (returns JSON with content).
 func (c *Client) DownloadFile(ctx context.Context, namespace, name, filePath, destPath string, isLFS bool, size int64, lfsSHA256 string, progress ProgressFunc) error {
+	return c.DownloadRepoFile(ctx, "models", namespace, name, filePath, destPath, isLFS, size, lfsSHA256, progress)
+}
+
+// DownloadRepoFile downloads a single file from any repository type (models, datasets, etc.).
+func (c *Client) DownloadRepoFile(ctx context.Context, repoType, namespace, name, filePath, destPath string, isLFS bool, size int64, lfsSHA256 string, progress ProgressFunc) error {
 	if err := os.MkdirAll(filepath.Dir(destPath), 0o755); err != nil {
 		return fmt.Errorf("creating directory: %w", err)
 	}
 
 	if isLFS {
-		return c.downloadLFSFile(ctx, namespace, name, filePath, destPath, size, lfsSHA256, progress)
+		return c.downloadLFSFile(ctx, repoType, namespace, name, filePath, destPath, size, lfsSHA256, progress)
 	}
-	return c.downloadRawFile(ctx, namespace, name, filePath, destPath, progress)
+	return c.downloadRawFile(ctx, repoType, namespace, name, filePath, destPath, progress)
 }
 
 // downloadLFSFile tries /resolve/ first, then falls back to Git LFS batch API.
-func (c *Client) downloadLFSFile(ctx context.Context, namespace, name, filePath, destPath string, totalSize int64, lfsSHA256 string, progress ProgressFunc) error {
+func (c *Client) downloadLFSFile(ctx context.Context, repoType, namespace, name, filePath, destPath string, totalSize int64, lfsSHA256 string, progress ProgressFunc) error {
 	var existingSize int64
 	if info, err := os.Stat(destPath); err == nil {
 		existingSize = info.Size()
@@ -42,12 +48,12 @@ func (c *Client) downloadLFSFile(ctx context.Context, namespace, name, filePath,
 		}
 	}
 
-	downloadURL := fmt.Sprintf("%s/api/v1/models/%s/%s/resolve/%s",
-		c.baseURL, namespace, name, filePath)
+	downloadURL := fmt.Sprintf("%s/api/v1/%s/%s/%s/resolve/%s",
+		c.baseURL, repoType, namespace, name, filePath)
 
 	url, err := c.tryResolveURL(ctx, downloadURL)
 	if err != nil && lfsSHA256 != "" {
-		url, err = c.resolveLFSBatchURL(ctx, namespace, name, lfsSHA256, totalSize)
+		url, err = c.resolveLFSBatchURL(ctx, repoType, namespace, name, lfsSHA256, totalSize)
 	}
 	if err != nil {
 		return err
@@ -89,9 +95,9 @@ func (c *Client) tryResolveURL(ctx context.Context, resolveURL string) (string, 
 }
 
 // resolveLFSBatchURL uses the Git LFS batch API to get the actual download URL.
-func (c *Client) resolveLFSBatchURL(ctx context.Context, namespace, name, oid string, size int64) (string, error) {
-	batchURL := fmt.Sprintf("%s/models/%s/%s.git/info/lfs/objects/batch",
-		c.baseURL, namespace, name)
+func (c *Client) resolveLFSBatchURL(ctx context.Context, repoType, namespace, name, oid string, size int64) (string, error) {
+	batchURL := fmt.Sprintf("%s/%s/%s/%s.git/info/lfs/objects/batch",
+		c.baseURL, repoType, namespace, name)
 
 	body := map[string]interface{}{
 		"operation": "download",
@@ -151,8 +157,36 @@ func (c *Client) resolveLFSBatchURL(ctx context.Context, namespace, name, oid st
 	return obj.Actions.Download.Href, nil
 }
 
-// downloadFromURL downloads a file from a direct URL with resume support.
+const maxRetries = 3
+
+// downloadFromURL downloads a file from a direct URL with resume and retry support.
 func (c *Client) downloadFromURL(ctx context.Context, url, destPath string, existingSize, totalSize int64, progress ProgressFunc) error {
+	var lastErr error
+	for attempt := 0; attempt <= maxRetries; attempt++ {
+		if attempt > 0 {
+			backoff := time.Duration(1<<(attempt-1)) * time.Second
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(backoff):
+			}
+			if info, err := os.Stat(destPath); err == nil {
+				existingSize = info.Size()
+			}
+		}
+
+		lastErr = c.doDownload(ctx, url, destPath, existingSize, totalSize, progress)
+		if lastErr == nil {
+			return nil
+		}
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+	}
+	return lastErr
+}
+
+func (c *Client) doDownload(ctx context.Context, url, destPath string, existingSize, totalSize int64, progress ProgressFunc) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return fmt.Errorf("creating request: %w", err)
@@ -202,8 +236,8 @@ func (c *Client) downloadFromURL(ctx context.Context, url, destPath string, exis
 }
 
 // downloadRawFile uses /raw/ endpoint which returns JSON {"msg":"OK","data":"<content>"}.
-func (c *Client) downloadRawFile(ctx context.Context, namespace, name, filePath, destPath string, progress ProgressFunc) error {
-	apiPath := fmt.Sprintf("/api/v1/models/%s/%s/raw/%s", namespace, name, filePath)
+func (c *Client) downloadRawFile(ctx context.Context, repoType, namespace, name, filePath, destPath string, progress ProgressFunc) error {
+	apiPath := fmt.Sprintf("/api/v1/%s/%s/%s/raw/%s", repoType, namespace, name, filePath)
 	req, err := c.newRequest(ctx, http.MethodGet, apiPath, nil)
 	if err != nil {
 		return err

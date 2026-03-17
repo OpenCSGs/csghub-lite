@@ -102,6 +102,46 @@ type ModelOptions struct {
 	NumCtx      int     `json:"num_ctx,omitempty"`
 }
 
+// -- Dataset request types --
+
+type DatasetPullRequest struct {
+	Dataset string `json:"dataset"`
+}
+
+type DatasetDeleteRequest struct {
+	Dataset string `json:"dataset"`
+}
+
+type DatasetShowRequest struct {
+	Dataset string `json:"dataset"`
+}
+
+// -- Dataset response types --
+
+type DatasetInfo struct {
+	Name       string    `json:"name"`
+	Dataset    string    `json:"dataset"`
+	Size       int64     `json:"size"`
+	Files      int       `json:"files"`
+	ModifiedAt time.Time `json:"modified_at"`
+}
+
+type DatasetTagsResponse struct {
+	Datasets []DatasetInfo `json:"datasets"`
+}
+
+type DatasetShowResponse struct {
+	Details DatasetInfo `json:"details"`
+	Files   []string    `json:"files,omitempty"`
+}
+
+type DatasetPullResponse struct {
+	Status    string `json:"status"`
+	Digest    string `json:"digest,omitempty"`
+	Total     int64  `json:"total,omitempty"`
+	Completed int64  `json:"completed,omitempty"`
+}
+
 // -- OpenAI-compatible types --
 
 type OpenAIChatRequest struct {

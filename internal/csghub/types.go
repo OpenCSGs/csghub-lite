@@ -92,3 +92,46 @@ type ModelListParams struct {
 	Page   int
 	PerPage int
 }
+
+// Dataset represents a dataset returned by the CSGHub API.
+type Dataset struct {
+	ID            int        `json:"id"`
+	Name          string     `json:"name"`
+	Nickname      string     `json:"nickname"`
+	Description   string     `json:"description"`
+	Likes         int        `json:"likes"`
+	Downloads     int        `json:"downloads"`
+	Path          string     `json:"path"`
+	RepositoryID  int        `json:"repository_id"`
+	Private       bool       `json:"private"`
+	Tags          []Tag      `json:"tags"`
+	Repository    Repository `json:"repository"`
+	DefaultBranch string     `json:"default_branch"`
+	CreatedAt     time.Time  `json:"created_at"`
+	UpdatedAt     time.Time  `json:"updated_at"`
+	License       string     `json:"license"`
+	Source        string     `json:"source"`
+	SyncStatus    string     `json:"sync_status"`
+	HFPath        string     `json:"hf_path"`
+}
+
+// DatasetListParams holds parameters for listing datasets.
+type DatasetListParams struct {
+	Search  string
+	Sort    string
+	Page    int
+	PerPage int
+}
+
+// RepoSibling represents a file entry from the /csg/api/ endpoint.
+type RepoSibling struct {
+	RFilename string `json:"rfilename"`
+}
+
+// RepoInfoResponse is the response from the /csg/api/ repo info endpoint.
+type RepoInfoResponse struct {
+	SHA      string        `json:"sha"`
+	ID       string        `json:"id"`
+	Private  bool          `json:"private"`
+	Siblings []RepoSibling `json:"siblings"`
+}

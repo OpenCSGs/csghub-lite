@@ -139,12 +139,13 @@ get_latest_version() {
 }
 
 install_llama_server() {
-    if command -v llama-server >/dev/null 2>&1; then
-        info "llama-server already installed."
-        return
+    _existing_llama="$(command -v llama-server 2>/dev/null || true)"
+    if [ -n "$_existing_llama" ]; then
+        info "llama-server found at ${_existing_llama}, upgrading to latest version..."
+    else
+        warn "llama-server not found. It is required for model inference."
     fi
 
-    warn "llama-server not found. It is required for model inference."
     _auto="${CSGHUB_LITE_AUTO_INSTALL_LLAMA_SERVER:-1}"
     if [ "$_auto" != "1" ]; then
         warn "Auto-install disabled (CSGHUB_LITE_AUTO_INSTALL_LLAMA_SERVER=${_auto})."
@@ -229,7 +230,9 @@ install_llama_server() {
 
     _llama_dir="${CSGHUB_LITE_LLAMA_SERVER_INSTALL_DIR:-}"
     if [ -z "$_llama_dir" ]; then
-        if command -v csghub-lite >/dev/null 2>&1; then
+        if [ -n "$_existing_llama" ]; then
+            _llama_dir="$(dirname "$_existing_llama")"
+        elif command -v csghub-lite >/dev/null 2>&1; then
             _llama_dir="$(dirname "$(command -v csghub-lite)")"
         else
             _llama_dir="${INSTALL_DIR_DEFAULT}"

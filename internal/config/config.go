@@ -14,6 +14,7 @@ const (
 	AppDir            = ".csghub-lite"
 	ConfigFile        = "config.json"
 	ModelsDir         = "models"
+	DatasetsDir       = "datasets"
 )
 
 func (c *Config) DisplayURL() string {
@@ -28,6 +29,7 @@ type Config struct {
 	Token      string `json:"token,omitempty"`
 	ListenAddr string `json:"listen_addr"`
 	ModelDir   string `json:"model_dir"`
+	DatasetDir string `json:"dataset_dir"`
 }
 
 var (
@@ -52,6 +54,14 @@ func DefaultModelDir() (string, error) {
 	return filepath.Join(home, ModelsDir), nil
 }
 
+func DefaultDatasetDir() (string, error) {
+	home, err := AppHome()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(home, DatasetsDir), nil
+}
+
 func ConfigPath() (string, error) {
 	home, err := AppHome()
 	if err != nil {
@@ -74,6 +84,13 @@ func Load() (*Config, error) {
 			return
 		}
 		globalConfig.ModelDir = modelDir
+
+		datasetDir, err := DefaultDatasetDir()
+		if err != nil {
+			loadErr = err
+			return
+		}
+		globalConfig.DatasetDir = datasetDir
 
 		cfgPath, err := ConfigPath()
 		if err != nil {
@@ -103,6 +120,9 @@ func Load() (*Config, error) {
 		}
 		if globalConfig.ModelDir == "" {
 			globalConfig.ModelDir = modelDir
+		}
+		if globalConfig.DatasetDir == "" {
+			globalConfig.DatasetDir = datasetDir
 		}
 	})
 	return globalConfig, loadErr

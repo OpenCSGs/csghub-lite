@@ -137,9 +137,11 @@ function Install-CsghubLite {
 }
 
 function Install-LlamaServer {
-    if (Get-Command "llama-server.exe" -ErrorAction SilentlyContinue) {
-        Info "llama-server already exists in PATH."
-        return
+    $existingLlama = Get-Command "llama-server.exe" -ErrorAction SilentlyContinue
+    if ($existingLlama) {
+        Info "llama-server found at $($existingLlama.Source), upgrading to latest version..."
+    } else {
+        Warn "llama-server not found. It is required for model inference."
     }
 
     $customCmd = $env:CSGHUB_LITE_LLAMA_CPP_INSTALL_CMD
@@ -227,13 +229,18 @@ function Install-LlamaServer {
         return
     }
 
-    New-Item -ItemType Directory -Force -Path $InstallDir | Out-Null
-    Copy-Item -Path $server.FullName -Destination (Join-Path $InstallDir "llama-server.exe") -Force
-    Get-ChildItem -Path $server.Directory.FullName -Filter "*.dll" | ForEach-Object {
-        Copy-Item -Path $_.FullName -Destination (Join-Path $InstallDir $_.Name) -Force
+    $llamaInstallDir = $InstallDir
+    if ($existingLlama) {
+        $llamaInstallDir = Split-Path $existingLlama.Source -Parent
     }
-    Ensure-PathContains -dir $InstallDir
-    Info "Installed llama-server to $InstallDir"
+
+    New-Item -ItemType Directory -Force -Path $llamaInstallDir | Out-Null
+    Copy-Item -Path $server.FullName -Destination (Join-Path $llamaInstallDir "llama-server.exe") -Force
+    Get-ChildItem -Path $server.Directory.FullName -Filter "*.dll" | ForEach-Object {
+        Copy-Item -Path $_.FullName -Destination (Join-Path $llamaInstallDir $_.Name) -Force
+    }
+    Ensure-PathContains -dir $llamaInstallDir
+    Info "Installed llama-server to $llamaInstallDir"
 }
 
 function Check-Existing {

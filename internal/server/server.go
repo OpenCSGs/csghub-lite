@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/opencsgs/csghub-lite/internal/config"
+	"github.com/opencsgs/csghub-lite/internal/dataset"
 	"github.com/opencsgs/csghub-lite/internal/inference"
 	"github.com/opencsgs/csghub-lite/internal/model"
 )
@@ -33,9 +34,10 @@ func (m *managedEngine) expiresAt() time.Time {
 }
 
 type Server struct {
-	cfg     *config.Config
-	manager *model.Manager
-	http    *http.Server
+	cfg            *config.Config
+	manager        *model.Manager
+	datasetManager *dataset.Manager
+	http           *http.Server
 
 	mu      sync.RWMutex
 	engines map[string]*managedEngine
@@ -43,10 +45,12 @@ type Server struct {
 
 func New(cfg *config.Config) *Server {
 	mgr := model.NewManager(cfg)
+	dsMgr := dataset.NewManager(cfg)
 	s := &Server{
-		cfg:     cfg,
-		manager: mgr,
-		engines: make(map[string]*managedEngine),
+		cfg:            cfg,
+		manager:        mgr,
+		datasetManager: dsMgr,
+		engines:        make(map[string]*managedEngine),
 	}
 
 	mux := s.routes()
