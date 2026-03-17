@@ -2,10 +2,9 @@ package server
 
 import "net/http"
 
-func (s *Server) routes() *http.ServeMux {
+func (s *Server) routes() http.Handler {
 	mux := http.NewServeMux()
 
-	mux.HandleFunc("GET /", s.handleHealth)
 	mux.HandleFunc("GET /api/health", s.handleHealth)
 	mux.HandleFunc("GET /api/tags", s.handleTags)
 	mux.HandleFunc("GET /api/ps", s.handlePs)
@@ -24,5 +23,31 @@ func (s *Server) routes() *http.ServeMux {
 	mux.HandleFunc("POST /v1/chat/completions", s.handleOpenAIChatCompletions)
 	mux.HandleFunc("GET /v1/models", s.handleOpenAIModels)
 
-	return mux
+	// New: marketplace, system, logs
+	mux.HandleFunc("GET /api/marketplace/models", s.handleMarketplaceModels)
+	mux.HandleFunc("GET /api/marketplace/datasets", s.handleMarketplaceDatasets)
+	mux.HandleFunc("GET /api/system", s.handleSystem)
+	mux.HandleFunc("GET /api/logs", s.handleLogs)
+
+	// Static files: serve embedded web UI or dev fallback
+	if hasEmbeddedStatic() {
+		mux.Handle("GET /", staticHandler())
+	} else {
+		mux.Handle("GET /", devStaticHandler("web/dist"))
+	}
+
+	return corsMiddleware(LogMiddleware(mux))
+}
+
+func corsMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
 }

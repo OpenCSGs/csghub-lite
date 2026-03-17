@@ -114,8 +114,8 @@ func TestSearchModels(t *testing.T) {
 		if q.Get("search") != "llama" {
 			t.Errorf("search = %q, want %q", q.Get("search"), "llama")
 		}
-		if q.Get("per_page") != "10" {
-			t.Errorf("per_page = %q, want %q", q.Get("per_page"), "10")
+		if q.Get("per") != "10" {
+			t.Errorf("per = %q, want %q", q.Get("per"), "10")
 		}
 
 		resp := ListResponse[Model]{

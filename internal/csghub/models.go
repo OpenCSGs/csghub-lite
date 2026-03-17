@@ -20,7 +20,10 @@ func (c *Client) ListModels(ctx context.Context, params ModelListParams) ([]Mode
 		q.Set("page", strconv.Itoa(params.Page))
 	}
 	if params.PerPage > 0 {
-		q.Set("per_page", strconv.Itoa(params.PerPage))
+		q.Set("per", strconv.Itoa(params.PerPage))
+	}
+	if params.Source != "" {
+		q.Set("source", params.Source)
 	}
 
 	path := "/api/v1/models"

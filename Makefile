@@ -3,9 +3,14 @@ RELEASE_TAG ?= $(shell git describe --tags --exact-match 2>/dev/null || true)
 VERSION := $(if $(RELEASE_TAG),$(patsubst v%,%,$(RELEASE_TAG)),$(shell git describe --tags --always --dirty 2>/dev/null || echo "dev"))
 LDFLAGS := -ldflags "-s -w -X main.version=$(VERSION)"
 
-.PHONY: build build-all clean-dist package release install test test-cover lint clean release-snapshot
+.PHONY: build build-web build-all clean-dist package release install test test-cover lint clean release-snapshot
 
-build:
+build-web:
+	cd web && npm install && npm run build
+	rm -rf internal/server/static/assets internal/server/static/*.html internal/server/static/*.js internal/server/static/*.css internal/server/static/*.svg
+	cp -r web/dist/* internal/server/static/
+
+build: build-web
 	go build $(LDFLAGS) -o bin/$(BINARY_NAME)-$(VERSION) ./cmd/csghub-lite
 
 build-all: build-darwin-arm64 build-darwin-amd64 build-linux-amd64 build-linux-arm64 build-windows-amd64

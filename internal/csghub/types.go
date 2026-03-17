@@ -87,10 +87,11 @@ type FileCommit struct {
 
 // ModelListParams holds parameters for listing models.
 type ModelListParams struct {
-	Search string
-	Sort   string
-	Page   int
+	Search  string
+	Sort    string
+	Page    int
 	PerPage int
+	Source  string
 }
 
 // Dataset represents a dataset returned by the CSGHub API.
@@ -121,6 +122,7 @@ type DatasetListParams struct {
 	Sort    string
 	Page    int
 	PerPage int
+	Source  string
 }
 
 // RepoSibling represents a file entry from the /csg/api/ endpoint.

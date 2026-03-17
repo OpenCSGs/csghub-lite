@@ -21,7 +21,10 @@ func (c *Client) ListDatasets(ctx context.Context, params DatasetListParams) ([]
 		q.Set("page", strconv.Itoa(params.Page))
 	}
 	if params.PerPage > 0 {
-		q.Set("per_page", strconv.Itoa(params.PerPage))
+		q.Set("per", strconv.Itoa(params.PerPage))
+	}
+	if params.Source != "" {
+		q.Set("source", params.Source)
 	}
 
 	apiPath := "/api/v1/datasets"

@@ -3,3 +3,10 @@ dist/
 coverage.out
 coverage.html
 .DS_Store
+web/node_modules/
+web/dist/
+internal/server/static/*.js
+internal/server/static/*.css
+internal/server/static/*.html
+internal/server/static/*.svg
+internal/server/static/assets/

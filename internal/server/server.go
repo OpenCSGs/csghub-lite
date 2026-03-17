@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"os/signal"
 	"strings"
@@ -19,8 +20,8 @@ import (
 )
 
 const (
-	DefaultKeepAlive  = 5 * time.Minute
-	evictorInterval   = 30 * time.Second
+	DefaultKeepAlive = 5 * time.Minute
+	evictorInterval  = 30 * time.Second
 )
 
 type managedEngine struct {
@@ -38,6 +39,7 @@ type Server struct {
 	manager        *model.Manager
 	datasetManager *dataset.Manager
 	http           *http.Server
+	logBuf         *LogBuffer
 
 	mu      sync.RWMutex
 	engines map[string]*managedEngine
@@ -46,17 +48,21 @@ type Server struct {
 func New(cfg *config.Config) *Server {
 	mgr := model.NewManager(cfg)
 	dsMgr := dataset.NewManager(cfg)
+	logBuf := NewLogBuffer(500)
+	SetupLogging(logBuf)
+
 	s := &Server{
 		cfg:            cfg,
 		manager:        mgr,
 		datasetManager: dsMgr,
 		engines:        make(map[string]*managedEngine),
+		logBuf:         logBuf,
 	}
 
-	mux := s.routes()
+	handler := s.routes()
 	s.http = &http.Server{
 		Addr:         cfg.ListenAddr,
-		Handler:      mux,
+		Handler:      handler,
 		ReadTimeout:  30 * time.Second,
 		WriteTimeout: 0, // streaming responses
 		IdleTimeout:  120 * time.Second,
@@ -68,6 +74,11 @@ func (s *Server) Run(ctx context.Context) error {
 	ctx, stop := signal.NotifyContext(ctx, syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
+	// Port conflict detection
+	if err := checkPort(s.cfg.ListenAddr); err != nil {
+		return fmt.Errorf("port %s is already in use; try a different port with --listen :PORT\n  %w", s.cfg.ListenAddr, err)
+	}
+
 	go s.startEvictor(ctx)
 
 	errCh := make(chan error, 1)
@@ -77,6 +88,7 @@ func (s *Server) Run(ctx context.Context) error {
 			addr = "localhost" + addr
 		}
 		fmt.Printf("csghub-lite server listening on %s\n", s.cfg.ListenAddr)
+		fmt.Printf("  Web UI:     http://%s/\n", addr)
 		fmt.Printf("  Ollama API: http://%s/api/chat\n", addr)
 		fmt.Printf("  OpenAI API: http://%s/v1/chat/completions\n", addr)
 		if err := s.http.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
@@ -95,6 +107,16 @@ func (s *Server) Run(ctx context.Context) error {
 		defer cancel()
 		return s.http.Shutdown(shutCtx)
 	}
+}
+
+// checkPort attempts to listen on the address to detect conflicts early.
+func checkPort(addr string) error {
+	ln, err := net.Listen("tcp", addr)
+	if err != nil {
+		return err
+	}
+	ln.Close()
+	return nil
 }
 
 // startEvictor periodically closes engines that have exceeded their keep-alive.
