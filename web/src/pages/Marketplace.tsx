@@ -3,6 +3,7 @@ import { signal, computed } from "@preact/signals";
 import {
   getMarketplaceModels,
   getMarketplaceDatasets,
+  getTags,
   pullModel,
 } from "../api/client";
 import type { MarketplaceModel, MarketplaceDataset } from "../api/client";
@@ -21,6 +22,13 @@ const total = signal(0);
 const loading = signal(false);
 
 const pullingModels = signal<Record<string, { status: string; percent: number }>>({});
+const localModelNames = signal<Set<string>>(new Set());
+
+function loadLocalModels() {
+  getTags().then((m) => {
+    localModelNames.value = new Set(m.map((x) => x.name));
+  }).catch(() => {});
+}
 
 const totalPages = computed(() => Math.max(1, Math.ceil(total.value / perPage)));
 
@@ -57,6 +65,7 @@ export function Marketplace() {
 
   useEffect(() => {
     loadData();
+    loadLocalModels();
   }, []);
 
   useEffect(() => {
@@ -99,7 +108,14 @@ export function Marketplace() {
         const cur = { ...pullingModels.value };
         cur[modelPath] = { status: p.status, percent: pct };
         pullingModels.value = cur;
-        if (p.status === "success" || p.status.startsWith("error")) {
+        if (p.status === "success") {
+          loadLocalModels();
+          setTimeout(() => {
+            const c = { ...pullingModels.value };
+            delete c[modelPath];
+            pullingModels.value = c;
+          }, 5000);
+        } else if (p.status.startsWith("error")) {
           setTimeout(() => {
             const c = { ...pullingModels.value };
             delete c[modelPath];
@@ -162,7 +178,7 @@ export function Marketplace() {
       ) : activeTab.value === "models" ? (
         <div class="space-y-0 divide-y divide-gray-100">
           {models.value.map((m) => (
-            <ModelCard key={m.id} model={m} pulling={pullingModels.value[m.path]} onDownload={handleDownload} />
+            <ModelCard key={m.id} model={m} pulling={pullingModels.value[m.path]} isLocal={localModelNames.value.has(m.path)} onDownload={handleDownload} />
           ))}
           {models.value.length === 0 && <p class="text-center py-16 text-gray-400">{t("mp.noModels")}</p>}
         </div>
@@ -221,20 +237,25 @@ function TabButton({ label, active, onClick }: { label: string; active: boolean;
 function ModelCard({
   model,
   pulling,
+  isLocal,
   onDownload,
 }: {
   model: MarketplaceModel;
   pulling?: { status: string; percent: number };
+  isLocal?: boolean;
   onDownload: (path: string) => void;
 }) {
   void locale.value;
   const tags = model.tags?.filter((t) => t.category === "task" || t.category === "license").slice(0, 3) || [];
 
   return (
-    <div class="flex items-start justify-between py-4">
+    <div class="flex items-center justify-between py-4">
       <div class="flex-1 min-w-0">
         <div class="flex items-center gap-2">
           <span class="font-medium text-gray-900">{model.path}</span>
+          {isLocal && (
+            <span class="px-1.5 py-0.5 text-xs bg-indigo-50 text-indigo-600 rounded font-medium">{t("mp.downloaded")}</span>
+          )}
         </div>
         {model.description && (
           <p class="text-sm text-gray-500 mt-1 line-clamp-1">{model.description}</p>
@@ -256,11 +277,18 @@ function ModelCard({
           </span>
         </div>
       </div>
-      <div class="ml-4 flex-shrink-0 w-36">
-        {pulling ? (
+      <div class="ml-4 flex-shrink-0 w-28 flex items-center justify-end">
+        {isLocal && !pulling ? (
+          <span class="inline-flex items-center gap-1.5 px-4 py-1.5 text-sm text-indigo-600 font-medium">
+            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
+            </svg>
+            {t("mp.downloaded")}
+          </span>
+        ) : pulling ? (
           <div>
             {pulling.status === "success" ? (
-              <div class="flex items-center justify-end gap-1.5 text-green-600">
+              <div class="flex items-center justify-end gap-1.5 text-indigo-600">
                 <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                   <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
                 </svg>
