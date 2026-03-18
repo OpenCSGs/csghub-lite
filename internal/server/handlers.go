@@ -3,11 +3,14 @@ package server
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/opencsgs/csghub-lite/internal/csghub"
 	"github.com/opencsgs/csghub-lite/internal/inference"
+	"github.com/opencsgs/csghub-lite/internal/model"
 	"github.com/opencsgs/csghub-lite/pkg/api"
 )
 
@@ -43,12 +46,23 @@ func (s *Server) handleTags(w http.ResponseWriter, r *http.Request) {
 
 	var infos []api.ModelInfo
 	for _, m := range models {
+		tag := m.PipelineTag
+		hasMMProj := false
+		dir, dirErr := s.manager.ModelPath(m.FullName())
+		if tag == "" && dirErr == nil {
+			tag = model.DetectPipelineTag(dir)
+		}
+		if dirErr == nil {
+			hasMMProj = model.FindMMProj(dir) != ""
+		}
 		infos = append(infos, api.ModelInfo{
-			Name:       m.FullName(),
-			Model:      m.FullName(),
-			Size:       m.Size,
-			Format:     string(m.Format),
-			ModifiedAt: m.DownloadedAt,
+			Name:        m.FullName(),
+			Model:       m.FullName(),
+			Size:        m.Size,
+			Format:      string(m.Format),
+			ModifiedAt:  m.DownloadedAt,
+			PipelineTag: tag,
+			HasMMProj:   hasMMProj,
 		})
 	}
 
@@ -139,10 +153,17 @@ func (s *Server) handlePull(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
 
-	writeSSE(w, api.PullResponse{Status: "pulling " + req.Model})
+	var mu sync.Mutex
+	safeSSE := func(v interface{}) {
+		mu.Lock()
+		writeSSE(w, v)
+		mu.Unlock()
+	}
+
+	safeSSE(api.PullResponse{Status: "pulling " + req.Model})
 
 	progress := func(p csghub.SnapshotProgress) {
-		writeSSE(w, api.PullResponse{
+		safeSSE(api.PullResponse{
 			Status:    fmt.Sprintf("downloading %s", p.FileName),
 			Digest:    p.FileName,
 			Total:     p.BytesTotal,
@@ -152,11 +173,12 @@ func (s *Server) handlePull(w http.ResponseWriter, r *http.Request) {
 
 	_, err := s.manager.Pull(r.Context(), req.Model, progress)
 	if err != nil {
-		writeSSE(w, api.PullResponse{Status: "error: " + err.Error()})
+		log.Printf("pull %s failed: %v", req.Model, err)
+		safeSSE(api.PullResponse{Status: "error: " + err.Error()})
 		return
 	}
 
-	writeSSE(w, api.PullResponse{Status: "success"})
+	safeSSE(api.PullResponse{Status: "success"})
 }
 
 // DELETE /api/delete -- remove a model

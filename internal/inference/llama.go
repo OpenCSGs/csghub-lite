@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net"
 	"net/http"
 	"os"
@@ -52,12 +53,13 @@ func (w *cappedWriter) String() string {
 // OpenAI-compatible HTTP API. This avoids CGO complexity while providing
 // full llama.cpp inference capabilities.
 type llamaEngine struct {
-	cmd       *exec.Cmd
-	port      int
-	modelPath string
-	modelName string
-	client    *http.Client
-	logBuf    *cappedWriter
+	cmd            *exec.Cmd
+	port           int
+	modelPath      string
+	modelName      string
+	client         *http.Client
+	logBuf         *cappedWriter
+	hasMultimodal  bool
 }
 
 func findLlamaBinary() string {
@@ -97,7 +99,7 @@ func findFreePort() (int, error) {
 	return l.Addr().(*net.TCPAddr).Port, nil
 }
 
-func newLlamaEngine(modelPath, modelName string, verbose bool) (*llamaEngine, error) {
+func newLlamaEngine(modelPath, modelName string, verbose bool, mmproj ...string) (*llamaEngine, error) {
 	binary := findLlamaBinary()
 	if binary == "" {
 		return nil, fmt.Errorf("llama-server not found in PATH.\n" +
@@ -124,6 +126,11 @@ func newLlamaEngine(modelPath, modelName string, verbose bool) (*llamaEngine, er
 		"--host", "127.0.0.1",
 		"--port", fmt.Sprintf("%d", port),
 		"-c", "4096",
+		"--reasoning", "off",
+	}
+	if len(mmproj) > 0 && mmproj[0] != "" {
+		args = append(args, "--mmproj", mmproj[0])
+		engine.hasMultimodal = true
 	}
 	if hasGPU() {
 		args = append(args, "-ngl", "9999")
@@ -169,11 +176,33 @@ func (e *llamaEngine) waitForReady(timeout time.Duration) error {
 	deadline := time.Now().Add(timeout)
 	url := fmt.Sprintf("http://127.0.0.1:%d/health", e.port)
 
+	// Monitor process exit in background so we can fail fast.
+	exited := make(chan error, 1)
+	go func() { exited <- e.cmd.Wait() }()
+
 	for time.Now().Before(deadline) {
+		select {
+		case err := <-exited:
+			msg := "llama-server exited unexpectedly"
+			if err != nil {
+				msg += ": " + err.Error()
+			}
+			if e.logBuf != nil {
+				if tail := strings.TrimSpace(e.logBuf.String()); tail != "" {
+					msg += "\n\nllama-server output:\n" + tail
+				}
+			}
+			e.cmd = nil // process already exited
+			return fmt.Errorf("%s", msg)
+		default:
+		}
+
 		resp, err := http.Get(url)
 		if err == nil {
 			resp.Body.Close()
 			if resp.StatusCode == http.StatusOK {
+				// Drain the exited channel goroutine — process is still running,
+				// it will be collected by Close().
 				return nil
 			}
 		}
@@ -195,15 +224,105 @@ func (e *llamaEngine) baseURL() string {
 
 func (e *llamaEngine) Generate(ctx context.Context, prompt string, opts Options, onToken TokenCallback) (string, error) {
 	messages := []Message{
-		{Role: "user", Content: prompt},
+		{Role: "user", Content: interface{}(prompt)},
 	}
 	return e.Chat(ctx, messages, opts, onToken)
+}
+
+// supportedImagePrefix lists data URL prefixes that llama-server (stb_image) can decode.
+var supportedImagePrefixes = []string{
+	"data:image/png;base64,",
+	"data:image/jpeg;base64,",
+	"data:image/jpg;base64,",
+	"data:image/gif;base64,",
+	"data:image/bmp;base64,",
+}
+
+func isSupportedImageURL(url string) bool {
+	lower := strings.ToLower(url)
+	for _, prefix := range supportedImagePrefixes {
+		if strings.HasPrefix(lower, prefix) {
+			return true
+		}
+	}
+	// Remote URLs (http/https) are also supported by llama-server
+	return strings.HasPrefix(lower, "http://") || strings.HasPrefix(lower, "https://")
+}
+
+// sanitizeMessages processes multimodal messages:
+// - Without multimodal: strips all image_url parts, keeping only text
+// - With multimodal: strips unsupported image formats (e.g. WebP, HEIC)
+func (e *llamaEngine) sanitizeMessages(messages []Message) []Message {
+	out := make([]Message, 0, len(messages))
+	for _, m := range messages {
+		parts, ok := m.Content.([]interface{})
+		if !ok {
+			out = append(out, m)
+			continue
+		}
+
+		if !e.hasMultimodal {
+			var text string
+			for _, p := range parts {
+				pm, _ := p.(map[string]interface{})
+				if pm != nil && pm["type"] == "text" {
+					if t, ok := pm["text"].(string); ok {
+						text += t
+					}
+				}
+			}
+			if text == "" {
+				text = "(image removed)"
+			}
+			out = append(out, Message{Role: m.Role, Content: text})
+			continue
+		}
+
+		// Multimodal engine: keep text and supported images only
+		var filtered []interface{}
+		for _, p := range parts {
+			pm, ok := p.(map[string]interface{})
+			if !ok {
+				continue
+			}
+			if pm["type"] == "text" {
+				filtered = append(filtered, p)
+				continue
+			}
+			if pm["type"] == "image_url" {
+				imgURL, _ := pm["image_url"].(map[string]interface{})
+				if imgURL != nil {
+					url, _ := imgURL["url"].(string)
+					if isSupportedImageURL(url) {
+						filtered = append(filtered, p)
+					} else {
+						log.Printf("stripping unsupported image format: %s", url[:min(80, len(url))])
+					}
+				}
+			}
+		}
+		if len(filtered) == 0 {
+			out = append(out, Message{Role: m.Role, Content: "(images removed - unsupported format)"})
+		} else {
+			out = append(out, Message{Role: m.Role, Content: filtered})
+		}
+	}
+	return out
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }
 
 func (e *llamaEngine) Chat(ctx context.Context, messages []Message, opts Options, onToken TokenCallback) (string, error) {
 	if opts.MaxTokens == 0 {
 		opts = DefaultOptions()
 	}
+
+	messages = e.sanitizeMessages(messages)
 
 	reqBody := map[string]interface{}{
 		"messages":    messages,
@@ -239,6 +358,12 @@ func (e *llamaEngine) Chat(ctx context.Context, messages []Message, opts Options
 
 	if resp.StatusCode != http.StatusOK {
 		errBody, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		// Log the request body (truncate image data for readability)
+		reqDebug := string(body)
+		if len(reqDebug) > 500 {
+			reqDebug = reqDebug[:500] + "...(truncated)"
+		}
+		log.Printf("llama-server error %d: %s\nRequest (truncated): %s", resp.StatusCode, string(errBody), reqDebug)
 		return "", fmt.Errorf("inference error %d: %s", resp.StatusCode, string(errBody))
 	}
 
@@ -274,11 +399,7 @@ func (e *llamaEngine) handleStream(body io.Reader, onToken TokenCallback) (strin
 			continue
 		}
 		if len(chunk.Choices) > 0 {
-			d := chunk.Choices[0].Delta
-			token := d.Content
-			if token == "" {
-				token = d.ReasoningContent
-			}
+			token := chunk.Choices[0].Delta.Content
 			if token != "" {
 				full.WriteString(token)
 				onToken(token)
@@ -309,7 +430,16 @@ func (e *llamaEngine) handleNonStream(body io.Reader) (string, error) {
 func (e *llamaEngine) Close() error {
 	if e.cmd != nil && e.cmd.Process != nil {
 		e.cmd.Process.Kill()
-		e.cmd.Wait()
+		done := make(chan struct{})
+		go func() {
+			e.cmd.Wait()
+			close(done)
+		}()
+		select {
+		case <-done:
+		case <-time.After(5 * time.Second):
+			// Process stuck in uninterruptible state; abandon it.
+		}
 	}
 	return nil
 }

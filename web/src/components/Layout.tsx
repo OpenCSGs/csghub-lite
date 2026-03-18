@@ -1,15 +1,18 @@
 import { ComponentChildren } from "preact";
 import { useLocation } from "preact-iso";
+import { t, locale, setLocale } from "../i18n";
+import type { Locale } from "../i18n";
 
-const navItems = [
-  { path: "/", label: "Dashboard", icon: DashboardIcon },
-  { path: "/marketplace", label: "Marketplace", icon: MarketplaceIcon },
-  { path: "/library", label: "Library", icon: LibraryIcon },
-  { path: "/chat", label: "Chat", icon: ChatIcon },
+const navKeys = [
+  { path: "/", key: "nav.dashboard", icon: DashboardIcon },
+  { path: "/marketplace", key: "nav.marketplace", icon: MarketplaceIcon },
+  { path: "/library", key: "nav.library", icon: LibraryIcon },
+  { path: "/chat", key: "nav.chat", icon: ChatIcon },
 ];
 
 export function Layout({ children }: { children: ComponentChildren }) {
   const { path } = useLocation();
+  void locale.value;
 
   return (
     <div class="flex h-screen overflow-hidden">
@@ -21,7 +24,7 @@ export function Layout({ children }: { children: ComponentChildren }) {
           <span class="font-semibold text-base text-gray-900">CSGHub Lite</span>
         </div>
         <nav class="flex-1 px-3 space-y-1 mt-2">
-          {navItems.map((item) => {
+          {navKeys.map((item) => {
             const active = path === item.path || (item.path !== "/" && path.startsWith(item.path));
             return (
               <a
@@ -34,17 +37,35 @@ export function Layout({ children }: { children: ComponentChildren }) {
                 }`}
               >
                 <item.icon active={active} />
-                {item.label}
+                {t(item.key)}
               </a>
             );
           })}
         </nav>
-        <div class="p-4 text-xs text-gray-400 text-center">
+        <div class="px-4 pb-2 flex justify-center gap-1">
+          <LangBtn code="en" label="EN" />
+          <LangBtn code="zh" label="中文" />
+        </div>
+        <div class="p-4 pt-0 text-xs text-gray-400 text-center">
           &copy; OpenCSG &middot; Powered By OpenCSG
         </div>
       </aside>
       <main class="flex-1 overflow-auto bg-gray-50">{children}</main>
     </div>
+  );
+}
+
+function LangBtn({ code, label }: { code: Locale; label: string }) {
+  const active = locale.value === code;
+  return (
+    <button
+      onClick={() => setLocale(code)}
+      class={`px-2.5 py-1 text-xs rounded-md transition-colors ${
+        active ? "bg-indigo-100 text-indigo-700 font-medium" : "text-gray-400 hover:text-gray-600 hover:bg-gray-100"
+      }`}
+    >
+      {label}
+    </button>
   );
 }
 

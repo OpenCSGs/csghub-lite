@@ -4,6 +4,8 @@ export interface ModelInfo {
   size: number;
   format: string;
   modified_at: string;
+  pipeline_tag?: string;
+  has_mmproj?: boolean;
 }
 
 export interface RunningModel {
@@ -52,9 +54,17 @@ export interface SystemInfo {
   gpu_vram_total: number;
 }
 
+export type ChatContent = string | ContentPart[];
+
+export interface ContentPart {
+  type: "text" | "image_url";
+  text?: string;
+  image_url?: { url: string };
+}
+
 export interface ChatMessage {
   role: string;
-  content: string;
+  content: ChatContent;
 }
 
 export interface PullProgress {
@@ -127,10 +137,45 @@ export function pullModel(
         const reader = resp.body.getReader();
         const decoder = new TextDecoder();
         let buf = "";
+        let lastUpdate = 0;
+        let pending: PullProgress | null = null;
+        let flushTimer = 0;
+
+        function flushPending() {
+          if (pending) {
+            onProgress(pending);
+            pending = null;
+          }
+        }
+
+        function processLine(line: string) {
+          if (!line.startsWith("data: ")) return;
+          try {
+            const p: PullProgress = JSON.parse(line.slice(6));
+            if (p.status === "success" || p.status.startsWith("error")) {
+              clearTimeout(flushTimer);
+              onProgress(p);
+              return;
+            }
+            const now = Date.now();
+            if (now - lastUpdate >= 200) {
+              lastUpdate = now;
+              onProgress(p);
+            } else {
+              pending = p;
+              clearTimeout(flushTimer);
+              flushTimer = window.setTimeout(flushPending, 200);
+            }
+          } catch {
+            /* skip */
+          }
+        }
 
         function read(): Promise<void> {
           return reader.read().then(({ done, value }) => {
             if (done) {
+              clearTimeout(flushTimer);
+              flushPending();
               resolve();
               return;
             }
@@ -138,21 +183,31 @@ export function pullModel(
             const lines = buf.split("\n");
             buf = lines.pop() || "";
             for (const line of lines) {
-              if (line.startsWith("data: ")) {
-                try {
-                  onProgress(JSON.parse(line.slice(6)));
-                } catch {
-                  /* skip */
-                }
-              }
+              processLine(line);
             }
             return read();
           });
         }
 
-        read().catch(reject);
+        read().catch((err) => {
+          clearTimeout(flushTimer);
+          reject(err);
+        });
       })
       .catch(reject);
+  });
+}
+
+function stripImagesFromOldMessages(msgs: ChatMessage[]): ChatMessage[] {
+  if (msgs.length <= 1) return msgs;
+  return msgs.map((m, i) => {
+    if (i === msgs.length - 1) return m;
+    if (!Array.isArray(m.content)) return m;
+    const textParts = (m.content as ContentPart[])
+      .filter((p) => p.type === "text")
+      .map((p) => p.text || "")
+      .join("");
+    return { ...m, content: textParts || "(image)" };
   });
 }
 
@@ -163,7 +218,7 @@ export function streamChat(
   onToken: (token: string, done: boolean) => void,
   signal?: AbortSignal
 ): Promise<void> {
-  const msgs = [...messages];
+  let msgs = stripImagesFromOldMessages([...messages]);
   if (options.system) {
     msgs.unshift({ role: "system", content: options.system });
   }
@@ -184,9 +239,14 @@ export function streamChat(
       }),
       signal,
     })
-      .then((resp) => {
-        if (!resp.ok || !resp.body) {
-          reject(new Error("chat failed"));
+      .then(async (resp) => {
+        if (!resp.ok) {
+          const errText = await resp.text().catch(() => resp.statusText);
+          reject(new Error(`Error ${resp.status}: ${errText}`));
+          return;
+        }
+        if (!resp.body) {
+          reject(new Error("No response body"));
           return;
         }
         const reader = resp.body.getReader();
@@ -206,10 +266,11 @@ export function streamChat(
               if (line.startsWith("data: ")) {
                 try {
                   const data = JSON.parse(line.slice(6));
+                  if (data.message?.content) {
+                    onToken(data.message.content, false);
+                  }
                   if (data.done) {
                     onToken("", true);
-                  } else if (data.message?.content) {
-                    onToken(data.message.content, false);
                   }
                 } catch {
                   /* skip */

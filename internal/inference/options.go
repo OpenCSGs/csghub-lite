@@ -24,9 +24,22 @@ func DefaultOptions() Options {
 }
 
 // Message represents a chat message.
+// Content can be a string for text-only, or an array of content parts
+// for multimodal (e.g., image + text) messages.
 type Message struct {
-	Role    string `json:"role"`
-	Content string `json:"content"`
+	Role    string      `json:"role"`
+	Content interface{} `json:"content"`
+}
+
+// ContentPart represents one part of a multimodal message.
+type ContentPart struct {
+	Type     string    `json:"type"`
+	Text     string    `json:"text,omitempty"`
+	ImageURL *ImageURL `json:"image_url,omitempty"`
+}
+
+type ImageURL struct {
+	URL string `json:"url"`
 }
 
 // TokenCallback is called for each generated token during streaming.

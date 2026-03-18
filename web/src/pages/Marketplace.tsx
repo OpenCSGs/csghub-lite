@@ -6,6 +6,7 @@ import {
   pullModel,
 } from "../api/client";
 import type { MarketplaceModel, MarketplaceDataset } from "../api/client";
+import { t, locale } from "../i18n";
 
 type Tab = "models" | "datasets";
 const activeTab = signal<Tab>("models");
@@ -52,6 +53,8 @@ async function loadData() {
 }
 
 export function Marketplace() {
+  void locale.value;
+
   useEffect(() => {
     loadData();
   }, []);
@@ -69,13 +72,30 @@ export function Marketplace() {
 
   const handleDownload = (modelPath: string) => {
     const cur = { ...pullingModels.value };
-    cur[modelPath] = { status: "starting", percent: 0 };
+    cur[modelPath] = { status: "downloading", percent: 0 };
     pullingModels.value = cur;
+
+    const fileMap: Record<string, { completed: number; total: number }> = {};
 
     pullModel(
       modelPath,
       (p) => {
-        const pct = p.total && p.total > 0 ? Math.round(((p.completed || 0) / p.total) * 100) : 0;
+        if (p.digest && p.total && p.total > 0) {
+          fileMap[p.digest] = { completed: p.completed || 0, total: p.total };
+        }
+
+        let totalBytes = 0;
+        let completedBytes = 0;
+        let hasPartial = false;
+        for (const fp of Object.values(fileMap)) {
+          totalBytes += fp.total;
+          completedBytes += fp.completed;
+          if (fp.completed < fp.total) hasPartial = true;
+        }
+        const pct = (hasPartial && totalBytes > 0)
+          ? Math.round((completedBytes / totalBytes) * 100)
+          : 0;
+
         const cur = { ...pullingModels.value };
         cur[modelPath] = { status: p.status, percent: pct };
         pullingModels.value = cur;
@@ -84,24 +104,31 @@ export function Marketplace() {
             const c = { ...pullingModels.value };
             delete c[modelPath];
             pullingModels.value = c;
-          }, 3000);
+          }, 5000);
         }
       }
-    );
+    ).catch(() => {
+      const c = { ...pullingModels.value };
+      c[modelPath] = { status: "error: download failed", percent: 0 };
+      pullingModels.value = c;
+      setTimeout(() => {
+        const d = { ...pullingModels.value };
+        delete d[modelPath];
+        pullingModels.value = d;
+      }, 5000);
+    });
   };
 
   return (
     <div class="p-8 max-w-5xl mx-auto">
-      <h1 class="text-2xl font-bold text-gray-900">Marketplace</h1>
-      <p class="text-gray-500 text-sm mt-1 mb-6">
-        The model application market allows for quick loading and usage.
-      </p>
+      <h1 class="text-2xl font-bold text-gray-900">{t("mp.title")}</h1>
+      <p class="text-gray-500 text-sm mt-1 mb-6">{t("mp.subtitle")}</p>
 
       {/* Tabs + Search */}
       <div class="flex items-center gap-4 mb-6 flex-wrap">
         <div class="flex bg-gray-100 rounded-lg p-0.5">
-          <TabButton label="Models" active={activeTab.value === "models"} onClick={() => (activeTab.value = "models")} />
-          <TabButton label="Datasets" active={activeTab.value === "datasets"} onClick={() => (activeTab.value = "datasets")} />
+          <TabButton label={t("mp.models")} active={activeTab.value === "models"} onClick={() => (activeTab.value = "models")} />
+          <TabButton label={t("mp.datasets")} active={activeTab.value === "datasets"} onClick={() => (activeTab.value = "datasets")} />
         </div>
         <form onSubmit={handleSearch} class="flex-1 min-w-[200px]">
           <div class="relative">
@@ -110,7 +137,7 @@ export function Marketplace() {
             </svg>
             <input
               type="text"
-              placeholder="Search..."
+              placeholder={t("mp.search")}
               class="w-full pl-10 pr-4 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
               value={searchQuery.value}
               onInput={(e) => (searchQuery.value = (e.target as HTMLInputElement).value)}
@@ -122,29 +149,29 @@ export function Marketplace() {
           value={sortBy.value}
           onChange={(e) => (sortBy.value = (e.target as HTMLSelectElement).value)}
         >
-          <option value="trending">Trending</option>
-          <option value="recently_update">Recently Updated</option>
-          <option value="most_download">Most Downloads</option>
-          <option value="most_favorite">Most Likes</option>
+          <option value="trending">{t("mp.trending")}</option>
+          <option value="recently_update">{t("mp.recentlyUpdated")}</option>
+          <option value="most_download">{t("mp.mostDownloads")}</option>
+          <option value="most_favorite">{t("mp.mostLikes")}</option>
         </select>
       </div>
 
       {/* List */}
       {loading.value ? (
-        <div class="text-center py-16 text-gray-400">Loading...</div>
+        <div class="text-center py-16 text-gray-400">{t("mp.loading")}</div>
       ) : activeTab.value === "models" ? (
         <div class="space-y-0 divide-y divide-gray-100">
           {models.value.map((m) => (
             <ModelCard key={m.id} model={m} pulling={pullingModels.value[m.path]} onDownload={handleDownload} />
           ))}
-          {models.value.length === 0 && <p class="text-center py-16 text-gray-400">No models found.</p>}
+          {models.value.length === 0 && <p class="text-center py-16 text-gray-400">{t("mp.noModels")}</p>}
         </div>
       ) : (
         <div class="space-y-0 divide-y divide-gray-100">
           {datasets.value.map((d) => (
             <DatasetCard key={d.id} dataset={d} />
           ))}
-          {datasets.value.length === 0 && <p class="text-center py-16 text-gray-400">No datasets found.</p>}
+          {datasets.value.length === 0 && <p class="text-center py-16 text-gray-400">{t("mp.noDatasets")}</p>}
         </div>
       )}
 
@@ -156,17 +183,17 @@ export function Marketplace() {
             onClick={() => { page.value--; loadData(); }}
             class="px-3 py-1.5 text-sm border border-gray-200 rounded-lg disabled:opacity-40 hover:bg-gray-50"
           >
-            Previous
+            {t("mp.prev")}
           </button>
           <span class="text-sm text-gray-500">
-            Page {page.value} of {totalPages.value}
+            {t("mp.page", page.value, totalPages.value)}
           </span>
           <button
             disabled={page.value >= totalPages.value}
             onClick={() => { page.value++; loadData(); }}
             class="px-3 py-1.5 text-sm border border-gray-200 rounded-lg disabled:opacity-40 hover:bg-gray-50"
           >
-            Next
+            {t("mp.next")}
           </button>
         </div>
       )}
@@ -200,6 +227,7 @@ function ModelCard({
   pulling?: { status: string; percent: number };
   onDownload: (path: string) => void;
 }) {
+  void locale.value;
   const tags = model.tags?.filter((t) => t.category === "task" || t.category === "license").slice(0, 3) || [];
 
   return (
@@ -212,9 +240,9 @@ function ModelCard({
           <p class="text-sm text-gray-500 mt-1 line-clamp-1">{model.description}</p>
         )}
         <div class="flex items-center gap-3 mt-2 text-xs text-gray-400">
-          {tags.map((t) => (
-            <span key={t.name} class="bg-gray-100 text-gray-600 px-2 py-0.5 rounded">
-              {t.show_name || t.name}
+          {tags.map((tg) => (
+            <span key={tg.name} class="bg-gray-100 text-gray-600 px-2 py-0.5 rounded">
+              {tg.show_name || tg.name}
             </span>
           ))}
           <span>&middot;</span>
@@ -228,23 +256,45 @@ function ModelCard({
           </span>
         </div>
       </div>
-      <div class="ml-4 flex-shrink-0">
+      <div class="ml-4 flex-shrink-0 w-36">
         {pulling ? (
-          <div class="text-xs text-indigo-600 w-24 text-right">
+          <div>
             {pulling.status === "success" ? (
-              <span class="text-green-600">Done!</span>
+              <div class="flex items-center justify-end gap-1.5 text-green-600">
+                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
+                </svg>
+                <span class="text-sm font-medium">{t("mp.done")}</span>
+              </div>
             ) : pulling.status.startsWith("error") ? (
-              <span class="text-red-500">Error</span>
+              <div class="flex items-center justify-end gap-1.5 text-red-500" title={pulling.status}>
+                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+                <span class="text-sm font-medium">{t("mp.failed")}</span>
+              </div>
             ) : (
-              <span>{pulling.percent}%</span>
+              <div>
+                <div class="flex items-center justify-between mb-1">
+                  <span class="text-xs text-indigo-600 font-medium">
+                    {pulling.percent > 0 ? `${pulling.percent}%` : t("mp.pulling")}
+                  </span>
+                </div>
+                <div class="w-full h-1.5 bg-gray-200 rounded-full overflow-hidden">
+                  <div
+                    class="h-full bg-indigo-500 rounded-full transition-all duration-300"
+                    style={{ width: `${Math.max(pulling.percent, 3)}%` }}
+                  />
+                </div>
+              </div>
             )}
           </div>
         ) : (
           <button
             onClick={() => onDownload(model.path)}
-            class="flex items-center gap-1.5 px-4 py-1.5 text-sm border border-gray-200 rounded-lg hover:bg-gray-50 text-gray-700 transition-colors"
+            class="flex items-center justify-center gap-1.5 w-full px-4 py-1.5 text-sm border border-gray-200 rounded-lg hover:bg-gray-50 text-gray-700 transition-colors"
           >
-            <DownloadIcon /> Download
+            <DownloadIcon /> {t("mp.download")}
           </button>
         )}
       </div>
@@ -263,9 +313,9 @@ function DatasetCard({ dataset }: { dataset: MarketplaceDataset }) {
           <p class="text-sm text-gray-500 mt-1 line-clamp-1">{dataset.description}</p>
         )}
         <div class="flex items-center gap-3 mt-2 text-xs text-gray-400">
-          {tags.map((t) => (
-            <span key={t.name} class="bg-gray-100 text-gray-600 px-2 py-0.5 rounded">
-              {t.show_name || t.name}
+          {tags.map((tg) => (
+            <span key={tg.name} class="bg-gray-100 text-gray-600 px-2 py-0.5 rounded">
+              {tg.show_name || tg.name}
             </span>
           ))}
           <span>&middot;</span>

@@ -10,3 +10,4 @@ internal/server/static/*.css
 internal/server/static/*.html
 internal/server/static/*.svg
 internal/server/static/assets/
+design/

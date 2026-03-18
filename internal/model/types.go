@@ -19,6 +19,7 @@ type LocalModel struct {
 	DownloadedAt time.Time `json:"downloaded_at"`
 	Description  string    `json:"description,omitempty"`
 	License      string    `json:"license,omitempty"`
+	PipelineTag  string    `json:"pipeline_tag,omitempty"`
 }
 
 func (m *LocalModel) FullName() string {

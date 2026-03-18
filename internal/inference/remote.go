@@ -107,9 +107,11 @@ func (e *remoteEngine) handleSSEStream(body io.Reader, onToken TokenCallback) (s
 		if chatResp.Done {
 			break
 		}
-		if chatResp.Message != nil && chatResp.Message.Content != "" {
-			full.WriteString(chatResp.Message.Content)
-			onToken(chatResp.Message.Content)
+		if chatResp.Message != nil {
+			if s, ok := chatResp.Message.Content.(string); ok && s != "" {
+				full.WriteString(s)
+				onToken(s)
+			}
 		}
 	}
 
@@ -124,7 +126,10 @@ func (e *remoteEngine) handleJSONResponse(body io.Reader) (string, error) {
 	if chatResp.Message == nil {
 		return "", fmt.Errorf("no message in response")
 	}
-	return chatResp.Message.Content, nil
+	if s, ok := chatResp.Message.Content.(string); ok {
+		return s, nil
+	}
+	return "", nil
 }
 
 func (e *remoteEngine) Close() error {

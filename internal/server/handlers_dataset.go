@@ -3,7 +3,9 @@ package server
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
+	"sync"
 
 	"github.com/opencsgs/csghub-lite/internal/csghub"
 	"github.com/opencsgs/csghub-lite/pkg/api"
@@ -69,10 +71,17 @@ func (s *Server) handleDatasetPull(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
 
-	writeSSE(w, api.DatasetPullResponse{Status: "pulling " + req.Dataset})
+	var mu sync.Mutex
+	safeSSE := func(v interface{}) {
+		mu.Lock()
+		writeSSE(w, v)
+		mu.Unlock()
+	}
+
+	safeSSE(api.DatasetPullResponse{Status: "pulling " + req.Dataset})
 
 	progress := func(p csghub.SnapshotProgress) {
-		writeSSE(w, api.DatasetPullResponse{
+		safeSSE(api.DatasetPullResponse{
 			Status:    fmt.Sprintf("downloading %s", p.FileName),
 			Digest:    p.FileName,
 			Total:     p.BytesTotal,
@@ -82,11 +91,12 @@ func (s *Server) handleDatasetPull(w http.ResponseWriter, r *http.Request) {
 
 	_, err := s.datasetManager.Pull(r.Context(), req.Dataset, progress)
 	if err != nil {
-		writeSSE(w, api.DatasetPullResponse{Status: "error: " + err.Error()})
+		log.Printf("pull dataset %s failed: %v", req.Dataset, err)
+		safeSSE(api.DatasetPullResponse{Status: "error: " + err.Error()})
 		return
 	}
 
-	writeSSE(w, api.DatasetPullResponse{Status: "success"})
+	safeSSE(api.DatasetPullResponse{Status: "success"})
 }
 
 // DELETE /api/datasets/delete -- remove a dataset

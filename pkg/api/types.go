@@ -81,16 +81,18 @@ type RunningModel struct {
 // -- Shared types --
 
 type Message struct {
-	Role    string `json:"role"`
-	Content string `json:"content"`
+	Role    string      `json:"role"`
+	Content interface{} `json:"content"`
 }
 
 type ModelInfo struct {
-	Name       string    `json:"name"`
-	Model      string    `json:"model"`
-	Size       int64     `json:"size"`
-	Format     string    `json:"format"`
-	ModifiedAt time.Time `json:"modified_at"`
+	Name        string    `json:"name"`
+	Model       string    `json:"model"`
+	Size        int64     `json:"size"`
+	Format      string    `json:"format"`
+	ModifiedAt  time.Time `json:"modified_at"`
+	PipelineTag string    `json:"pipeline_tag,omitempty"`
+	HasMMProj   bool      `json:"has_mmproj,omitempty"`
 }
 
 type ModelOptions struct {

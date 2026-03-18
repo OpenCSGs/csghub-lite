@@ -314,12 +314,17 @@ if ($autoInstall -eq "1") {
 
 Write-Host ""
 Write-Host "Quick start:" -ForegroundColor White
-Write-Host "  csghub-lite --help                      # Show all commands"
-Write-Host "  csghub-lite --version                   # Check version"
-Write-Host "  csghub-lite login                       # Set CSGHub token"
+Write-Host "  csghub-lite serve                       # Start server with Web UI"
 Write-Host "  csghub-lite run Qwen/Qwen3-0.6B-GGUF    # Run a model"
-Write-Host "  csghub-lite serve                       # Run API server in background"
 Write-Host "  csghub-lite ps                          # List running models"
+Write-Host "  csghub-lite login                       # Set CSGHub token"
+Write-Host "  csghub-lite --help                      # Show all commands"
+Write-Host ""
+Write-Host "Web UI:" -ForegroundColor White
+Write-Host "  Start the server and open " -NoNewline
+Write-Host "http://localhost:11435" -ForegroundColor Cyan -NoNewline
+Write-Host " in your browser."
+Write-Host "  Dashboard, Marketplace, Library and Chat are all available."
 Write-Host ""
 Write-Host "Want more?" -ForegroundColor White
 Write-Host "  Visit https://opencsg.com for advanced features,"

@@ -2,6 +2,7 @@ import { useEffect } from "preact/hooks";
 import { signal, computed } from "@preact/signals";
 import { getTags, deleteModel, runModel, getPs } from "../api/client";
 import type { ModelInfo, RunningModel } from "../api/client";
+import { t, locale } from "../i18n";
 
 type FormatFilter = "all" | "gguf" | "safetensors";
 
@@ -11,6 +12,7 @@ const formatFilter = signal<FormatFilter>("all");
 const sortField = signal<"name" | "size" | "modified_at">("name");
 const sortAsc = signal(true);
 const loadingRun = signal<string>("");
+const runError = signal<string>("");
 
 const filtered = computed(() => {
   let list = allModels.value;
@@ -34,23 +36,26 @@ function loadModels() {
 }
 
 export function Library() {
+  void locale.value;
+
   useEffect(() => {
     loadModels();
   }, []);
 
   const handleDelete = async (name: string) => {
-    if (!confirm(`Delete model "${name}"?`)) return;
+    if (!confirm(t("lib.deleteConfirm", name))) return;
     await deleteModel(name);
     allModels.value = allModels.value.filter((m) => m.name !== name);
   };
 
   const handleRun = async (name: string) => {
     loadingRun.value = name;
+    runError.value = "";
     try {
       await runModel(name);
       loadModels();
-    } catch {
-      /* ignore */
+    } catch (e: any) {
+      runError.value = e?.message || t("lib.failedLoad");
     }
     loadingRun.value = "";
   };
@@ -70,10 +75,21 @@ export function Library() {
     <div class="p-8 max-w-5xl mx-auto">
       <div class="flex items-center justify-between mb-1">
         <div>
-          <h1 class="text-2xl font-bold text-gray-900">Library</h1>
-          <p class="text-gray-500 text-sm mt-1">Existing model management</p>
+          <h1 class="text-2xl font-bold text-gray-900">{t("lib.title")}</h1>
+          <p class="text-gray-500 text-sm mt-1">{t("lib.subtitle")}</p>
         </div>
       </div>
+
+      {/* Error Banner */}
+      {runError.value && (
+        <div class="mt-4 flex items-start gap-2 bg-red-50 border border-red-200 text-red-700 text-sm px-4 py-3 rounded-lg">
+          <svg class="w-4 h-4 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+          </svg>
+          <span class="whitespace-pre-line flex-1">{runError.value}</span>
+          <button onClick={() => (runError.value = "")} class="ml-auto text-red-400 hover:text-red-600 flex-shrink-0">&#x2715;</button>
+        </div>
+      )}
 
       {/* Filter Tabs */}
       <div class="flex items-center gap-4 mt-6 mb-6">
@@ -88,7 +104,7 @@ export function Library() {
                   : "text-gray-500 hover:text-gray-700"
               }`}
             >
-              {f === "all" ? "All" : f === "gguf" ? "GGUF" : "SafeTensors"}
+              {f === "all" ? t("lib.all") : f === "gguf" ? "GGUF" : "SafeTensors"}
             </button>
           ))}
         </div>
@@ -99,18 +115,18 @@ export function Library() {
         <table class="w-full text-sm">
           <thead>
             <tr class="border-b border-gray-100 text-left text-gray-500 bg-gray-50">
-              <SortHeader label="Model Name" field="name" current={sortField.value} asc={sortAsc.value} onToggle={toggleSort} />
-              <th class="px-4 py-3 font-medium">Format</th>
-              <SortHeader label="File size" field="size" current={sortField.value} asc={sortAsc.value} onToggle={toggleSort} />
-              <SortHeader label="Date & Time" field="modified_at" current={sortField.value} asc={sortAsc.value} onToggle={toggleSort} />
-              <th class="px-4 py-3 font-medium text-right">Operation</th>
+              <SortHeader label={t("lib.modelName")} field="name" current={sortField.value} asc={sortAsc.value} onToggle={toggleSort} />
+              <th class="px-4 py-3 font-medium">{t("lib.format")}</th>
+              <SortHeader label={t("lib.fileSize")} field="size" current={sortField.value} asc={sortAsc.value} onToggle={toggleSort} />
+              <SortHeader label={t("lib.dateTime")} field="modified_at" current={sortField.value} asc={sortAsc.value} onToggle={toggleSort} />
+              <th class="px-4 py-3 font-medium text-right">{t("lib.operation")}</th>
             </tr>
           </thead>
           <tbody>
             {filtered.value.length === 0 ? (
               <tr>
                 <td colSpan={5} class="text-center py-12 text-gray-400">
-                  No models found. Pull models from the Marketplace.
+                  {t("lib.noModels")}
                 </td>
               </tr>
             ) : (
@@ -134,26 +150,28 @@ export function Library() {
                   <td class="px-4 py-3 text-gray-500">
                     {new Date(m.modified_at).toLocaleDateString("en-US", { day: "numeric", month: "long" })}
                   </td>
-                  <td class="px-4 py-3 text-right space-x-2">
-                    <button
-                      onClick={() => handleDelete(m.name)}
-                      class="text-gray-500 hover:text-red-600 text-sm transition-colors"
-                    >
-                      Delete
-                    </button>
-                    {isRunning(m.name) ? (
-                      <span class="inline-block px-3 py-1 text-xs rounded bg-green-50 text-green-700 font-medium">
-                        Running
-                      </span>
-                    ) : (
+                  <td class="px-4 py-3">
+                    <div class="flex items-center justify-end gap-3">
                       <button
-                        onClick={() => handleRun(m.name)}
-                        disabled={loadingRun.value === m.name}
-                        class="px-3 py-1 text-xs rounded bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-50 transition-colors font-medium"
+                        onClick={() => handleDelete(m.name)}
+                        class="text-gray-500 hover:text-red-600 text-sm transition-colors"
                       >
-                        {loadingRun.value === m.name ? "Loading..." : "Run"}
+                        {t("lib.delete")}
                       </button>
-                    )}
+                      {isRunning(m.name) ? (
+                        <span class="inline-flex items-center justify-center w-16 px-3 py-1 text-xs rounded bg-green-50 text-green-700 font-medium">
+                          {t("lib.running")}
+                        </span>
+                      ) : (
+                        <button
+                          onClick={() => handleRun(m.name)}
+                          disabled={loadingRun.value === m.name}
+                          class="inline-flex items-center justify-center w-16 px-3 py-1 text-xs rounded bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-50 transition-colors font-medium"
+                        >
+                          {loadingRun.value === m.name ? (m.format !== "gguf" ? t("lib.converting") : t("lib.loadingModel")) : t("lib.run")}
+                        </button>
+                      )}
+                    </div>
                   </td>
                 </tr>
               ))
@@ -191,7 +209,7 @@ function SortHeader({
       <span class="flex items-center gap-1">
         {label}
         <span class={`text-xs ${active ? "text-indigo-600" : "text-gray-300"}`}>
-          {active ? (asc ? "▲" : "▼") : "⇅"}
+          {active ? (asc ? "\u25B2" : "\u25BC") : "\u21C5"}
         </span>
       </span>
     </th>

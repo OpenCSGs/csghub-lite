@@ -1,7 +1,8 @@
 import { useEffect, useRef } from "preact/hooks";
-import { signal } from "@preact/signals";
+import { signal, computed } from "@preact/signals";
 import { getTags, getPs, streamChat } from "../api/client";
-import type { ModelInfo, ChatMessage } from "../api/client";
+import type { ModelInfo, ChatMessage, ContentPart } from "../api/client";
+import { t, locale } from "../i18n";
 
 interface Session {
   id: string;
@@ -23,18 +24,106 @@ const topP = signal(0.75);
 const maxTokens = signal(4096);
 
 const streamingContent = signal("");
+const chatError = signal("");
+const pendingImages = signal<PendingImage[]>([]);
+
+const isVisionModel = computed(() => {
+  const m = availableModels.value.find((x) => x.name === selectedModel.value);
+  return m?.pipeline_tag === "image-text-to-text" && m?.has_mmproj === true;
+});
+
+const MAX_IMAGE_DIM = 1024;
+const THUMB_DIM = 480;
+
+function normalizeImage(file: File): Promise<{ full: string; thumb: string }> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const img = new (window.Image as typeof HTMLImageElement)();
+      img.onload = () => {
+        try {
+          let { width, height } = img;
+          if (!width || !height) { width = width || 512; height = height || 512; }
+          if (width > MAX_IMAGE_DIM || height > MAX_IMAGE_DIM) {
+            const scale = MAX_IMAGE_DIM / Math.max(width, height);
+            width = Math.round(width * scale);
+            height = Math.round(height * scale);
+          }
+          const canvas = document.createElement("canvas");
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext("2d")!;
+          ctx.drawImage(img, 0, 0, width, height);
+          const full = canvas.toDataURL("image/jpeg", 0.85);
+
+          const ts = Math.min(THUMB_DIM, width, height);
+          const tw = Math.round(width * (ts / Math.max(width, height)));
+          const th = Math.round(height * (ts / Math.max(width, height)));
+          canvas.width = tw;
+          canvas.height = th;
+          ctx.drawImage(img, 0, 0, tw, th);
+          const thumb = canvas.toDataURL("image/jpeg", 0.6);
+
+          resolve({ full, thumb });
+        } catch (e) {
+          reject(new Error("Canvas conversion failed: " + (e as Error).message));
+        }
+      };
+      img.onerror = () => reject(new Error("Failed to load image"));
+      img.src = reader.result as string;
+    };
+    reader.onerror = () => reject(new Error("Failed to read file"));
+    reader.readAsDataURL(file);
+  });
+}
+
+interface PendingImage {
+  full: string;
+  thumb: string;
+}
+
+function makeId(): string {
+  if (typeof crypto !== "undefined" && crypto.randomUUID) {
+    return crypto.randomUUID();
+  }
+  return "xxxx-xxxx-xxxx".replace(/x/g, () =>
+    Math.floor(Math.random() * 16).toString(16)
+  );
+}
 
 function loadSessions(): Session[] {
   try {
     const raw = localStorage.getItem("csghub-chat-sessions");
-    if (raw) return JSON.parse(raw);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+    }
   } catch { /* ignore */ }
-  const s: Session = { id: crypto.randomUUID(), title: "New Chat", messages: [] };
+  const s: Session = { id: makeId(), title: "New Chat", messages: [] };
   return [s];
 }
 
+function stripImagesForStorage(s: Session[]): Session[] {
+  return s.map((sess) => ({
+    ...sess,
+    messages: sess.messages.map((m) => {
+      if (!Array.isArray(m.content)) return m;
+      const textOnly = (m.content as ContentPart[])
+        .filter((p) => p.type === "text")
+        .map((p) => p.text || "")
+        .join("");
+      return { ...m, content: textOnly || "(image)" };
+    }),
+  }));
+}
+
 function saveSessions() {
-  localStorage.setItem("csghub-chat-sessions", JSON.stringify(sessions.value));
+  try {
+    const safe = stripImagesForStorage(sessions.value);
+    localStorage.setItem("csghub-chat-sessions", JSON.stringify(safe));
+  } catch {
+    /* quota exceeded or other storage error — non-fatal */
+  }
 }
 
 function getActiveSession(): Session | undefined {
@@ -44,12 +133,14 @@ function getActiveSession(): Session | undefined {
 export function Chat() {
   const messagesRef = useRef<HTMLDivElement>(null);
   const abortRef = useRef<AbortController | null>(null);
+  void locale.value;
 
   useEffect(() => {
     getTags().then((m) => {
       availableModels.value = m;
       if (!selectedModel.value && m.length > 0) {
-        selectedModel.value = m[0].name;
+        const gguf = m.filter((x) => x.format === "gguf");
+        selectedModel.value = gguf.length > 0 ? gguf[0].name : m[0].name;
       }
     }).catch(() => {});
     getPs().then((running) => {
@@ -65,19 +156,72 @@ export function Chat() {
     }
   }, [getActiveSession()?.messages.length, streamingContent.value]);
 
+  const handleImageUpload = (e: Event) => {
+    const files = (e.target as HTMLInputElement).files;
+    if (!files) return;
+    Array.from(files).forEach((file) => {
+      normalizeImage(file)
+        .then((img) => {
+          pendingImages.value = [...pendingImages.value, img];
+        })
+        .catch((err) => {
+          chatError.value = `${t("chat.failedResp")}: ${err?.message || err}`;
+        });
+    });
+    (e.target as HTMLInputElement).value = "";
+  };
+
+  const removeImage = (idx: number) => {
+    pendingImages.value = pendingImages.value.filter((_, i) => i !== idx);
+  };
+
   const handleSend = async () => {
     const text = inputText.value.trim();
     if (!text || !selectedModel.value || isGenerating.value) return;
 
     const session = getActiveSession();
-    if (!session) return;
+    if (!session) {
+      chatError.value = "No active session. Please create a new chat.";
+      return;
+    }
 
-    session.messages.push({ role: "user", content: text });
+    const images = pendingImages.value;
+    let userContent: ChatMessage["content"];
+    let apiMessages: ChatMessage[];
+
+    if (images.length > 0) {
+      const displayParts: ContentPart[] = images.map((img) => ({
+        type: "image_url" as const,
+        image_url: { url: img.thumb },
+      }));
+      displayParts.push({ type: "text" as const, text });
+      userContent = displayParts;
+
+      const apiParts: ContentPart[] = images.map((img) => ({
+        type: "image_url" as const,
+        image_url: { url: img.full },
+      }));
+      apiParts.push({ type: "text" as const, text });
+
+      apiMessages = [
+        ...session.messages,
+        { role: "user", content: apiParts },
+      ];
+    } else {
+      userContent = text;
+      apiMessages = [
+        ...session.messages,
+        { role: "user", content: text },
+      ];
+    }
+
+    session.messages.push({ role: "user", content: userContent });
     if (session.messages.length === 1) {
       session.title = text.slice(0, 30) || "New Chat";
     }
     sessions.value = [...sessions.value];
     inputText.value = "";
+    pendingImages.value = [];
     saveSessions();
 
     isGenerating.value = true;
@@ -86,12 +230,11 @@ export function Chat() {
     const ac = new AbortController();
     abortRef.current = ac;
 
-    const startTime = Date.now();
-
+    chatError.value = "";
     try {
       await streamChat(
         selectedModel.value,
-        session.messages,
+        apiMessages,
         {
           temperature: temperature.value,
           top_p: topP.value,
@@ -113,7 +256,7 @@ export function Chat() {
         },
         ac.signal
       );
-    } catch {
+    } catch (e: any) {
       if (streamingContent.value) {
         session.messages.push({
           role: "assistant",
@@ -122,11 +265,11 @@ export function Chat() {
         sessions.value = [...sessions.value];
         streamingContent.value = "";
         saveSessions();
+      } else if (!ac.signal.aborted) {
+        chatError.value = e?.message || t("chat.failedResp");
       }
     }
 
-    const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
-    void elapsed;
     isGenerating.value = false;
     abortRef.current = null;
   };
@@ -136,9 +279,19 @@ export function Chat() {
   };
 
   const handleNewSession = () => {
-    const s: Session = { id: crypto.randomUUID(), title: "New Chat", messages: [] };
+    const s: Session = { id: makeId(), title: "New Chat", messages: [] };
     sessions.value = [s, ...sessions.value];
     activeSessionId.value = s.id;
+    saveSessions();
+  };
+
+  const handleClearHistory = () => {
+    const session = getActiveSession();
+    if (!session || session.messages.length === 0) return;
+    if (!confirm(t("chat.clearConfirm"))) return;
+    session.messages = [];
+    session.title = "New Chat";
+    sessions.value = [...sessions.value];
     saveSessions();
   };
 
@@ -159,28 +312,48 @@ export function Chat() {
         {/* Header */}
         <div class="flex items-center justify-between px-6 py-3 border-b border-gray-200 bg-white">
           <div class="flex items-center gap-3">
-            <button onClick={handleNewSession} class="text-gray-400 hover:text-gray-600" title="New Chat">
+            <button onClick={handleNewSession} class="text-gray-400 hover:text-gray-600" title={t("chat.newChat")}>
               <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" />
               </svg>
             </button>
-            <span class="text-sm font-medium text-gray-700 truncate max-w-xs">{session?.title || "Chat"}</span>
+            <span class="text-sm font-medium text-gray-700 truncate max-w-xs">{session?.title || t("chat.chat")}</span>
           </div>
-          <button
-            onClick={() => (showSettings.value = !showSettings.value)}
-            class={`p-1.5 rounded-lg transition-colors ${showSettings.value ? "bg-indigo-50 text-indigo-600" : "text-gray-400 hover:text-gray-600"}`}
-            title="Settings"
-          >
-            <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4" />
-            </svg>
-          </button>
+          <div class="flex items-center gap-2">
+            <button
+              onClick={handleClearHistory}
+              class="p-1.5 rounded-lg text-gray-400 hover:text-red-500 transition-colors"
+              title={t("chat.clearHistory")}
+            >
+              <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+              </svg>
+            </button>
+            <button
+              onClick={() => (showSettings.value = !showSettings.value)}
+              class={`p-1.5 rounded-lg transition-colors ${showSettings.value ? "bg-indigo-50 text-indigo-600" : "text-gray-400 hover:text-gray-600"}`}
+              title={t("chat.settings")}
+            >
+              <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4" />
+              </svg>
+            </button>
+          </div>
         </div>
 
         {/* Messages */}
         <div ref={messagesRef} class="flex-1 overflow-auto px-6 py-4 space-y-4">
-          {messages.length === 0 && !streamingContent.value && (
-            <div class="text-center text-gray-400 text-sm mt-20">Start a conversation...</div>
+          {chatError.value && (
+            <div class="flex items-start gap-2 bg-red-50 border border-red-200 text-red-700 text-sm px-4 py-3 rounded-lg">
+              <svg class="w-4 h-4 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+              <span class="whitespace-pre-line flex-1">{chatError.value}</span>
+              <button onClick={() => (chatError.value = "")} class="ml-auto text-red-400 hover:text-red-600 flex-shrink-0">&#x2715;</button>
+            </div>
+          )}
+          {messages.length === 0 && !streamingContent.value && !chatError.value && (
+            <div class="text-center text-gray-400 text-sm mt-20">{t("chat.startConv")}</div>
           )}
           {messages.map((m, i) => (
             <MessageBubble key={i} message={m} />
@@ -192,6 +365,22 @@ export function Chat() {
 
         {/* Input */}
         <div class="px-6 py-4 border-t border-gray-200 bg-white">
+          {/* Image previews */}
+          {pendingImages.value.length > 0 && (
+            <div class="flex gap-2 mb-2 flex-wrap">
+              {pendingImages.value.map((img, i) => (
+                <div key={i} class="relative group">
+                  <img src={img.thumb} class="w-16 h-16 object-cover rounded-lg border border-gray-200" />
+                  <button
+                    onClick={() => removeImage(i)}
+                    class="absolute -top-1.5 -right-1.5 w-5 h-5 bg-red-500 text-white rounded-full text-xs flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                  >
+                    x
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
           <div class="flex items-center gap-3">
             {/* Model selector */}
             <select
@@ -200,14 +389,25 @@ export function Chat() {
               onChange={(e) => (selectedModel.value = (e.target as HTMLSelectElement).value)}
             >
               {availableModels.value.map((m) => (
-                <option key={m.name} value={m.name}>{m.name}</option>
+                <option key={m.name} value={m.name}>
+                  {m.name}{m.pipeline_tag === "image-text-to-text" ? " [VL]" : ""}
+                </option>
               ))}
             </select>
+            {/* Image upload for vision models */}
+            {isVisionModel.value && (
+              <label class="p-2.5 rounded-lg border border-gray-200 text-gray-500 hover:text-indigo-600 hover:border-indigo-300 cursor-pointer transition-colors" title={t("chat.uploadImage")}>
+                <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                </svg>
+                <input type="file" accept="image/*" multiple class="hidden" onChange={handleImageUpload} />
+              </label>
+            )}
             <div class="flex-1 relative">
               <textarea
                 class="w-full border border-gray-200 rounded-lg px-4 py-2.5 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
                 rows={1}
-                placeholder="How can I help you?"
+                placeholder={isVisionModel.value ? t("chat.askImage") : t("chat.askHelp")}
                 value={inputText.value}
                 onInput={(e) => (inputText.value = (e.target as HTMLTextAreaElement).value)}
                 onKeyDown={handleKeyDown}
@@ -217,7 +417,7 @@ export function Chat() {
               <button
                 onClick={handleStop}
                 class="p-2.5 rounded-lg bg-red-500 text-white hover:bg-red-600 transition-colors"
-                title="Stop"
+                title={t("chat.stop")}
               >
                 <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
                   <rect x="6" y="6" width="12" height="12" rx="1" />
@@ -228,7 +428,7 @@ export function Chat() {
                 onClick={handleSend}
                 disabled={!inputText.value.trim() || !selectedModel.value}
                 class="p-2.5 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-40 transition-colors"
-                title="Send"
+                title={t("chat.send")}
               >
                 <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                   <path stroke-linecap="round" stroke-linejoin="round" d="M5 12h14m-7-7l7 7-7 7" />
@@ -243,7 +443,7 @@ export function Chat() {
       {showSettings.value && (
         <div class="w-72 border-l border-gray-200 bg-white p-5 flex flex-col gap-5 overflow-auto">
           <div class="flex items-center justify-between">
-            <h3 class="font-semibold text-gray-900">Make a Suggestion</h3>
+            <h3 class="font-semibold text-gray-900">{t("chat.suggestion")}</h3>
             <button onClick={() => (showSettings.value = false)} class="text-gray-400 hover:text-gray-600">
               <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
@@ -252,11 +452,11 @@ export function Chat() {
           </div>
 
           <div>
-            <label class="block text-sm font-medium text-gray-700 mb-1">System Prompt</label>
+            <label class="block text-sm font-medium text-gray-700 mb-1">{t("chat.systemPrompt")}</label>
             <textarea
               class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-indigo-500"
               rows={3}
-              placeholder="Placeholder text..."
+              placeholder={t("chat.placeholder")}
               value={systemPrompt.value}
               onInput={(e) => (systemPrompt.value = (e.target as HTMLTextAreaElement).value)}
             />
@@ -278,7 +478,7 @@ export function Chat() {
             <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
               <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
             </svg>
-            Reset Defaults
+            {t("chat.resetDefaults")}
           </button>
         </div>
       )}
@@ -288,6 +488,30 @@ export function Chat() {
 
 function MessageBubble({ message, streaming }: { message: ChatMessage; streaming?: boolean }) {
   const isUser = message.role === "user";
+  const content = message.content;
+
+  const renderContent = () => {
+    if (typeof content === "string") {
+      return <p class="whitespace-pre-wrap">{content}</p>;
+    }
+    if (Array.isArray(content)) {
+      return (
+        <>
+          {(content as ContentPart[]).map((part, i) => {
+            if (part.type === "image_url" && part.image_url) {
+              return <img key={i} src={part.image_url.url} class="max-w-full rounded-lg mb-2 max-h-64" />;
+            }
+            if (part.type === "text" && part.text) {
+              return <p key={i} class="whitespace-pre-wrap">{part.text}</p>;
+            }
+            return null;
+          })}
+        </>
+      );
+    }
+    return null;
+  };
+
   return (
     <div class={`flex ${isUser ? "justify-end" : "justify-start"}`}>
       <div
@@ -297,7 +521,7 @@ function MessageBubble({ message, streaming }: { message: ChatMessage; streaming
             : "bg-white border border-gray-200 text-gray-800"
         } ${streaming ? "animate-pulse" : ""}`}
       >
-        <p class="whitespace-pre-wrap">{message.content}</p>
+        {renderContent()}
       </div>
     </div>
   );

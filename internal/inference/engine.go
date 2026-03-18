@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
+	"os"
 
 	"github.com/opencsgs/csghub-lite/internal/convert"
 	"github.com/opencsgs/csghub-lite/internal/model"
@@ -46,16 +48,24 @@ func LoadEngineWithProgress(modelDir string, lm *model.LocalModel, progress Conv
 		return nil, fmt.Errorf("finding model file: %w", err)
 	}
 
+	mmproj := model.FindMMProj(modelDir)
+
 	switch format {
 	case model.FormatGGUF:
-		return newLlamaEngine(modelFile, lm.FullName(), verbose)
+		return newLlamaEngine(modelFile, lm.FullName(), verbose, mmproj)
 
 	case model.FormatSafeTensors:
 		ggufPath, err := convertSafeTensors(modelDir, progress)
 		if err != nil {
 			return nil, fmt.Errorf("auto-converting SafeTensors to GGUF: %w", err)
 		}
-		return newLlamaEngine(ggufPath, lm.FullName(), verbose)
+		eng, err := newLlamaEngine(ggufPath, lm.FullName(), verbose, mmproj)
+		if err != nil {
+			log.Printf("removing invalid converted GGUF: %s", ggufPath)
+			os.Remove(ggufPath)
+			return nil, err
+		}
+		return eng, nil
 
 	default:
 		return nil, fmt.Errorf("%w: %s", ErrUnsupportedFormat, format)

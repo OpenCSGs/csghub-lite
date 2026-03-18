@@ -26,6 +26,11 @@ func staticHandler() http.Handler {
 			path = "index.html"
 		}
 
+		isHTML := path == "index.html" || !strings.Contains(path, ".")
+		if isHTML {
+			w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
+		}
+
 		// Try to open the file; if it exists, serve it
 		if f, err := subFS.Open(path); err == nil {
 			f.Close()
@@ -34,7 +39,7 @@ func staticHandler() http.Handler {
 		}
 
 		// SPA fallback: serve index.html for non-file paths
-		if !strings.Contains(path, ".") {
+		if isHTML {
 			r.URL.Path = "/"
 			fileServer.ServeHTTP(w, r)
 			return
