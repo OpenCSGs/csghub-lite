@@ -1,0 +1,130 @@
+CSGHUB-LITE ENTERPRISE EDITION LICENSE AGREEMENT
+
+Version 1.0 — OpenCSG
+
+
+1. Definitions
+	•	“OpenCSG” means OpenCSG Inc. or its affiliates.
+	•	“Software” means CSGHub-Lite Enterprise Edition (CSGHub-Lite EE), including binaries, source code (if provided), documentation, and updates.
+	•	“Community Edition” (CE) means CSGHub-Lite licensed under Apache License 2.0.
+	•	“Enterprise Features” means all proprietary extensions, modules, connectors, orchestration capabilities, and enterprise functionalities not included in CE.
+	•	“Authorized Partner” means an entity explicitly approved in writing by OpenCSG (e.g., Dell).
+	•	“User” / “Licensee” means the individual or entity using the Software.
+
+
+2. License Grant
+
+Subject to compliance with this Agreement, OpenCSG grants Licensee a:
+	•	non-exclusive
+	•	non-transferable
+	•	non-sublicensable
+	•	revocable
+
+license to:
+	•	install and use CSGHub-Lite EE internally
+	•	deploy within Licensee’s own infrastructure
+	•	integrate with Licensee’s internal systems
+
+
+
+3. Restrictions
+
+Unless explicitly authorized in writing by OpenCSG, Licensee shall NOT:
+
+3.1 Redistribution & Commercialization
+	•	redistribute, sublicense, sell, lease, or provide the Software to third parties
+	•	offer the Software as a hosted or managed service (SaaS/PaaS)
+	•	embed the Software into commercial products or services
+
+3.2 OEM / Hardware Bundling
+	•	bundle the Software with hardware (including servers, appliances, or edge devices)
+	•	distribute pre-installed versions
+
+Exception: Only Authorized Partners (e.g., Dell) under separate agreement may do so.
+
+3.3 Modification & Derivatives
+	•	modify, fork, or create derivative works of Enterprise Features
+	•	reverse engineer or attempt to extract proprietary components
+
+3.4 Circumvention
+	•	bypass license controls, usage limits, or feature gating
+
+
+
+4. Separation from Open Source (CE)
+	•	The Community Edition remains licensed under Apache 2.0
+	•	Enterprise Edition is NOT open source
+	•	Licensee may freely use CE, but:
+	•	cannot replicate EE features using CE for commercial redistribution
+	•	cannot combine EE components into derivative redistributable works
+
+
+
+5. Partner Rights (OEM / Strategic)
+
+Authorized Partners (e.g., Dell) may:
+	•	distribute CSGHub-Lite EE bundled with hardware
+	•	provide integrated solutions to end customers
+
+Only if:
+	•	governed by a separate OEM / Commercial Agreement with OpenCSG
+	•	all end users are subject to this License
+
+
+
+6. Intellectual Property
+	•	All rights, title, and interest in EE remain with OpenCSG
+	•	No ownership is transferred
+	•	All trademarks (OpenCSG, CSGHub) are protected
+
+
+
+7. Audit & Compliance
+
+OpenCSG may:
+	•	audit usage with reasonable notice
+	•	require compliance reporting
+	•	suspend licenses for violations
+
+
+
+8. Termination
+
+This License terminates automatically if Licensee:
+	•	violates any restriction
+	•	engages in unauthorized redistribution or commercialization
+
+Upon termination:
+	•	Licensee must cease all use
+	•	delete all copies
+
+
+
+9. Disclaimer of Warranty
+
+Software is provided “AS IS”, without warranties of any kind.
+
+
+
+10. Limitation of Liability
+
+OpenCSG shall not be liable for:
+	•	indirect, incidental, or consequential damages
+	•	loss of business, data, or profits
+
+
+
+11. Governing Law
+	•	Default: State of California, USA
+	•	(Can be customized for China / Singapore / Cayman depending on entity structure)
+
+
+
+12. Commercial Licensing
+
+For:
+	•	redistribution
+	•	SaaS offering
+	•	OEM bundling
+	•	resale
+Contact OpenCSG for a commercial license
