@@ -73,6 +73,25 @@ const en: Record<string, string> = {
   "mp.failed": "Failed",
   "mp.pulling": "Pulling...",
   "mp.download": "Download",
+  "mp.sortBy": "Sort by",
+  "mp.filter": "Filter",
+  "mp.updatedAt": "Updated: {0}",
+  "mp.viewer": "Viewer",
+
+  // Settings
+  "nav.settings": "settings",
+  "settings.title": "settings",
+  "settings.subtitle": "This page offers a unified settings hub for the product.",
+  "settings.modelLocation": "Model location",
+  "settings.modelLocationDesc": "Location where models are stored.",
+  "settings.browse": "Browse",
+  "settings.contextLength": "Context length",
+  "settings.contextLengthDesc": "Context length determines how much of your conversation local LLMs can remember and use to generate responses.",
+  "settings.versionInfo": "Version Information",
+  "settings.version": "0.0.1",
+  "settings.resetDefaults": "Reset to defaults",
+  "settings.language": "Language",
+  "settings.languageDesc": "Select the display language for the interface.",
 
   // Library
   "lib.title": "Library",
@@ -168,6 +187,25 @@ const zh: Record<string, string> = {
   "mp.failed": "失败",
   "mp.pulling": "拉取中...",
   "mp.download": "下载",
+  "mp.sortBy": "排序",
+  "mp.filter": "筛选",
+  "mp.updatedAt": "更新时间: {0}",
+  "mp.viewer": "浏览",
+
+  // Settings
+  "nav.settings": "设置",
+  "settings.title": "设置",
+  "settings.subtitle": "此页面提供产品的统一设置中心。",
+  "settings.modelLocation": "模型存储位置",
+  "settings.modelLocationDesc": "模型文件的存储路径。",
+  "settings.browse": "浏览",
+  "settings.contextLength": "上下文长度",
+  "settings.contextLengthDesc": "上下文长度决定了本地 LLM 可以记住多少对话内容并用于生成回复。",
+  "settings.versionInfo": "版本信息",
+  "settings.version": "0.0.1",
+  "settings.resetDefaults": "恢复默认设置",
+  "settings.language": "语言",
+  "settings.languageDesc": "选择界面显示语言。",
 
   // Library
   "lib.title": "模型库",

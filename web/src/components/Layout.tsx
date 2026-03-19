@@ -1,7 +1,6 @@
 import { ComponentChildren } from "preact";
 import { useLocation } from "preact-iso";
-import { t, locale, setLocale } from "../i18n";
-import type { Locale } from "../i18n";
+import { t, locale } from "../i18n";
 
 const navKeys = [
   { path: "/", key: "nav.dashboard", icon: DashboardIcon },
@@ -9,6 +8,15 @@ const navKeys = [
   { path: "/library", key: "nav.library", icon: LibraryIcon },
   { path: "/chat", key: "nav.chat", icon: ChatIcon },
 ];
+
+function SettingsIcon({ active }: { active: boolean }) {
+  return (
+    <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke={active ? "currentColor" : "#9CA3AF"} stroke-width="2">
+      <path stroke-linecap="round" stroke-linejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+      <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+    </svg>
+  );
+}
 
 export function Layout({ children }: { children: ComponentChildren }) {
   const { path } = useLocation();
@@ -18,9 +26,7 @@ export function Layout({ children }: { children: ComponentChildren }) {
     <div class="flex h-screen overflow-hidden">
       <aside class="w-52 flex-shrink-0 border-r border-gray-200 bg-white flex flex-col">
         <div class="flex items-center gap-2 px-5 py-5">
-          <div class="w-8 h-8 rounded-lg bg-indigo-600 flex items-center justify-center">
-            <span class="text-white font-bold text-sm">C</span>
-          </div>
+          <img src="/favicon.svg" alt="CSGHub Lite" class="w-8 h-8" />
           <span class="font-semibold text-base text-gray-900">CSGHub Lite</span>
         </div>
         <nav class="flex-1 px-3 space-y-1 mt-2">
@@ -42,30 +48,30 @@ export function Layout({ children }: { children: ComponentChildren }) {
             );
           })}
         </nav>
-        <div class="px-4 pb-2 flex justify-center gap-1">
-          <LangBtn code="en" label="EN" />
-          <LangBtn code="zh" label="中文" />
-        </div>
-        <div class="p-4 pt-0 text-xs text-gray-400 text-center">
+        {(() => {
+          const active = path === "/settings";
+          return (
+            <a
+              href="/settings"
+              class={`flex items-center gap-3 mx-3 mb-4 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
+                active
+                  ? "bg-indigo-50 text-indigo-700"
+                  : "text-gray-600 hover:bg-gray-50 hover:text-gray-900"
+              }`}
+            >
+              <SettingsIcon active={active} />
+              {t("nav.settings")}
+            </a>
+          );
+        })()}
+      </aside>
+      <main class="flex-1 overflow-auto bg-gray-50 flex flex-col">
+        <div class="flex-1">{children}</div>
+        <div class="py-3 text-xs text-gray-400 text-center">
           &copy; OpenCSG &middot; Powered By OpenCSG
         </div>
-      </aside>
-      <main class="flex-1 overflow-auto bg-gray-50">{children}</main>
+      </main>
     </div>
-  );
-}
-
-function LangBtn({ code, label }: { code: Locale; label: string }) {
-  const active = locale.value === code;
-  return (
-    <button
-      onClick={() => setLocale(code)}
-      class={`px-2.5 py-1 text-xs rounded-md transition-colors ${
-        active ? "bg-indigo-100 text-indigo-700 font-medium" : "text-gray-400 hover:text-gray-600 hover:bg-gray-100"
-      }`}
-    >
-      {label}
-    </button>
   );
 }
 

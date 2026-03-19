@@ -180,9 +180,6 @@ export function Library() {
         </table>
       </div>
 
-      <div class="text-center text-xs text-gray-400 mt-8">
-        &copy; OpenCSG &middot; Powered By OpenCSG
-      </div>
     </div>
   );
 }

@@ -10,9 +10,11 @@ import type { MarketplaceModel, MarketplaceDataset } from "../api/client";
 import { t, locale } from "../i18n";
 
 type Tab = "models" | "datasets";
+type ViewMode = "grid" | "list";
 const activeTab = signal<Tab>("models");
 const searchQuery = signal("");
 const sortBy = signal("trending");
+const viewMode = signal<ViewMode>("grid");
 const page = signal(1);
 const perPage = 16;
 
@@ -140,8 +142,8 @@ export function Marketplace() {
       <h1 class="text-2xl font-bold text-gray-900">{t("mp.title")}</h1>
       <p class="text-gray-500 text-sm mt-1 mb-6">{t("mp.subtitle")}</p>
 
-      {/* Tabs + Search */}
-      <div class="flex items-center gap-4 mb-6 flex-wrap">
+      {/* Tabs + Search + View Toggle */}
+      <div class="flex items-center gap-3 mb-6 flex-wrap">
         <div class="flex bg-gray-100 rounded-lg p-0.5">
           <TabButton label={t("mp.models")} active={activeTab.value === "models"} onClick={() => (activeTab.value = "models")} />
           <TabButton label={t("mp.datasets")} active={activeTab.value === "datasets"} onClick={() => (activeTab.value = "datasets")} />
@@ -160,27 +162,72 @@ export function Marketplace() {
             />
           </div>
         </form>
-        <select
-          class="border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-600 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-          value={sortBy.value}
-          onChange={(e) => (sortBy.value = (e.target as HTMLSelectElement).value)}
-        >
-          <option value="trending">{t("mp.trending")}</option>
-          <option value="recently_update">{t("mp.recentlyUpdated")}</option>
-          <option value="most_download">{t("mp.mostDownloads")}</option>
-          <option value="most_favorite">{t("mp.mostLikes")}</option>
-        </select>
+        <div class="relative">
+          <select
+            class="appearance-none border border-gray-200 rounded-lg pl-8 pr-3 py-2 text-sm text-gray-600 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            value={sortBy.value}
+            onChange={(e) => (sortBy.value = (e.target as HTMLSelectElement).value)}
+          >
+            <option value="trending">{t("mp.trending")}</option>
+            <option value="recently_update">{t("mp.recentlyUpdated")}</option>
+            <option value="most_download">{t("mp.mostDownloads")}</option>
+            <option value="most_favorite">{t("mp.mostLikes")}</option>
+          </select>
+          <svg class="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M3 4h13M3 8h9m-9 4h6m4 0l4-4m0 0l4 4m-4-4v12" />
+          </svg>
+        </div>
+        <button class="flex items-center gap-1.5 border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-600 hover:bg-gray-50">
+          <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" />
+          </svg>
+          {t("mp.filter")}
+        </button>
+        <div class="flex border border-gray-200 rounded-lg overflow-hidden">
+          <button
+            onClick={() => (viewMode.value = "grid")}
+            class={`p-2 ${viewMode.value === "grid" ? "bg-indigo-50 text-indigo-600" : "text-gray-400 hover:bg-gray-50"}`}
+          >
+            <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 16 16">
+              <path d="M1 2.5A1.5 1.5 0 012.5 1h3A1.5 1.5 0 017 2.5v3A1.5 1.5 0 015.5 7h-3A1.5 1.5 0 011 5.5v-3zm8 0A1.5 1.5 0 0110.5 1h3A1.5 1.5 0 0115 2.5v3A1.5 1.5 0 0113.5 7h-3A1.5 1.5 0 019 5.5v-3zm-8 8A1.5 1.5 0 012.5 9h3A1.5 1.5 0 017 10.5v3A1.5 1.5 0 015.5 15h-3A1.5 1.5 0 011 13.5v-3zm8 0A1.5 1.5 0 0110.5 9h3a1.5 1.5 0 011.5 1.5v3a1.5 1.5 0 01-1.5 1.5h-3A1.5 1.5 0 019 13.5v-3z" />
+            </svg>
+          </button>
+          <button
+            onClick={() => (viewMode.value = "list")}
+            class={`p-2 ${viewMode.value === "list" ? "bg-indigo-50 text-indigo-600" : "text-gray-400 hover:bg-gray-50"}`}
+          >
+            <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 16 16">
+              <path fill-rule="evenodd" d="M2.5 12a.5.5 0 01.5-.5h10a.5.5 0 010 1H3a.5.5 0 01-.5-.5zm0-4a.5.5 0 01.5-.5h10a.5.5 0 010 1H3a.5.5 0 01-.5-.5zm0-4a.5.5 0 01.5-.5h10a.5.5 0 010 1H3a.5.5 0 01-.5-.5z" />
+            </svg>
+          </button>
+        </div>
       </div>
 
-      {/* List */}
+      {/* Content */}
       {loading.value ? (
         <div class="text-center py-16 text-gray-400">{t("mp.loading")}</div>
       ) : activeTab.value === "models" ? (
-        <div class="space-y-0 divide-y divide-gray-100">
-          {models.value.map((m) => (
-            <ModelCard key={m.id} model={m} pulling={pullingModels.value[m.path]} isLocal={localModelNames.value.has(m.path)} onDownload={handleDownload} />
+        viewMode.value === "grid" ? (
+          <div class="grid grid-cols-2 gap-4">
+            {models.value.map((m) => (
+              <ModelGridCard key={m.id} model={m} pulling={pullingModels.value[m.path]} isLocal={localModelNames.value.has(m.path)} onDownload={handleDownload} />
+            ))}
+            {models.value.length === 0 && <p class="col-span-2 text-center py-16 text-gray-400">{t("mp.noModels")}</p>}
+          </div>
+        ) : (
+          <div class="space-y-0 divide-y divide-gray-100">
+            {models.value.map((m) => (
+              <ModelCard key={m.id} model={m} pulling={pullingModels.value[m.path]} isLocal={localModelNames.value.has(m.path)} onDownload={handleDownload} />
+            ))}
+            {models.value.length === 0 && <p class="text-center py-16 text-gray-400">{t("mp.noModels")}</p>}
+          </div>
+        )
+      ) : viewMode.value === "grid" ? (
+        <div class="grid grid-cols-2 gap-4">
+          {datasets.value.map((d) => (
+            <DatasetGridCard key={d.id} dataset={d} />
           ))}
-          {models.value.length === 0 && <p class="text-center py-16 text-gray-400">{t("mp.noModels")}</p>}
+          {datasets.value.length === 0 && <p class="col-span-2 text-center py-16 text-gray-400">{t("mp.noDatasets")}</p>}
         </div>
       ) : (
         <div class="space-y-0 divide-y divide-gray-100">
@@ -214,9 +261,6 @@ export function Marketplace() {
         </div>
       )}
 
-      <div class="text-center text-xs text-gray-400 mt-8">
-        &copy; OpenCSG &middot; Powered By OpenCSG
-      </div>
     </div>
   );
 }
@@ -325,6 +369,134 @@ function ModelCard({
             <DownloadIcon /> {t("mp.download")}
           </button>
         )}
+      </div>
+    </div>
+  );
+}
+
+function ModelGridCard({
+  model,
+  pulling,
+  isLocal,
+  onDownload,
+}: {
+  model: MarketplaceModel;
+  pulling?: { status: string; percent: number };
+  isLocal?: boolean;
+  onDownload: (path: string) => void;
+}) {
+  void locale.value;
+  const tags = model.tags?.filter((t) => t.category === "task" || t.category === "license").slice(0, 2) || [];
+
+  return (
+    <div class="border border-gray-200 rounded-xl bg-white p-5 flex flex-col justify-between">
+      <div>
+        <div class="flex items-center gap-2 mb-2">
+          <div class="w-6 h-6 rounded-md bg-indigo-100 flex items-center justify-center flex-shrink-0">
+            <svg class="w-3.5 h-3.5 text-indigo-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
+            </svg>
+          </div>
+          <span class="font-medium text-gray-900 text-sm truncate">{model.path}</span>
+        </div>
+        <p class="text-sm text-gray-500 line-clamp-2 mb-3 min-h-[2.5rem]">
+          {model.description || ""}
+        </p>
+        <div class="flex items-center gap-2 flex-wrap text-xs text-gray-400">
+          {tags.map((tg) => (
+            <span key={tg.name} class="bg-indigo-50 text-indigo-600 px-2 py-0.5 rounded">
+              {tg.show_name || tg.name}
+            </span>
+          ))}
+          <span class="flex items-center gap-1">
+            <DownloadIcon /> {model.downloads}
+          </span>
+          <span class="flex items-center gap-1">
+            <StarIcon /> {model.likes}
+          </span>
+        </div>
+      </div>
+      <div class="flex items-center justify-between mt-4 pt-3 border-t border-gray-100 text-xs text-gray-400">
+        <span class="flex items-center gap-1">
+          <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+          </svg>
+          {t("mp.updatedAt", new Date(model.updated_at).toLocaleDateString())}
+        </span>
+        <div class="flex-shrink-0">
+          {isLocal && !pulling ? (
+            <span class="inline-flex items-center gap-1 text-indigo-600 font-medium">
+              <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
+              </svg>
+              {t("mp.downloaded")}
+            </span>
+          ) : pulling ? (
+            pulling.status === "success" ? (
+              <span class="text-indigo-600 font-medium">{t("mp.done")}</span>
+            ) : pulling.status.startsWith("error") ? (
+              <span class="text-red-500 font-medium">{t("mp.failed")}</span>
+            ) : (
+              <span class="text-indigo-600 font-medium">
+                {pulling.percent > 0 ? `${pulling.percent}%` : t("mp.pulling")}
+              </span>
+            )
+          ) : (
+            <button
+              onClick={() => onDownload(model.path)}
+              class="flex items-center gap-1 text-indigo-600 hover:text-indigo-700 font-medium"
+            >
+              <DownloadIcon /> {t("mp.download")}
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function DatasetGridCard({ dataset }: { dataset: MarketplaceDataset }) {
+  void locale.value;
+  const tags = dataset.tags?.filter((t) => t.category === "task" || t.category === "license").slice(0, 2) || [];
+
+  return (
+    <div class="border border-gray-200 rounded-xl bg-white p-5 flex flex-col justify-between">
+      <div>
+        <div class="flex items-center gap-2 mb-2">
+          <div class="w-6 h-6 rounded-md bg-purple-100 flex items-center justify-center flex-shrink-0">
+            <svg class="w-3.5 h-3.5 text-purple-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4m0 5c0 2.21-3.582 4-8 4s-8-1.79-8-4" />
+            </svg>
+          </div>
+          <span class="font-medium text-gray-900 text-sm truncate">{dataset.path}</span>
+        </div>
+        <p class="text-sm text-gray-500 line-clamp-2 mb-3 min-h-[2.5rem]">
+          {dataset.description || ""}
+        </p>
+        <div class="flex items-center gap-2 flex-wrap text-xs text-gray-400">
+          {tags.map((tg) => (
+            <span key={tg.name} class="bg-purple-50 text-purple-600 px-2 py-0.5 rounded">
+              {tg.show_name || tg.name}
+            </span>
+          ))}
+          <span class="flex items-center gap-1">
+            <DownloadIcon /> {dataset.downloads}
+          </span>
+          <span class="flex items-center gap-1">
+            <StarIcon /> {dataset.likes}
+          </span>
+        </div>
+      </div>
+      <div class="flex items-center justify-between mt-4 pt-3 border-t border-gray-100 text-xs text-gray-400">
+        <span class="flex items-center gap-1">
+          <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+          </svg>
+          {t("mp.updatedAt", new Date(dataset.updated_at).toLocaleDateString())}
+        </span>
+        <button class="flex items-center gap-1 text-indigo-600 hover:text-indigo-700 font-medium">
+          <DownloadIcon /> {t("mp.download")}
+        </button>
       </div>
     </div>
   );
