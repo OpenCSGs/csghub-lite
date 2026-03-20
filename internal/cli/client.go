@@ -1,7 +1,11 @@
 package cli
 
 import (
+	"bufio"
+	"bytes"
+	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"os/exec"
@@ -11,6 +15,7 @@ import (
 	"time"
 
 	"github.com/opencsgs/csghub-lite/internal/config"
+	"github.com/opencsgs/csghub-lite/pkg/api"
 )
 
 // ensureServer makes sure a csghub-lite API server is running and returns
@@ -122,6 +127,71 @@ func ServerPID() int {
 	}
 	pid, _ := strconv.Atoi(strings.TrimSpace(string(data)))
 	return pid
+}
+
+// preloadModel sends a request to the server to eagerly load (and convert if
+// necessary) the model, so it is ready before the first chat request.
+// It uses SSE streaming to display conversion progress.
+func preloadModel(serverURL, modelID string) error {
+	stream := true
+	body, _ := json.Marshal(api.LoadRequest{Model: modelID, Stream: &stream})
+	client := &http.Client{Timeout: 0}
+	resp, err := client.Post(serverURL+"/api/load", "application/json", bytes.NewReader(body))
+	if err != nil {
+		return fmt.Errorf("load request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		errBody, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		return fmt.Errorf("load failed: %s", string(errBody))
+	}
+
+	scanner := bufio.NewScanner(resp.Body)
+	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+	var lastStep string
+
+	for scanner.Scan() {
+		line := scanner.Text()
+		if !strings.HasPrefix(line, "data: ") {
+			continue
+		}
+
+		var lr api.LoadResponse
+		if err := json.Unmarshal([]byte(line[6:]), &lr); err != nil {
+			continue
+		}
+
+		if strings.HasPrefix(lr.Status, "error") {
+			fmt.Fprintf(os.Stderr, "\n")
+			return fmt.Errorf("%s", lr.Status)
+		}
+
+		if lr.Status == "ready" {
+			if lastStep != "" {
+				fmt.Fprintf(os.Stderr, "\n")
+			}
+			return nil
+		}
+
+		if lr.Step != "" {
+			if lr.Total > 0 {
+				pct := lr.Current * 100 / lr.Total
+				fmt.Fprintf(os.Stderr, "\r\033[K  %s (%d/%d) %d%%", lr.Step, lr.Current, lr.Total, pct)
+			} else if lr.Step != lastStep {
+				if lastStep != "" {
+					fmt.Fprintf(os.Stderr, "\n")
+				}
+				fmt.Fprintf(os.Stderr, "  %s...", lr.Step)
+			}
+			lastStep = lr.Step
+		}
+	}
+
+	if err := scanner.Err(); err != nil {
+		return fmt.Errorf("reading load progress: %w", err)
+	}
+	return nil
 }
 
 // detachProcess is defined per-platform in client_unix.go / client_windows.go.

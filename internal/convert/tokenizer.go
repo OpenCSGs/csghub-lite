@@ -268,19 +268,48 @@ func parseMerges(raw []json.RawMessage) ([]string, error) {
 
 func preTokenizerForArch(arch string) string {
 	m := map[string]string{
-		"Qwen2ForCausalLM":       "qwen2",
-		"Qwen3ForCausalLM":       "qwen2", // Qwen3 uses same pre-tokenizer as Qwen2
-		"Qwen2MoeForCausalLM":    "qwen2",
-		"LlamaForCausalLM":       "default",
-		"MistralForCausalLM":     "default",
-		"Phi3ForCausalLM":        "default",
-		"GemmaForCausalLM":       "default",
-		"Gemma2ForCausalLM":      "default",
-		"DeepseekV2ForCausalLM":  "deepseek-llm",
-		"DeepseekV3ForCausalLM":  "deepseek-llm",
-		"InternLM2ForCausalLM":   "default",
-		"ChatGLMModel":           "chatglm-bpe",
-		"BaichuanForCausalLM":    "default",
+		// Qwen family → qwen2 pre-tokenizer
+		"QWenLMHeadModel":                            "qwen2",
+		"Qwen2ForCausalLM":                           "qwen2",
+		"Qwen2Model":                                 "qwen2",
+		"Qwen2MoeForCausalLM":                        "qwen2",
+		"Qwen2AudioForConditionalGeneration":          "qwen2",
+		"KORMoForCausalLM":                            "qwen2",
+		"AudioFlamingo3ForConditionalGeneration":       "qwen2",
+		"Qwen3ForCausalLM":                            "qwen2",
+		"Qwen3MoeForCausalLM":                         "qwen2",
+		"Qwen3VLForConditionalGeneration":             "qwen2",
+		"Qwen3VLMoeForConditionalGeneration":          "qwen2",
+		"Qwen3NextForCausalLM":                        "qwen2",
+		"Qwen3_5ForConditionalGeneration":             "qwen2",
+		"Qwen3_5ForCausalLM":                          "qwen2",
+		"Qwen3_5MoeForConditionalGeneration":          "qwen2",
+		"Qwen3_5MoeForCausalLM":                       "qwen2",
+
+		// DeepSeek → deepseek-llm
+		"DeepseekV2ForCausalLM": "deepseek-llm",
+		"DeepseekV3ForCausalLM": "deepseek-llm",
+
+		// ChatGLM → chatglm-bpe
+		"ChatGLMModel":                      "chatglm-bpe",
+		"ChatGLMForConditionalGeneration":    "chatglm-bpe",
+		"GlmForCausalLM":                    "chatglm-bpe",
+
+		// RWKV → rwkv-world
+		"Rwkv6ForCausalLM":      "rwkv-world",
+		"Rwkv7ForCausalLM":      "rwkv-world",
+		"RWKV7ForCausalLM":      "rwkv-world",
+		"RwkvHybridForCausalLM": "rwkv-world",
+
+		// RWKV6Qwen2 uses qwen2 tokenizer
+		"RWKV6Qwen2ForCausalLM": "qwen2",
+
+		// Kimi-Linear uses qwen2 tokenizer
+		"KimiLinearForCausalLM": "qwen2",
+		"KimiLinearModel":       "qwen2",
+
+		// GPT2
+		"GPT2LMHeadModel": "gpt2",
 	}
 	if pre, ok := m[arch]; ok {
 		return pre

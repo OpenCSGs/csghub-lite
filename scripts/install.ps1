@@ -299,9 +299,9 @@ function Check-Existing {
     }
 }
 
-function Install-PythonDeps {
-    $pythonPkgs = @("torch", "safetensors", "gguf", "transformers")
-
+function Check-PythonOptional {
+    # Python is optional — only needed for rare/unsupported architectures.
+    # The built-in Go converter handles 160+ architectures natively.
     $python = $null
     foreach ($name in @("python3", "python")) {
         $cmd = Get-Command $name -ErrorAction SilentlyContinue
@@ -316,55 +316,10 @@ function Install-PythonDeps {
         }
     }
 
-    if (-not $python) {
-        Warn "Python 3 not found. It is required to convert SafeTensors models to GGUF."
-        $answer = Read-Host "Install Python 3? You can download from https://www.python.org/downloads/ [y/N]"
-        if ($answer -match '^[yY](es)?$') {
-            Info "Opening Python download page..."
-            Start-Process "https://www.python.org/downloads/"
-            Warn "After installing Python, re-run this script or manually install: pip install torch safetensors gguf"
-        } else {
-            Warn "Skipping Python setup. SafeTensors auto-conversion will not be available."
-        }
-        return
-    }
-
-    Info "Python 3 found: $(& $python --version 2>&1)"
-
-    $missing = @()
-    foreach ($pkg in $pythonPkgs) {
-        try {
-            & $python -c "import $pkg" 2>$null
-            if ($LASTEXITCODE -ne 0) { $missing += $pkg }
-        } catch {
-            $missing += $pkg
-        }
-    }
-
-    if ($missing.Count -eq 0) {
-        Info "Python dependencies already installed (torch, safetensors, gguf, transformers)."
-        return
-    }
-
-    $missingStr = $missing -join ", "
-    Warn "Missing Python packages: $missingStr"
-    $answer = Read-Host "Install them now? (CPU-only torch, ~300MB) [y/N]"
-    if ($answer -match '^[yY](es)?$') {
-        $pkgList = $missing -join " "
-        Info "Installing: $pkgList..."
-        $pipArgs = @("-m", "pip", "install")
-        if ($missing -contains "torch") {
-            $pipArgs += @("--extra-index-url", "https://download.pytorch.org/whl/cpu")
-        }
-        $pipArgs += $missing
-        & $python @pipArgs
-        if ($LASTEXITCODE -eq 0) {
-            Info "Python dependencies installed successfully."
-        } else {
-            Warn "pip install failed. Try manually: $python -m pip install $pkgList"
-        }
+    if ($python) {
+        Info "Python 3 found (optional): $(& $python --version 2>&1)"
     } else {
-        Warn "Skipping. Install later with: $python -m pip install $($missing -join ' ')"
+        Info "Python 3 not found (optional - not required for most models)."
     }
 }
 
@@ -383,8 +338,7 @@ if ($autoInstall -eq "1") {
     Install-LlamaServer
 }
 
-Info "Checking Python environment for model conversion..."
-Install-PythonDeps
+Check-PythonOptional
 
 Write-Host ""
 Write-Host "Quick start:" -ForegroundColor White

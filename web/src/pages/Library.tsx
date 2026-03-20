@@ -1,6 +1,6 @@
 import { useEffect } from "preact/hooks";
 import { signal, computed } from "@preact/signals";
-import { getTags, deleteModel, runModel, getPs } from "../api/client";
+import { getTags, deleteModel, loadModel, getPs } from "../api/client";
 import type { ModelInfo, RunningModel } from "../api/client";
 import { t, locale } from "../i18n";
 
@@ -12,6 +12,7 @@ const formatFilter = signal<FormatFilter>("all");
 const sortField = signal<"name" | "size" | "modified_at">("name");
 const sortAsc = signal(true);
 const loadingRun = signal<string>("");
+const loadProgress = signal<string>("");
 const runError = signal<string>("");
 
 const filtered = computed(() => {
@@ -50,14 +51,23 @@ export function Library() {
 
   const handleRun = async (name: string) => {
     loadingRun.value = name;
+    loadProgress.value = "";
     runError.value = "";
     try {
-      await runModel(name);
+      await loadModel(name, (p) => {
+        if (p.step && p.total && p.total > 0 && p.current) {
+          const pct = Math.round((p.current / p.total) * 100);
+          loadProgress.value = `${p.step} (${p.current}/${p.total}) ${pct}%`;
+        } else if (p.step) {
+          loadProgress.value = p.step;
+        }
+      });
       loadModels();
     } catch (e: any) {
       runError.value = e?.message || t("lib.failedLoad");
     }
     loadingRun.value = "";
+    loadProgress.value = "";
   };
 
   const toggleSort = (field: "name" | "size" | "modified_at") => {
@@ -162,13 +172,20 @@ export function Library() {
                         <span class="inline-flex items-center justify-center w-16 px-3 py-1 text-xs rounded bg-green-50 text-green-700 font-medium">
                           {t("lib.running")}
                         </span>
+                      ) : loadingRun.value === m.name ? (
+                        <div class="flex items-center gap-2">
+                          <span class="text-xs text-gray-500 max-w-[200px] truncate">
+                            {loadProgress.value || (m.format !== "gguf" ? t("lib.converting") : t("lib.loadingModel"))}
+                          </span>
+                          <span class="inline-block w-3 h-3 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin" />
+                        </div>
                       ) : (
                         <button
                           onClick={() => handleRun(m.name)}
-                          disabled={loadingRun.value === m.name}
+                          disabled={!!loadingRun.value}
                           class="inline-flex items-center justify-center w-16 px-3 py-1 text-xs rounded bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-50 transition-colors font-medium"
                         >
-                          {loadingRun.value === m.name ? (m.format !== "gguf" ? t("lib.converting") : t("lib.loadingModel")) : t("lib.run")}
+                          {t("lib.run")}
                         </button>
                       )}
                     </div>

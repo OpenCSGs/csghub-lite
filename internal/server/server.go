@@ -158,6 +158,10 @@ func (s *Server) touchEngine(modelID string) {
 }
 
 func (s *Server) getOrLoadEngine(modelID string) (inference.Engine, error) {
+	return s.getOrLoadEngineWithProgress(modelID, nil)
+}
+
+func (s *Server) getOrLoadEngineWithProgress(modelID string, progress inference.ConvertProgressFunc) (inference.Engine, error) {
 	s.mu.RLock()
 	me, ok := s.engines[modelID]
 	s.mu.RUnlock()
@@ -182,7 +186,7 @@ func (s *Server) getOrLoadEngine(modelID string) (inference.Engine, error) {
 		return nil, err
 	}
 
-	eng, err := inference.LoadEngine(modelDir, lm)
+	eng, err := inference.LoadEngineWithProgress(modelDir, lm, progress, false)
 	if err != nil {
 		return nil, err
 	}

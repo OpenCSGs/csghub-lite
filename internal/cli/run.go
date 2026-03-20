@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/opencsgs/csghub-lite/internal/config"
+	"github.com/opencsgs/csghub-lite/internal/convert"
 	"github.com/opencsgs/csghub-lite/internal/inference"
 	"github.com/opencsgs/csghub-lite/internal/model"
 	"github.com/spf13/cobra"
@@ -47,9 +48,17 @@ func runRun(cmd *cobra.Command, args []string) error {
 
 	fmt.Printf("Loading %s...\n", modelID)
 
+	if modelDir, err := mgr.ModelPath(modelID); err == nil && convert.NeedsConversion(modelDir) {
+		fmt.Println("Converting model to GGUF format (first time only, this may take a moment)...")
+	}
+
 	serverURL, err := ensureServer(cfg)
 	if err != nil {
 		return fmt.Errorf("starting server: %w", err)
+	}
+
+	if err := preloadModel(serverURL, modelID); err != nil {
+		return fmt.Errorf("loading model: %w", err)
 	}
 
 	eng := inference.NewRemoteEngine(serverURL, modelID)

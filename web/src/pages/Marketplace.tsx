@@ -4,7 +4,9 @@ import {
   getMarketplaceModels,
   getMarketplaceDatasets,
   getTags,
+  getDatasetTags,
   pullModel,
+  pullDataset,
 } from "../api/client";
 import type { MarketplaceModel, MarketplaceDataset } from "../api/client";
 import { t, locale } from "../i18n";
@@ -26,9 +28,18 @@ const loading = signal(false);
 const pullingModels = signal<Record<string, { status: string; percent: number }>>({});
 const localModelNames = signal<Set<string>>(new Set());
 
+const pullingDatasets = signal<Record<string, { status: string; percent: number }>>({});
+const localDatasetNames = signal<Set<string>>(new Set());
+
 function loadLocalModels() {
   getTags().then((m) => {
     localModelNames.value = new Set(m.map((x) => x.name));
+  }).catch(() => {});
+}
+
+function loadLocalDatasets() {
+  getDatasetTags().then((d) => {
+    localDatasetNames.value = new Set(d.map((x) => x.name));
   }).catch(() => {});
 }
 
@@ -68,6 +79,7 @@ export function Marketplace() {
   useEffect(() => {
     loadData();
     loadLocalModels();
+    loadLocalDatasets();
   }, []);
 
   useEffect(() => {
@@ -133,6 +145,61 @@ export function Marketplace() {
         const d = { ...pullingModels.value };
         delete d[modelPath];
         pullingModels.value = d;
+      }, 5000);
+    });
+  };
+
+  const handleDatasetDownload = (datasetPath: string) => {
+    const cur = { ...pullingDatasets.value };
+    cur[datasetPath] = { status: "downloading", percent: 0 };
+    pullingDatasets.value = cur;
+
+    const fileMap: Record<string, { completed: number; total: number }> = {};
+    let maxPct = 0;
+
+    pullDataset(
+      datasetPath,
+      (p) => {
+        if (p.digest && p.total && p.total > 0) {
+          fileMap[p.digest] = { completed: p.completed || 0, total: p.total };
+        }
+
+        let totalBytes = 0;
+        let completedBytes = 0;
+        for (const fp of Object.values(fileMap)) {
+          totalBytes += fp.total;
+          completedBytes += fp.completed;
+        }
+        if (totalBytes > 0) {
+          maxPct = Math.max(maxPct, Math.round((completedBytes / totalBytes) * 100));
+        }
+
+        const cur = { ...pullingDatasets.value };
+        cur[datasetPath] = { status: p.status, percent: maxPct };
+        pullingDatasets.value = cur;
+        if (p.status === "success") {
+          loadLocalDatasets();
+          setTimeout(() => {
+            const c = { ...pullingDatasets.value };
+            delete c[datasetPath];
+            pullingDatasets.value = c;
+          }, 5000);
+        } else if (p.status.startsWith("error")) {
+          setTimeout(() => {
+            const c = { ...pullingDatasets.value };
+            delete c[datasetPath];
+            pullingDatasets.value = c;
+          }, 5000);
+        }
+      }
+    ).catch(() => {
+      const c = { ...pullingDatasets.value };
+      c[datasetPath] = { status: "error: download failed", percent: 0 };
+      pullingDatasets.value = c;
+      setTimeout(() => {
+        const d = { ...pullingDatasets.value };
+        delete d[datasetPath];
+        pullingDatasets.value = d;
       }, 5000);
     });
   };
@@ -225,14 +292,14 @@ export function Marketplace() {
       ) : viewMode.value === "grid" ? (
         <div class="grid grid-cols-2 gap-4">
           {datasets.value.map((d) => (
-            <DatasetGridCard key={d.id} dataset={d} />
+            <DatasetGridCard key={d.id} dataset={d} pulling={pullingDatasets.value[d.path]} isLocal={localDatasetNames.value.has(d.path)} onDownload={handleDatasetDownload} />
           ))}
           {datasets.value.length === 0 && <p class="col-span-2 text-center py-16 text-gray-400">{t("mp.noDatasets")}</p>}
         </div>
       ) : (
         <div class="space-y-0 divide-y divide-gray-100">
           {datasets.value.map((d) => (
-            <DatasetCard key={d.id} dataset={d} />
+            <DatasetCard key={d.id} dataset={d} pulling={pullingDatasets.value[d.path]} isLocal={localDatasetNames.value.has(d.path)} onDownload={handleDatasetDownload} />
           ))}
           {datasets.value.length === 0 && <p class="text-center py-16 text-gray-400">{t("mp.noDatasets")}</p>}
         </div>
@@ -455,7 +522,17 @@ function ModelGridCard({
   );
 }
 
-function DatasetGridCard({ dataset }: { dataset: MarketplaceDataset }) {
+function DatasetGridCard({
+  dataset,
+  pulling,
+  isLocal,
+  onDownload,
+}: {
+  dataset: MarketplaceDataset;
+  pulling?: { status: string; percent: number };
+  isLocal?: boolean;
+  onDownload: (path: string) => void;
+}) {
   void locale.value;
   const tags = dataset.tags?.filter((t) => t.category === "task" || t.category === "license").slice(0, 2) || [];
 
@@ -494,21 +571,61 @@ function DatasetGridCard({ dataset }: { dataset: MarketplaceDataset }) {
           </svg>
           {t("mp.updatedAt", new Date(dataset.updated_at).toLocaleDateString())}
         </span>
-        <button class="flex items-center gap-1 text-indigo-600 hover:text-indigo-700 font-medium">
-          <DownloadIcon /> {t("mp.download")}
-        </button>
+        <div class="flex-shrink-0">
+          {isLocal && !pulling ? (
+            <span class="inline-flex items-center gap-1 text-purple-600 font-medium">
+              <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
+              </svg>
+              {t("mp.downloaded")}
+            </span>
+          ) : pulling ? (
+            pulling.status === "success" ? (
+              <span class="text-purple-600 font-medium">{t("mp.done")}</span>
+            ) : pulling.status.startsWith("error") ? (
+              <span class="text-red-500 font-medium">{t("mp.failed")}</span>
+            ) : (
+              <span class="text-purple-600 font-medium">
+                {pulling.percent > 0 ? `${pulling.percent}%` : t("mp.pulling")}
+              </span>
+            )
+          ) : (
+            <button
+              onClick={() => onDownload(dataset.path)}
+              class="flex items-center gap-1 text-indigo-600 hover:text-indigo-700 font-medium"
+            >
+              <DownloadIcon /> {t("mp.download")}
+            </button>
+          )}
+        </div>
       </div>
     </div>
   );
 }
 
-function DatasetCard({ dataset }: { dataset: MarketplaceDataset }) {
+function DatasetCard({
+  dataset,
+  pulling,
+  isLocal,
+  onDownload,
+}: {
+  dataset: MarketplaceDataset;
+  pulling?: { status: string; percent: number };
+  isLocal?: boolean;
+  onDownload: (path: string) => void;
+}) {
+  void locale.value;
   const tags = dataset.tags?.filter((t) => t.category === "task" || t.category === "license").slice(0, 3) || [];
 
   return (
-    <div class="flex items-start justify-between py-4">
+    <div class="flex items-center justify-between py-4">
       <div class="flex-1 min-w-0">
-        <span class="font-medium text-gray-900">{dataset.path}</span>
+        <div class="flex items-center gap-2">
+          <span class="font-medium text-gray-900">{dataset.path}</span>
+          {isLocal && (
+            <span class="px-1.5 py-0.5 text-xs bg-purple-50 text-purple-600 rounded font-medium">{t("mp.downloaded")}</span>
+          )}
+        </div>
         {dataset.description && (
           <p class="text-sm text-gray-500 mt-1 line-clamp-1">{dataset.description}</p>
         )}
@@ -528,6 +645,55 @@ function DatasetCard({ dataset }: { dataset: MarketplaceDataset }) {
             <StarIcon /> {dataset.likes}
           </span>
         </div>
+      </div>
+      <div class="ml-4 flex-shrink-0 w-28 flex items-center justify-end">
+        {isLocal && !pulling ? (
+          <span class="inline-flex items-center gap-1.5 px-4 py-1.5 text-sm text-purple-600 font-medium">
+            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
+            </svg>
+            {t("mp.downloaded")}
+          </span>
+        ) : pulling ? (
+          <div>
+            {pulling.status === "success" ? (
+              <div class="flex items-center justify-end gap-1.5 text-purple-600">
+                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
+                </svg>
+                <span class="text-sm font-medium">{t("mp.done")}</span>
+              </div>
+            ) : pulling.status.startsWith("error") ? (
+              <div class="flex items-center justify-end gap-1.5 text-red-500" title={pulling.status}>
+                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+                <span class="text-sm font-medium">{t("mp.failed")}</span>
+              </div>
+            ) : (
+              <div>
+                <div class="flex items-center justify-between mb-1">
+                  <span class="text-xs text-purple-600 font-medium">
+                    {pulling.percent > 0 ? `${pulling.percent}%` : t("mp.pulling")}
+                  </span>
+                </div>
+                <div class="w-full h-1.5 bg-gray-200 rounded-full overflow-hidden">
+                  <div
+                    class="h-full bg-purple-500 rounded-full transition-all duration-300"
+                    style={{ width: `${Math.max(pulling.percent, 3)}%` }}
+                  />
+                </div>
+              </div>
+            )}
+          </div>
+        ) : (
+          <button
+            onClick={() => onDownload(dataset.path)}
+            class="flex items-center justify-center gap-1.5 w-full px-4 py-1.5 text-sm border border-gray-200 rounded-lg hover:bg-gray-50 text-gray-700 transition-colors"
+          >
+            <DownloadIcon /> {t("mp.download")}
+          </button>
+        )}
       </div>
     </div>
   );

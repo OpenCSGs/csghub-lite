@@ -205,6 +205,60 @@ func (s *Server) handleDelete(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
 }
 
+// POST /api/load -- eagerly load (and convert if necessary) a model
+func (s *Server) handleLoad(w http.ResponseWriter, r *http.Request) {
+	var req api.LoadRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	stream := req.Stream != nil && *req.Stream
+
+	if !stream {
+		_, err := s.getOrLoadEngine(req.Model)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		s.touchEngine(req.Model)
+		writeJSON(w, http.StatusOK, api.LoadResponse{Status: "ready"})
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+
+	var mu sync.Mutex
+	safeSSE := func(v interface{}) {
+		mu.Lock()
+		writeSSE(w, v)
+		mu.Unlock()
+	}
+
+	safeSSE(api.LoadResponse{Status: "loading " + req.Model})
+
+	progress := func(step string, current, total int) {
+		safeSSE(api.LoadResponse{
+			Status:  "converting",
+			Step:    step,
+			Current: current,
+			Total:   total,
+		})
+	}
+
+	_, err := s.getOrLoadEngineWithProgress(req.Model, progress)
+	if err != nil {
+		log.Printf("load %s failed: %v", req.Model, err)
+		safeSSE(api.LoadResponse{Status: "error: " + err.Error()})
+		return
+	}
+	s.touchEngine(req.Model)
+
+	safeSSE(api.LoadResponse{Status: "ready"})
+}
+
 // POST /api/generate -- text generation
 func (s *Server) handleGenerate(w http.ResponseWriter, r *http.Request) {
 	var req api.GenerateRequest

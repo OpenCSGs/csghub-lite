@@ -136,12 +136,14 @@ func ConvertPython(modelDir string, progress ProgressFunc) (string, error) {
 	python, missingDeps := findPythonEnv()
 	if python == "" {
 		installHint := "brew install python3 (macOS) / apt install python3 (Linux) / https://python.org (Windows)"
-		return "", fmt.Errorf("this model requires Python 3 for auto-conversion, but python3 was not found.\n"+
+		return "", fmt.Errorf("this model architecture is not yet supported by the built-in Go converter "+
+			"and requires Python 3 as a fallback, but python3 was not found.\n"+
 			"Install Python: %s\n"+
 			"Then run: pip3 install torch safetensors gguf transformers", installHint)
 	}
 	if missingDeps != "" {
-		return "", fmt.Errorf("this model requires Python packages for auto-conversion.\n"+
+		return "", fmt.Errorf("this model architecture is not yet supported by the built-in Go converter "+
+			"and requires Python packages as a fallback.\n"+
 			"Missing packages: %s\n"+
 			"Install with: pip3 install %s", missingDeps, missingDeps)
 	}

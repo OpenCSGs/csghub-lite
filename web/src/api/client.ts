@@ -287,12 +287,203 @@ export function streamChat(
   });
 }
 
+export interface LoadProgress {
+  status: string;
+  step?: string;
+  current?: number;
+  total?: number;
+}
+
+export function loadModel(
+  model: string,
+  onProgress: (p: LoadProgress) => void,
+  signal?: AbortSignal
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    fetch("/api/load", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ model, stream: true }),
+      signal,
+    })
+      .then((resp) => {
+        if (!resp.ok || !resp.body) {
+          reject(new Error("load failed"));
+          return;
+        }
+        const reader = resp.body.getReader();
+        const decoder = new TextDecoder();
+        let buf = "";
+
+        function processLine(line: string) {
+          if (!line.startsWith("data: ")) return;
+          try {
+            const p: LoadProgress = JSON.parse(line.slice(6));
+            onProgress(p);
+            if (p.status === "ready") {
+              resolve();
+            } else if (p.status.startsWith("error")) {
+              reject(new Error(p.status));
+            }
+          } catch {
+            /* skip */
+          }
+        }
+
+        function read(): Promise<void> {
+          return reader.read().then(({ done, value }) => {
+            if (done) {
+              resolve();
+              return;
+            }
+            buf += decoder.decode(value, { stream: true });
+            const lines = buf.split("\n");
+            buf = lines.pop() || "";
+            for (const line of lines) {
+              processLine(line);
+            }
+            return read();
+          });
+        }
+
+        read().catch(reject);
+      })
+      .catch(reject);
+  });
+}
+
 export async function runModel(model: string): Promise<void> {
   const stream = false;
   await fetchJSON("/api/generate", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ model, prompt: "hi", stream }),
+  });
+}
+
+export interface DatasetInfo {
+  name: string;
+  dataset: string;
+  size: number;
+  files: number;
+  modified_at: string;
+}
+
+export async function getDatasetTags(): Promise<DatasetInfo[]> {
+  const data = await fetchJSON<{ datasets: DatasetInfo[] }>("/api/datasets");
+  return data.datasets || [];
+}
+
+export function pullDataset(
+  dataset: string,
+  onProgress: (p: PullProgress) => void,
+  signal?: AbortSignal
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    fetch("/api/datasets/pull", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ dataset }),
+      signal,
+    })
+      .then((resp) => {
+        if (!resp.ok || !resp.body) {
+          reject(new Error("pull failed"));
+          return;
+        }
+        const reader = resp.body.getReader();
+        const decoder = new TextDecoder();
+        let buf = "";
+        let lastUpdate = 0;
+        let pending: PullProgress | null = null;
+        let flushTimer = 0;
+
+        function flushPending() {
+          if (pending) {
+            onProgress(pending);
+            pending = null;
+          }
+        }
+
+        function processLine(line: string) {
+          if (!line.startsWith("data: ")) return;
+          try {
+            const p: PullProgress = JSON.parse(line.slice(6));
+            if (p.status === "success" || p.status.startsWith("error")) {
+              clearTimeout(flushTimer);
+              onProgress(p);
+              return;
+            }
+            const now = Date.now();
+            if (now - lastUpdate >= 200) {
+              lastUpdate = now;
+              onProgress(p);
+            } else {
+              pending = p;
+              clearTimeout(flushTimer);
+              flushTimer = window.setTimeout(flushPending, 200);
+            }
+          } catch {
+            /* skip */
+          }
+        }
+
+        function read(): Promise<void> {
+          return reader.read().then(({ done, value }) => {
+            if (done) {
+              clearTimeout(flushTimer);
+              flushPending();
+              resolve();
+              return;
+            }
+            buf += decoder.decode(value, { stream: true });
+            const lines = buf.split("\n");
+            buf = lines.pop() || "";
+            for (const line of lines) {
+              processLine(line);
+            }
+            return read();
+          });
+        }
+
+        read().catch((err) => {
+          clearTimeout(flushTimer);
+          reject(err);
+        });
+      })
+      .catch(reject);
+  });
+}
+
+export async function deleteDataset(dataset: string): Promise<void> {
+  await fetchJSON("/api/datasets/delete", {
+    method: "DELETE",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ dataset }),
+  });
+}
+
+export interface DatasetFileEntry {
+  name: string;
+  size: number;
+  is_dir: boolean;
+  modified_at: string;
+}
+
+export interface DatasetFilesResponse {
+  dataset: string;
+  path: string;
+  entries: DatasetFileEntry[];
+}
+
+export async function getDatasetFiles(
+  dataset: string,
+  path: string
+): Promise<DatasetFilesResponse> {
+  return fetchJSON<DatasetFilesResponse>("/api/datasets/files", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ dataset, path }),
   });
 }
 

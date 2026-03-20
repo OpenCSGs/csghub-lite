@@ -99,6 +99,37 @@ func (s *Server) handleDatasetPull(w http.ResponseWriter, r *http.Request) {
 	safeSSE(api.DatasetPullResponse{Status: "success"})
 }
 
+// POST /api/datasets/files -- browse files in a dataset directory
+func (s *Server) handleDatasetFiles(w http.ResponseWriter, r *http.Request) {
+	var req api.DatasetFilesRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	entries, err := s.datasetManager.ListFiles(req.Dataset, req.Path)
+	if err != nil {
+		writeError(w, http.StatusNotFound, fmt.Sprintf("cannot list files: %v", err))
+		return
+	}
+
+	var apiEntries []api.DatasetFileEntry
+	for _, e := range entries {
+		apiEntries = append(apiEntries, api.DatasetFileEntry{
+			Name:       e.Name,
+			Size:       e.Size,
+			IsDir:      e.IsDir,
+			ModifiedAt: e.ModifiedAt,
+		})
+	}
+
+	writeJSON(w, http.StatusOK, api.DatasetFilesResponse{
+		Dataset: req.Dataset,
+		Path:    req.Path,
+		Entries: apiEntries,
+	})
+}
+
 // DELETE /api/datasets/delete -- remove a dataset
 func (s *Server) handleDatasetDelete(w http.ResponseWriter, r *http.Request) {
 	var req api.DatasetDeleteRequest

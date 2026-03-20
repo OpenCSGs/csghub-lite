@@ -12,37 +12,48 @@ import (
 // Synced from llama.cpp convert_hf_to_gguf.py and src/llama-arch.cpp.
 var archMapping = map[string]string{
 	// Llama family
-	"LlamaForCausalLM":      "llama",
-	"LLaMAForCausalLM":      "llama",
-	"MistralForCausalLM":    "llama",
-	"MixtralForCausalLM":    "llama",
-	"InternLM3ForCausalLM":  "llama",
-	"Llama4ForCausalLM":     "llama4",
-	"DeciLMForCausalLM":     "deci",
-	"ArceeForCausalLM":      "arcee",
-	"AfmoeForCausalLM":      "afmoe",
-	"SmolLM3ForCausalLM":    "smollm3",
-	"ApertusForCausalLM":    "apertus",
-	"CogVLMForCausalLM":     "cogvlm",
+	"LlamaForCausalLM":                "llama",
+	"LLaMAForCausalLM":                "llama",
+	"MistralForCausalLM":              "llama",
+	"MixtralForCausalLM":              "llama",
+	"InternLM3ForCausalLM":            "llama",
+	"Llama4ForCausalLM":               "llama4",
+	"Llama4ForConditionalGeneration":   "llama4",
+	"LlamaBidirectionalModel":          "llama",
+	"DeciLMForCausalLM":               "deci",
+	"ArceeForCausalLM":                "arcee",
+	"AfmoeForCausalLM":                "afmoe",
+	"SmolLM3ForCausalLM":              "smollm3",
+	"ApertusForCausalLM":              "apertus",
+	"CogVLMForCausalLM":               "cogvlm",
 
 	// Qwen family
-	"Qwen2ForCausalLM":                   "qwen2",
-	"Qwen2MoeForCausalLM":                "qwen2moe",
-	"Qwen2VLForConditionalGeneration":     "qwen2vl",
-	"Qwen2_5_VLForConditionalGeneration":  "qwen2vl",
-	"Qwen3ForCausalLM":                    "qwen3",
-	"Qwen3MoeForCausalLM":                 "qwen3moe",
-	"Qwen3NextForCausalLM":                "qwen3next",
-	"Qwen3_5ForConditionalGeneration":     "qwen35",
-	"Qwen3_5ForCausalLM":                  "qwen35",
-	"Qwen3_5MoeForConditionalGeneration":  "qwen35moe",
-	"Qwen3_5MoeForCausalLM":               "qwen35moe",
+	"QWenLMHeadModel":                            "qwen2",
+	"Qwen2ForCausalLM":                           "qwen2",
+	"Qwen2Model":                                 "qwen2",
+	"Qwen2MoeForCausalLM":                        "qwen2moe",
+	"Qwen2VLForConditionalGeneration":             "qwen2vl",
+	"Qwen2_5_VLForConditionalGeneration":          "qwen2vl",
+	"Qwen2AudioForConditionalGeneration":          "qwen2",
+	"KORMoForCausalLM":                            "qwen2",
+	"AudioFlamingo3ForConditionalGeneration":       "qwen2",
+	"Qwen3ForCausalLM":                            "qwen3",
+	"Qwen3MoeForCausalLM":                         "qwen3moe",
+	"Qwen3VLForConditionalGeneration":             "qwen3",
+	"Qwen3VLMoeForConditionalGeneration":          "qwen3moe",
+	"Qwen3NextForCausalLM":                        "qwen3next",
+	"Qwen3_5ForConditionalGeneration":             "qwen35",
+	"Qwen3_5ForCausalLM":                          "qwen35",
+	"Qwen3_5MoeForConditionalGeneration":          "qwen35moe",
+	"Qwen3_5MoeForCausalLM":                       "qwen35moe",
 
 	// Gemma family
-	"GemmaForCausalLM":  "gemma",
-	"Gemma2ForCausalLM": "gemma2",
-	"Gemma3ForCausalLM": "gemma3",
-	"Gemma3nForCausalLM": "gemma3n",
+	"GemmaForCausalLM":                "gemma",
+	"Gemma2ForCausalLM":               "gemma2",
+	"Gemma3ForCausalLM":               "gemma3",
+	"Gemma3ForConditionalGeneration":   "gemma3",
+	"Gemma3nForCausalLM":              "gemma3n",
+	"Gemma3nForConditionalGeneration":  "gemma3n",
 
 	// Phi family
 	"PhiForCausalLM":     "phi2",
@@ -55,8 +66,13 @@ var archMapping = map[string]string{
 	"ChatGLMModel":                      "chatglm",
 	"ChatGLMForConditionalGeneration":   "chatglm",
 	"Glm4ForCausalLM":                   "glm4",
+	"Glm4vForConditionalGeneration":     "glm4",
+	"GlmOcrForConditionalGeneration":    "glm4",
 	"Glm4MoeForCausalLM":                "glm4moe",
+	"Glm4vMoeForConditionalGeneration":  "glm4moe",
 	"GlmMoeDsaForCausalLM":              "glm-dsa",
+	"Glm4MoeLiteForCausalLM":            "deepseek2",
+	"SolarOpenForCausalLM":              "glm4moe",
 
 	// Deepseek family
 	"DeepseekForCausalLM":    "deepseek",
@@ -125,8 +141,10 @@ var archMapping = map[string]string{
 	"Starcoder2ForCausalLM":    "starcoder2",
 
 	// Mistral (standalone)
-	"Ministral3ForCausalLM": "mistral3",
-	"Mistral4ForCausalLM":   "mistral4",
+	"Ministral3ForCausalLM":            "mistral3",
+	"Mistral3ForConditionalGeneration": "mistral3",
+	"VoxtralForConditionalGeneration":  "mistral3",
+	"Mistral4ForCausalLM":              "mistral4",
 
 	// HunyYuan
 	"HunYuanMoEV1ForCausalLM":    "hunyuan-moe",
@@ -137,13 +155,60 @@ var archMapping = map[string]string{
 	"Ernie4_5ForCausalLM":      "ernie4_5",
 	"Ernie4_5_MoeForCausalLM":  "ernie4_5-moe",
 
+	// GPT family
+	"GPT2LMHeadModel":        "gpt2",
+	"GPTNeoXForCausalLM":     "gptneox",
+	"GPTRefactForCausalLM":   "refact",
+
+	// Bloom
+	"BloomForCausalLM":   "bloom",
+	"BloomModel":         "bloom",
+
+	// StableLM
+	"StableLmForCausalLM":              "stablelm",
+	"StableLMEpochForCausalLM":         "stablelm",
+	"LlavaStableLMEpochForCausalLM":    "stablelm",
+
+	// T5 encoder-decoder
+	"T5WithLMHeadModel":           "t5",
+	"T5ForConditionalGeneration":  "t5",
+	"MT5ForConditionalGeneration": "t5",
+	"UMT5ForConditionalGeneration": "t5",
+	"UMT5Model":                   "t5",
+	"T5EncoderModel":              "t5encoder",
+
+	// JAIS
+	"JaisModel":          "jais",
+	"JAISLMHeadModel":    "jais",
+	"Jais2ForCausalLM":   "jais2",
+
+	// PLaMo family
+	"PlamoForCausalLM":   "plamo",
+	"Plamo2ForCausalLM":  "plamo2",
+	"PLaMo2ForCausalLM":  "plamo2",
+	"Plamo3ForCausalLM":  "plamo3",
+	"PLaMo3ForCausalLM":  "plamo3",
+
+	// Diffusion models
+	"DreamModel":      "dream",
+	"LLaDAModelLM":    "llada",
+	"LLaDAMoEModel":   "llada-moe",
+	"LLaDAMoEModelLM": "llada-moe",
+	"RND1":            "rnd1",
+
+	// Hybrid architectures
+	"KimiLinearForCausalLM": "kimi-linear",
+	"KimiLinearModel":       "kimi-linear",
+
+	// LFM2 family
+	"Lfm2ForCausalLM":      "lfm2",
+	"LFM2ForCausalLM":      "lfm2",
+	"Lfm2Model":            "lfm2",
+	"Lfm25AudioTokenizer":  "lfm2",
+	"Lfm2MoeForCausalLM":   "lfm2moe",
+
 	// Other architectures
-	"GPTNeoXForCausalLM":         "gptneox",
-	"BloomForCausalLM":           "bloom",
 	"MPTForCausalLM":             "mpt",
-	"GPTRefactForCausalLM":       "refact",
-	"StableLmForCausalLM":        "stablelm",
-	"StableLMEpochForCausalLM":   "stablelm",
 	"OrionForCausalLM":           "orion",
 	"XverseForCausalLM":          "xverse",
 	"CodeShellForCausalLM":       "codeshell",
@@ -154,28 +219,23 @@ var archMapping = map[string]string{
 	"GrokForCausalLM":            "grok",
 	"Grok1ForCausalLM":           "grok",
 	"ChameleonForCausalLM":       "chameleon",
-	"PlamoForCausalLM":           "plamo",
-	"Plamo2ForCausalLM":          "plamo2",
-	"Plamo3ForCausalLM":          "plamo3",
+	"ChameleonForConditionalGeneration": "chameleon",
 	"PLMForCausalLM":             "plm",
 	"Dots1ForCausalLM":           "dots1",
-	"JaisModel":                  "jais",
-	"Jais2ForCausalLM":           "jais2",
 	"BailingMoeForCausalLM":      "bailingmoe",
 	"BailingMoeV2ForCausalLM":    "bailingmoe2",
-	"GroveMoeForCausalLM":        "grovemoe",
+	"GroveMoeForCausalLM":                        "grovemoe",
+	"modeling_grove_moe.GroveMoeForCausalLM":      "grovemoe",
 	"SmallThinkerForCausalLM":    "smallthinker",
 	"GptOssForCausalLM":          "gpt-oss",
-	"Lfm2ForCausalLM":            "lfm2",
-	"LFM2ForCausalLM":            "lfm2",
-	"Lfm2MoeForCausalLM":         "lfm2moe",
 	"SeedOssForCausalLM":         "seed_oss",
 	"MiniMaxM2ForCausalLM":       "minimax-m2",
 	"MiMoV2FlashForCausalLM":     "mimo2",
 	"Step3p5ForCausalLM":         "step35",
 	"MaincoderForCausalLM":       "maincoder",
-	"KimiLinearForCausalLM":      "kimi-linear",
-	"SolarOpenForCausalLM":       "glm4moe",
+	"PanguEmbeddedForCausalLM":   "pangu-embedded",
+	"WavTokenizerDec":            "wavtokenizer-dec",
+	"PaddleOCRVLForConditionalGeneration": "paddleocr",
 }
 
 // ropeParameters holds rope_parameters / rope_scaling fields from config.json.
@@ -207,13 +267,36 @@ type modelConfig struct {
 	RopeScaling  *ropeParameters `json:"rope_scaling"`
 
 	// SSM / linear-attention fields (Qwen3.5, Mamba, etc.)
-	LinearConvKernelDim  int `json:"linear_conv_kernel_dim"`
-	LinearKeyHeadDim     int `json:"linear_key_head_dim"`
-	LinearValueHeadDim   int `json:"linear_value_head_dim"`
-	LinearNumKeyHeads    int `json:"linear_num_key_heads"`
-	LinearNumValueHeads  int `json:"linear_num_value_heads"`
-	FullAttentionInterval int `json:"full_attention_interval"`
-	PartialRotaryFactor  float64 `json:"partial_rotary_factor"`
+	LinearConvKernelDim   int     `json:"linear_conv_kernel_dim"`
+	LinearKeyHeadDim      int     `json:"linear_key_head_dim"`
+	LinearValueHeadDim    int     `json:"linear_value_head_dim"`
+	LinearNumKeyHeads     int     `json:"linear_num_key_heads"`
+	LinearNumValueHeads   int     `json:"linear_num_value_heads"`
+	FullAttentionInterval int     `json:"full_attention_interval"`
+	PartialRotaryFactor   float64 `json:"partial_rotary_factor"`
+
+	// Mamba SSM fields (alternative naming in different models)
+	ConvKernel   int `json:"conv_kernel"`
+	DConv        int `json:"d_conv"`
+	StateSize    int `json:"state_size"`
+	DState       int `json:"d_state"`
+	TimeStepRank int `json:"time_step_rank"`
+	DtRank       int `json:"dt_rank"`
+	DModel       int `json:"d_model"`
+	DInner       int `json:"d_inner"`
+	NGroups      int `json:"n_groups"`
+	MambaDSSM    int `json:"mamba_d_ssm"`
+
+	// RWKV fields
+	WkvHeadSize      int     `json:"head_size"`
+	RescaleEvery     int     `json:"rescale_every"`
+	LayerNormEpsilon float64 `json:"layer_norm_epsilon"`
+
+	// MoE fields
+	NumLocalExperts              int `json:"num_local_experts"`
+	NumExpertsPerTok             int `json:"num_experts_per_tok"`
+	MoeIntermediateSize          int `json:"moe_intermediate_size"`
+	SharedExpertIntermediateSize int `json:"shared_expert_intermediate_size"`
 
 	// VL (vision-language) models nest text model params under text_config.
 	TextConfig *modelConfig `json:"text_config"`
@@ -296,6 +379,26 @@ func loadModelConfig(modelDir string) (*modelConfig, error) {
 		cfg.RopeTheta = rp.RopeTheta
 	}
 
+	// Merge Mamba alternative field names.
+	if cfg.ConvKernel == 0 && cfg.DConv > 0 {
+		cfg.ConvKernel = cfg.DConv
+	}
+	if cfg.StateSize == 0 && cfg.DState > 0 {
+		cfg.StateSize = cfg.DState
+	}
+	if cfg.TimeStepRank == 0 && cfg.DtRank > 0 {
+		cfg.TimeStepRank = cfg.DtRank
+	}
+	if cfg.HiddenSize == 0 && cfg.DModel > 0 {
+		cfg.HiddenSize = cfg.DModel
+	}
+	if cfg.IntermediateSize == 0 && cfg.DInner > 0 {
+		cfg.IntermediateSize = cfg.DInner
+	}
+	if cfg.RmsNormEps == 0 && cfg.LayerNormEpsilon > 0 {
+		cfg.RmsNormEps = cfg.LayerNormEpsilon
+	}
+
 	// Defaults.
 	if cfg.NumKeyValueHeads == 0 {
 		cfg.NumKeyValueHeads = cfg.NumAttentionHeads
@@ -310,32 +413,11 @@ func loadModelConfig(modelDir string) (*modelConfig, error) {
 	return &cfg, nil
 }
 
-// Architectures that require complex tensor transformations (SSM/linear-attention
-// QKV split, V-head reordering, etc.) that our simple converter cannot handle.
-// Users should use the official convert_hf_to_gguf.py from llama.cpp for these.
-var complexArchitectures = map[string]bool{
-	"qwen35":    true,
-	"qwen35moe": true,
-	"qwen3next": true,
-	"mamba":     true,
-	"mamba2":    true,
-	"jamba":     true,
-	"falcon-h1": true,
-	"rwkv6":    true,
-	"rwkv6qwen2": true,
-	"rwkv7":    true,
-	"arwkv7":   true,
-}
-
-// detectGGUFArch returns the GGUF architecture name for the given HuggingFace
-// architecture and whether the architecture requires the Python converter.
-// Returns ("", false) if the architecture is not supported at all.
-func detectGGUFArch(hfArch string) (ggufArch string, needsPython bool) {
-	arch, ok := archMapping[hfArch]
-	if !ok {
-		return "", false
-	}
-	return arch, complexArchitectures[arch]
+// detectGGUFArch returns the GGUF architecture name for a HuggingFace architecture.
+// Returns ("", false) if the architecture is unknown.
+func detectGGUFArch(hfArch string) (ggufArch string, ok bool) {
+	arch, found := archMapping[hfArch]
+	return arch, found
 }
 
 // writeModelKV writes architecture-specific metadata to the GGUF writer.
@@ -421,6 +503,40 @@ func tensorNameMapper(ggufArch string) func(string) string {
 			".linear_attn.dt_bias", ".ssm_dt.bias",
 			".linear_attn.norm", ".ssm_norm",
 			".linear_attn.out_proj", ".ssm_out",
+		)
+	case "kimi-linear":
+		overrides = append(overrides,
+			".linear_attn.in_proj_qkv", ".attn_qkv",
+			".linear_attn.in_proj_z", ".attn_gate",
+			".linear_attn.in_proj_a", ".ssm_beta",
+			".linear_attn.in_proj_b", ".ssm_alpha",
+			".linear_attn.A_log", ".ssm_a",
+			".linear_attn.conv1d", ".ssm_conv1d",
+			".linear_attn.dt_bias", ".ssm_dt.bias",
+			".linear_attn.norm", ".ssm_norm",
+			".linear_attn.out_proj", ".ssm_out",
+		)
+	case "falcon-h1", "granitehybrid", "nemotron_h":
+		overrides = append(overrides,
+			".mamba.in_proj", ".ssm_in",
+			".mamba.conv1d", ".ssm_conv1d",
+			".mamba.dt_proj", ".ssm_dt",
+			".mamba.dt_bias", ".ssm_dt.bias",
+			".mamba.A_log", ".ssm_a",
+			".mamba.D", ".ssm_d",
+			".mamba.norm", ".ssm_norm",
+			".mamba.out_proj", ".ssm_out",
+			".pre_mamba_layernorm", ".attn_norm",
+		)
+	case "plamo2":
+		overrides = append(overrides,
+			".mamba2.in_proj", ".ssm_in",
+			".mamba2.conv1d", ".ssm_conv1d",
+			".mamba2.dt_bias", ".ssm_dt.bias",
+			".mamba2.A_log", ".ssm_a",
+			".mamba2.D", ".ssm_d",
+			".mamba2.norm", ".ssm_norm",
+			".mamba2.out_proj", ".ssm_out",
 		)
 	}
 

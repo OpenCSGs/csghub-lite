@@ -6,6 +6,7 @@ const navKeys = [
   { path: "/", key: "nav.dashboard", icon: DashboardIcon },
   { path: "/marketplace", key: "nav.marketplace", icon: MarketplaceIcon },
   { path: "/library", key: "nav.library", icon: LibraryIcon },
+  { path: "/datasets", key: "nav.datasets", icon: DatasetsIcon },
   { path: "/chat", key: "nav.chat", icon: ChatIcon },
 ];
 
@@ -95,6 +96,14 @@ function LibraryIcon({ active }: { active: boolean }) {
   return (
     <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke={active ? "currentColor" : "#9CA3AF"} stroke-width="2">
       <path stroke-linecap="round" stroke-linejoin="round" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+    </svg>
+  );
+}
+
+function DatasetsIcon({ active }: { active: boolean }) {
+  return (
+    <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke={active ? "currentColor" : "#9CA3AF"} stroke-width="2">
+      <path stroke-linecap="round" stroke-linejoin="round" d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4m0 5c0 2.21-3.582 4-8 4s-8-1.79-8-4" />
     </svg>
   );
 }

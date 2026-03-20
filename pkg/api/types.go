@@ -34,6 +34,18 @@ type StopRequest struct {
 	Model string `json:"model"`
 }
 
+type LoadRequest struct {
+	Model  string `json:"model"`
+	Stream *bool  `json:"stream,omitempty"`
+}
+
+type LoadResponse struct {
+	Status    string `json:"status"`
+	Step      string `json:"step,omitempty"`
+	Current   int    `json:"current,omitempty"`
+	Total     int    `json:"total,omitempty"`
+}
+
 // -- Response types --
 
 type GenerateResponse struct {
@@ -135,6 +147,24 @@ type DatasetTagsResponse struct {
 type DatasetShowResponse struct {
 	Details DatasetInfo `json:"details"`
 	Files   []string    `json:"files,omitempty"`
+}
+
+type DatasetFilesRequest struct {
+	Dataset string `json:"dataset"`
+	Path    string `json:"path"`
+}
+
+type DatasetFileEntry struct {
+	Name       string    `json:"name"`
+	Size       int64     `json:"size"`
+	IsDir      bool      `json:"is_dir"`
+	ModifiedAt time.Time `json:"modified_at"`
+}
+
+type DatasetFilesResponse struct {
+	Dataset string             `json:"dataset"`
+	Path    string             `json:"path"`
+	Entries []DatasetFileEntry `json:"entries"`
 }
 
 type DatasetPullResponse struct {

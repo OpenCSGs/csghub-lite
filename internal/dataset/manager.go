@@ -143,6 +143,47 @@ func (m *Manager) Exists(datasetID string) bool {
 	return err == nil
 }
 
+func (m *Manager) ListFiles(datasetID, subPath string) ([]FileEntry, error) {
+	namespace, name, err := csghub.ParseRepoID(datasetID)
+	if err != nil {
+		return nil, err
+	}
+	dir := DatasetDir(m.cfg.DatasetDir, namespace, name)
+	target := filepath.Join(dir, filepath.FromSlash(subPath))
+
+	rel, err := filepath.Rel(dir, target)
+	if err != nil || len(rel) > 1 && rel[:2] == ".." {
+		return nil, fmt.Errorf("invalid path")
+	}
+
+	entries, err := os.ReadDir(target)
+	if err != nil {
+		return nil, fmt.Errorf("reading directory: %w", err)
+	}
+
+	var result []FileEntry
+	for _, e := range entries {
+		if e.Name() == "manifest.json" && subPath == "" {
+			continue
+		}
+		info, err := e.Info()
+		if err != nil {
+			continue
+		}
+		fe := FileEntry{
+			Name:       e.Name(),
+			IsDir:      e.IsDir(),
+			Size:       info.Size(),
+			ModifiedAt: info.ModTime(),
+		}
+		if e.IsDir() {
+			fe.Size = dirSize(filepath.Join(target, e.Name()))
+		}
+		result = append(result, fe)
+	}
+	return result, nil
+}
+
 func (m *Manager) Client() *csghub.Client {
 	return m.client
 }

@@ -10,6 +10,7 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("GET /api/ps", s.handlePs)
 	mux.HandleFunc("POST /api/show", s.handleShow)
 	mux.HandleFunc("POST /api/pull", s.handlePull)
+	mux.HandleFunc("POST /api/load", s.handleLoad)
 	mux.HandleFunc("POST /api/stop", s.handleStop)
 	mux.HandleFunc("DELETE /api/delete", s.handleDelete)
 	mux.HandleFunc("POST /api/generate", s.handleGenerate)
@@ -17,6 +18,7 @@ func (s *Server) routes() http.Handler {
 
 	mux.HandleFunc("GET /api/datasets", s.handleDatasetTags)
 	mux.HandleFunc("POST /api/datasets/show", s.handleDatasetShow)
+	mux.HandleFunc("POST /api/datasets/files", s.handleDatasetFiles)
 	mux.HandleFunc("POST /api/datasets/pull", s.handleDatasetPull)
 	mux.HandleFunc("DELETE /api/datasets/delete", s.handleDatasetDelete)
 

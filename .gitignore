@@ -11,3 +11,4 @@ internal/server/static/*.html
 internal/server/static/*.svg
 internal/server/static/assets/
 design/
+csghub-lite

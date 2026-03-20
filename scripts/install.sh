@@ -285,12 +285,11 @@ install_llama_server() {
     info "llama-server installed successfully."
 }
 
-install_python_deps() {
-    PYTHON_PKGS="torch safetensors gguf transformers"
-
-    # Find Python 3
+check_python_optional() {
+    # Python is optional — only needed for rare/unsupported architectures.
+    # The built-in Go converter handles 160+ architectures natively.
     _python=""
-    for _name in python3.13 python3.12 python3.11 python3.10 python3 python; do
+    for _name in python3 python; do
         if command -v "$_name" >/dev/null 2>&1; then
             _ver="$("$_name" -c 'import sys; print(sys.version_info.major)' 2>/dev/null || echo "0")"
             if [ "$_ver" = "3" ]; then
@@ -300,108 +299,11 @@ install_python_deps() {
         fi
     done
 
-    if [ -z "$_python" ]; then
-        warn "Python 3 not found. It is required to convert SafeTensors models to GGUF."
-        printf "\n${YELLOW}Install Python 3? [y/N] ${NC}"
-        _answer=""
-        if [ -t 0 ]; then
-            read -r _answer
-        elif [ -e /dev/tty ]; then
-            read -r _answer < /dev/tty
-        else
-            _answer="n"
-        fi
-        case "$_answer" in
-            [yY]|[yY][eE][sS])
-                OS="$(detect_os)"
-                case "$OS" in
-                    darwin)
-                        if command -v brew >/dev/null 2>&1; then
-                            info "Installing Python 3 via Homebrew..."
-                            brew install python3
-                        else
-                            warn "Homebrew not found. Install Python from https://www.python.org/downloads/"
-                            return
-                        fi ;;
-                    linux)
-                        if command -v apt-get >/dev/null 2>&1; then
-                            info "Installing Python 3 via apt..."
-                            sudo apt-get update && sudo apt-get install -y python3 python3-pip python3-venv
-                        elif command -v dnf >/dev/null 2>&1; then
-                            info "Installing Python 3 via dnf..."
-                            sudo dnf install -y python3 python3-pip
-                        elif command -v yum >/dev/null 2>&1; then
-                            info "Installing Python 3 via yum..."
-                            sudo yum install -y python3 python3-pip
-                        else
-                            warn "No supported package manager found. Install Python from https://www.python.org/downloads/"
-                            return
-                        fi ;;
-                esac
-                # Re-detect python after install
-                for _name in python3.13 python3.12 python3.11 python3.10 python3 python; do
-                    if command -v "$_name" >/dev/null 2>&1; then
-                        _ver="$("$_name" -c 'import sys; print(sys.version_info.major)' 2>/dev/null || echo "0")"
-                        if [ "$_ver" = "3" ]; then
-                            _python="$_name"
-                            break
-                        fi
-                    fi
-                done
-                if [ -z "$_python" ]; then
-                    warn "Python 3 installation failed. Install manually from https://www.python.org/downloads/"
-                    return
-                fi
-                info "Python 3 installed: $(${_python} --version 2>&1)"
-                ;;
-            *)
-                warn "Skipping Python setup. SafeTensors auto-conversion will not be available."
-                return ;;
-        esac
+    if [ -n "$_python" ]; then
+        info "Python 3 found (optional): $(${_python} --version 2>&1)"
     else
-        info "Python 3 found: $(${_python} --version 2>&1)"
+        info "Python 3 not found (optional — not required for most models)."
     fi
-
-    # Check which packages are missing
-    _missing=""
-    for _pkg in $PYTHON_PKGS; do
-        if ! "$_python" -c "import ${_pkg}" 2>/dev/null; then
-            _missing="${_missing} ${_pkg}"
-        fi
-    done
-    _missing="$(echo "$_missing" | sed 's/^ *//')"
-
-    if [ -z "$_missing" ]; then
-        info "Python dependencies already installed (torch, safetensors, gguf, transformers)."
-        return
-    fi
-
-    warn "Missing Python packages: ${_missing}"
-    printf "${YELLOW}Install them now? (CPU-only torch, ~300MB) [y/N] ${NC}"
-    _answer=""
-    if [ -t 0 ]; then
-        read -r _answer
-    elif [ -e /dev/tty ]; then
-        read -r _answer < /dev/tty
-    else
-        _answer="n"
-    fi
-    case "$_answer" in
-        [yY]|[yY][eE][sS])
-            info "Installing: ${_missing}..."
-            _pip_args=""
-            case " ${_missing} " in
-                *" torch "*)
-                    _pip_args="--extra-index-url https://download.pytorch.org/whl/cpu" ;;
-            esac
-            if "$_python" -m pip install $_pip_args $_missing; then
-                info "Python dependencies installed successfully."
-            else
-                warn "pip install failed. Try manually: ${_python} -m pip install ${_pip_args} ${_missing}"
-            fi ;;
-        *)
-            warn "Skipping. Install later with: ${_python} -m pip install ${_missing}" ;;
-    esac
 }
 
 check_existing() {
@@ -470,7 +372,7 @@ check_existing() {
 }
 
 main() {
-    TOTAL_STEPS=7
+    TOTAL_STEPS=6
     printf "\n${BOLD}Installing ${BINARY_NAME}${NC}\n\n"
 
     # Step 1: Detect environment
@@ -551,10 +453,6 @@ main() {
     # Step 6: Install llama-server
     step 6 "$TOTAL_STEPS" "Setting up inference engine..."
     install_llama_server
-
-    # Step 7: Python & GGUF conversion deps
-    step 7 "$TOTAL_STEPS" "Checking Python environment for model conversion..."
-    install_python_deps
 
     # Done
     printf "\n${GREEN}${BOLD}✔ ${BINARY_NAME} ${VERSION} installed successfully!${NC}\n\n"

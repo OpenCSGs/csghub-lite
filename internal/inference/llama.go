@@ -176,6 +176,8 @@ func (e *llamaEngine) waitForReady(timeout time.Duration) error {
 	deadline := time.Now().Add(timeout)
 	url := fmt.Sprintf("http://127.0.0.1:%d/health", e.port)
 
+	healthClient := &http.Client{Timeout: 3 * time.Second}
+
 	// Monitor process exit in background so we can fail fast.
 	exited := make(chan error, 1)
 	go func() { exited <- e.cmd.Wait() }()
@@ -197,12 +199,10 @@ func (e *llamaEngine) waitForReady(timeout time.Duration) error {
 		default:
 		}
 
-		resp, err := http.Get(url)
+		resp, err := healthClient.Get(url)
 		if err == nil {
 			resp.Body.Close()
 			if resp.StatusCode == http.StatusOK {
-				// Drain the exited channel goroutine — process is still running,
-				// it will be collected by Close().
 				return nil
 			}
 		}

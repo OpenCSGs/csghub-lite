@@ -13,9 +13,8 @@ import (
 type ProgressFunc func(step string, current, total int)
 
 // Convert converts SafeTensors model files in modelDir to a GGUF file.
-// For complex architectures (SSM, Mamba, etc.), it delegates to the official
-// llama.cpp convert_hf_to_gguf.py if Python is available. For simple
-// architectures, it uses the built-in Go converter.
+// Each architecture has a dedicated Go converter. For architectures without
+// a Go converter, it falls back to the official llama.cpp convert_hf_to_gguf.py.
 func Convert(modelDir string, progress ProgressFunc) (string, error) {
 	if progress == nil {
 		progress = func(string, int, int) {}
@@ -29,12 +28,13 @@ func Convert(modelDir string, progress ProgressFunc) (string, error) {
 	}
 
 	hfArch := cfg.Architectures[0]
-	ggufArch, needsPython := detectGGUFArch(hfArch)
-	if ggufArch == "" {
-		return "", fmt.Errorf("unsupported architecture: %s", hfArch)
+	ggufArch, ok := detectGGUFArch(hfArch)
+	if !ok {
+		return ConvertPython(modelDir, progress)
 	}
 
-	if needsPython {
+	converter := getConverter(ggufArch, cfg)
+	if converter == nil {
 		return ConvertPython(modelDir, progress)
 	}
 
@@ -47,18 +47,6 @@ func Convert(modelDir string, progress ProgressFunc) (string, error) {
 
 	sources := collectTensors(stFiles)
 
-	// Filter out tensors that llama.cpp regenerates.
-	var filtered []tensorSource
-	for _, t := range sources {
-		if shouldIncludeTensor(t.name) {
-			filtered = append(filtered, t)
-		}
-	}
-	sources = filtered
-
-	// Handle tied embeddings (lm_head shares weights with embed_tokens).
-	sources = handleTiedEmbeddings(sources, cfg)
-
 	progress("Parsing tokenizer", 0, 0)
 
 	tok, err := parseTokenizer(modelDir, hfArch)
@@ -66,7 +54,6 @@ func Convert(modelDir string, progress ProgressFunc) (string, error) {
 		return "", fmt.Errorf("parsing tokenizer: %w", err)
 	}
 
-	// Pad vocabulary if needed.
 	if cfg.VocabSize > len(tok.Tokens) {
 		for i := len(tok.Tokens); i < cfg.VocabSize; i++ {
 			tok.Tokens = append(tok.Tokens, fmt.Sprintf("[PAD%d]", i))
@@ -75,73 +62,14 @@ func Convert(modelDir string, progress ProgressFunc) (string, error) {
 		}
 	}
 
-	// Build GGUF.
 	progress("Building GGUF", 0, 0)
 
-	nameMapper := tensorNameMapper(ggufArch)
 	writer := newGGUFWriter()
-
-	// Write model metadata.
-	writeModelKV(writer, cfg, ggufArch)
-
-	// Write tokenizer metadata.
+	converter.WriteKV(writer, cfg)
 	writeTokenizerKV(writer, tok, cfg)
 
-	needsSSMTransform := isSSMArch(ggufArch)
-
-	// Add tensors. Norm/1D weights → F32 for stability; large matrices → F16.
-	totalTensors := len(sources)
-	for i, src := range sources {
-		ggufName := nameMapper(src.name)
-		ggmlType, err := stDTypeToGGML(src.dtype)
-		if err != nil {
-			return "", fmt.Errorf("tensor %q: %w", src.name, err)
-		}
-
-		dims := reverseShape(src.shape)
-		srcCopy := src
-		hfName := src.name
-
-		// SSM architectures: conv1d weights need dimension squeeze.
-		if needsSSMTransform && strings.Contains(hfName, "conv1d") && len(dims) == 3 && dims[2] == 1 {
-			dims = dims[:2]
-		}
-
-		isNorm := isNormTensor(ggufName)
-		var outputType GGMLType
-		switch {
-		case isNorm:
-			outputType = GGMLTypeF32
-		case ggmlType == GGMLTypeBF16:
-			outputType = GGMLTypeF16
-		default:
-			outputType = ggmlType
-		}
-
-		// Capture loop state for the closure.
-		capturedGGMLType := ggmlType
-		capturedOutputType := outputType
-		capturedSSM := needsSSMTransform
-		capturedHFName := hfName
-
-		getData := func() ([]byte, error) {
-			progress("Converting tensor", i+1, totalTensors)
-			data, err := srcCopy.readData()
-			if err != nil {
-				return nil, err
-			}
-			if capturedGGMLType == GGMLTypeBF16 && capturedOutputType == GGMLTypeF32 {
-				data = bf16ToF32(data)
-			} else if capturedGGMLType == GGMLTypeBF16 && capturedOutputType == GGMLTypeF16 {
-				data = bf16ToF16(data)
-			}
-			if capturedSSM {
-				data = applySSMTransform(data, capturedHFName, capturedOutputType)
-			}
-			return data, nil
-		}
-
-		writer.addTensor(ggufName, dims, outputType, getData)
+	if err := converter.ConvertTensors(writer, sources, cfg, progress); err != nil {
+		return "", fmt.Errorf("converting tensors: %w", err)
 	}
 
 	idx := findKVIndex(writer.kvs, "general.file_type")
@@ -149,7 +77,6 @@ func Convert(modelDir string, progress ProgressFunc) (string, error) {
 		writer.kvs[idx].value = uint32(1) // GGML_FTYPE_MOSTLY_F16
 	}
 
-	// Write to temp file, then rename.
 	outputName := generateOutputName(modelDir, cfg)
 	outputPath := filepath.Join(modelDir, outputName)
 	tmpPath := outputPath + ".tmp"
@@ -228,35 +155,6 @@ func findKVIndex(kvs []ggufKV, key string) int {
 		}
 	}
 	return -1
-}
-
-func isNormTensor(name string) bool {
-	return strings.HasSuffix(name, "_norm.weight")
-}
-
-func isSSMArch(arch string) bool {
-	switch arch {
-	case "qwen35", "qwen35moe", "qwen3next":
-		return true
-	}
-	return false
-}
-
-// applySSMTransform applies architecture-specific data transformations for SSM models.
-// - A_log tensors: negate-exponentiate each value (-exp(x))
-// - Non-SSM norm weights: add 1.0 to each value (Qwen3Next convention)
-func applySSMTransform(data []byte, hfName string, dtype GGMLType) []byte {
-	if strings.HasSuffix(hfName, ".A_log") {
-		return transformFloats(data, dtype, func(v float32) float32 {
-			return float32(-math.Exp(float64(v)))
-		})
-	}
-	if strings.HasSuffix(hfName, "norm.weight") && !strings.Contains(hfName, "linear_attn.norm") {
-		return transformFloats(data, dtype, func(v float32) float32 {
-			return v + 1.0
-		})
-	}
-	return data
 }
 
 // transformFloats applies fn to each float value in data (F16 or F32 encoded).
