@@ -36,6 +36,7 @@ func (m *managedEngine) expiresAt() time.Time {
 
 type Server struct {
 	cfg            *config.Config
+	version        string
 	manager        *model.Manager
 	datasetManager *dataset.Manager
 	http           *http.Server
@@ -45,7 +46,7 @@ type Server struct {
 	engines map[string]*managedEngine
 }
 
-func New(cfg *config.Config) *Server {
+func New(cfg *config.Config, version string) *Server {
 	mgr := model.NewManager(cfg)
 	dsMgr := dataset.NewManager(cfg)
 	logBuf := NewLogBuffer(500)
@@ -53,6 +54,7 @@ func New(cfg *config.Config) *Server {
 
 	s := &Server{
 		cfg:            cfg,
+		version:        version,
 		manager:        mgr,
 		datasetManager: dsMgr,
 		engines:        make(map[string]*managedEngine),

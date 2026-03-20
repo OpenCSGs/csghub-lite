@@ -95,8 +95,8 @@ brew install llama.cpp
 
 ```bash
 # 示例：Linux x86_64
-wget https://github.com/ggml-org/llama.cpp/releases/download/b8258/llama-b8258-bin-ubuntu-x64.zip
-unzip llama-b8258-bin-ubuntu-x64.zip
+wget https://github.com/ggml-org/llama.cpp/releases/download/b8429/llama-b8429-bin-ubuntu-x64.tar.gz
+tar xzf llama-b8429-bin-ubuntu-x64.tar.gz
 sudo cp build/bin/llama-server /usr/local/bin/
 ```
 

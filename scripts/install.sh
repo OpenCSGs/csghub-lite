@@ -181,42 +181,57 @@ install_llama_server() {
         return
     fi
 
-    _llama_asset=""
+    # Build ordered list of candidate asset names (best match first)
+    _candidates=""
     case "$OS" in
         darwin)
             case "$ARCH" in
-                amd64) _llama_asset="llama-${_llama_tag}-bin-macos-x64.tar.gz" ;;
-                arm64) _llama_asset="llama-${_llama_tag}-bin-macos-arm64.tar.gz" ;;
+                amd64) _candidates="llama-${_llama_tag}-bin-macos-x64.tar.gz" ;;
+                arm64) _candidates="llama-${_llama_tag}-bin-macos-arm64.tar.gz" ;;
             esac ;;
         linux)
             case "$ARCH" in
-                amd64)
-                    if command -v nvidia-smi >/dev/null 2>&1; then
-                        _llama_asset="llama-${_llama_tag}-bin-ubuntu-vulkan-x64.tar.gz"
-                        info "NVIDIA GPU detected, using Vulkan build for GPU acceleration."
-                    else
-                        _llama_asset="llama-${_llama_tag}-bin-ubuntu-x64.tar.gz"
-                    fi ;;
-                arm64) _llama_asset="llama-${_llama_tag}-bin-ubuntu-arm64.tar.gz" ;;
-            esac ;;
+                amd64) _arch_token="x64" ;;
+                arm64) _arch_token="arm64" ;;
+            esac
+            if [ -n "${_arch_token:-}" ]; then
+                if command -v nvidia-smi >/dev/null 2>&1; then
+                    info "NVIDIA GPU detected, trying CUDA build first."
+                    _candidates="llama-${_llama_tag}-bin-ubuntu-cuda-12.4-${_arch_token}.tar.gz"
+                    _candidates="${_candidates} llama-${_llama_tag}-bin-ubuntu-vulkan-${_arch_token}.tar.gz"
+                    _candidates="${_candidates} llama-${_llama_tag}-bin-ubuntu-${_arch_token}.tar.gz"
+                else
+                    _candidates="llama-${_llama_tag}-bin-ubuntu-${_arch_token}.tar.gz"
+                fi
+            fi ;;
     esac
-    if [ -z "$_llama_asset" ]; then
+    if [ -z "$_candidates" ]; then
         warn "No compatible llama.cpp asset for ${OS}/${ARCH}."
         warn "Install manually from: https://github.com/${LLAMA_CPP_REPO}/releases"
         return
     fi
 
-    _github_dl="https://github.com/${LLAMA_CPP_REPO}/releases/download/${_llama_tag}/${_llama_asset}"
-    _gitlab_dl="${GITLAB_API}/${GITLAB_LLAMA_ID}/packages/generic/llama-cpp/${_llama_tag}/${_llama_asset}"
-
     _tmpdir="$(mktemp -d)"
-    _archive="${_tmpdir}/${_llama_asset}"
-    if ! region_download "$_archive" "$_github_dl" "$_gitlab_dl"; then
+    _downloaded=false
+    _llama_asset=""
+    for _candidate in $_candidates; do
+        _github_dl="https://github.com/${LLAMA_CPP_REPO}/releases/download/${_llama_tag}/${_candidate}"
+        _gitlab_dl="${GITLAB_API}/${GITLAB_LLAMA_ID}/packages/generic/llama-cpp/${_llama_tag}/${_candidate}"
+        _archive="${_tmpdir}/${_candidate}"
+        if region_download "$_archive" "$_github_dl" "$_gitlab_dl"; then
+            _llama_asset="$_candidate"
+            _downloaded=true
+            break
+        fi
+        warn "Asset ${_candidate} not available, trying next option..."
+    done
+    if [ "$_downloaded" = false ]; then
         warn "Failed to download llama.cpp."
         warn "Install manually from: https://github.com/${LLAMA_CPP_REPO}/releases"
         rm -rf "$_tmpdir"
         return
     fi
+    info "Downloaded ${_llama_asset}"
 
     tar xzf "$_archive" -C "$_tmpdir"
     _llama_bin="$(find "$_tmpdir" -name "llama-server" -type f | head -1)"

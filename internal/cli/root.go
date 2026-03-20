@@ -20,7 +20,7 @@ and the full CSGHub platform.`,
 	}
 
 	cmd.AddCommand(
-		newServeCmd(),
+		newServeCmd(version),
 		newRunCmd(),
 		newChatCmd(),
 		newPullCmd(),

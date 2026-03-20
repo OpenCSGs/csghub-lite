@@ -29,6 +29,14 @@ type systemInfo struct {
 	GPUVRAMTotal uint64 `json:"gpu_vram_total"`
 }
 
+// GET /api/settings -- application settings (version, model directory, etc.)
+func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]string{
+		"version":   s.version,
+		"model_dir": s.cfg.ModelDir,
+	})
+}
+
 // GET /api/system -- system resource information
 func (s *Server) handleSystem(w http.ResponseWriter, r *http.Request) {
 	info := systemInfo{

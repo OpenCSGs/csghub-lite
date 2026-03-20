@@ -178,38 +178,40 @@ function Install-LlamaServer {
     }
 
     $hasCuda = [bool](Get-Command "nvidia-smi" -ErrorAction SilentlyContinue)
-    if ($hasCuda -and $archToken -eq "x64") {
-        $assetName = "llama-${llamaTag}-bin-win-cuda-12.4-x64.zip"
-        $cudartName = "cudart-llama-bin-win-cuda-12.4-x64.zip"
-        Info "NVIDIA GPU detected, using CUDA build for GPU acceleration."
-    } else {
-        $assetName = "llama-${llamaTag}-bin-win-cpu-${archToken}.zip"
-        $cudartName = $null
+
+    # Build ordered list of candidate assets (best match first)
+    $candidates = @()
+    $cudartName = $null
+    if ($hasCuda) {
+        Info "NVIDIA GPU detected, trying CUDA build first."
+        $candidates += @{ Asset = "llama-${llamaTag}-bin-win-cuda-12.4-${archToken}.zip"; Cudart = "cudart-llama-bin-win-cuda-12.4-${archToken}.zip" }
+        $candidates += @{ Asset = "llama-${llamaTag}-bin-win-vulkan-${archToken}.zip"; Cudart = $null }
     }
-    $githubDl = "https://github.com/$LlamaCppRepo/releases/download/$llamaTag/$assetName"
-    $gitlabDl = "$GitLabApi/$GitLabLlamaId/packages/generic/llama-cpp/$llamaTag/$assetName"
+    $candidates += @{ Asset = "llama-${llamaTag}-bin-win-cpu-${archToken}.zip"; Cudart = $null }
 
     $tmpDir = Join-Path ([IO.Path]::GetTempPath()) ("llama-install-" + [Guid]::NewGuid().ToString("N"))
     New-Item -ItemType Directory -Force -Path $tmpDir | Out-Null
-    $zipPath = Join-Path $tmpDir $assetName
 
-    if (-not (Region-Download -OutFile $zipPath -GitHubUrl $githubDl -GitLabUrl $gitlabDl)) {
-        if ($hasCuda) {
-            Warn "CUDA build download failed, falling back to CPU build."
-            $assetName = "llama-${llamaTag}-bin-win-cpu-${archToken}.zip"
-            $cudartName = $null
-            $githubDl = "https://github.com/$LlamaCppRepo/releases/download/$llamaTag/$assetName"
-            $gitlabDl = "$GitLabApi/$GitLabLlamaId/packages/generic/llama-cpp/$llamaTag/$assetName"
-            $zipPath = Join-Path $tmpDir $assetName
-            if (-not (Region-Download -OutFile $zipPath -GitHubUrl $githubDl -GitLabUrl $gitlabDl)) {
-                Warn "Failed to download llama.cpp."
-                return
-            }
-        } else {
-            Warn "Failed to download llama.cpp."
-            return
+    $downloaded = $false
+    $assetName = $null
+    foreach ($c in $candidates) {
+        $tryAsset = $c.Asset
+        $githubDl = "https://github.com/$LlamaCppRepo/releases/download/$llamaTag/$tryAsset"
+        $gitlabDl = "$GitLabApi/$GitLabLlamaId/packages/generic/llama-cpp/$llamaTag/$tryAsset"
+        $zipPath = Join-Path $tmpDir $tryAsset
+        if (Region-Download -OutFile $zipPath -GitHubUrl $githubDl -GitLabUrl $gitlabDl) {
+            $assetName = $tryAsset
+            $cudartName = $c.Cudart
+            $downloaded = $true
+            break
         }
+        Warn "Asset $tryAsset not available, trying next option..."
     }
+    if (-not $downloaded) {
+        Warn "Failed to download llama.cpp."
+        return
+    }
+    Info "Downloaded $assetName"
 
     if ($cudartName) {
         $cudartGh = "https://github.com/$LlamaCppRepo/releases/download/$llamaTag/$cudartName"

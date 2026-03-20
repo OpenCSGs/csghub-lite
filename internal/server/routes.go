@@ -23,10 +23,11 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("POST /v1/chat/completions", s.handleOpenAIChatCompletions)
 	mux.HandleFunc("GET /v1/models", s.handleOpenAIModels)
 
-	// New: marketplace, system, logs
+	// New: marketplace, system, logs, settings
 	mux.HandleFunc("GET /api/marketplace/models", s.handleMarketplaceModels)
 	mux.HandleFunc("GET /api/marketplace/datasets", s.handleMarketplaceDatasets)
 	mux.HandleFunc("GET /api/system", s.handleSystem)
+	mux.HandleFunc("GET /api/settings", s.handleSettings)
 	mux.HandleFunc("GET /api/logs", s.handleLogs)
 
 	// Static files: serve embedded web UI or dev fallback

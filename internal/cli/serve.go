@@ -8,7 +8,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-func newServeCmd() *cobra.Command {
+func newServeCmd(version string) *cobra.Command {
 	var listenAddr string
 
 	cmd := &cobra.Command{
@@ -22,7 +22,7 @@ func newServeCmd() *cobra.Command {
 			if listenAddr != "" {
 				cfg.ListenAddr = listenAddr
 			}
-			srv := server.New(cfg)
+			srv := server.New(cfg, version)
 			return srv.Run(cmd.Context())
 		},
 	}

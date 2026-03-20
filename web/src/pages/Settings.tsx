@@ -1,4 +1,5 @@
 import { signal } from "@preact/signals";
+import { useEffect } from "preact/hooks";
 import { t, locale, setLocale } from "../i18n";
 import type { Locale } from "../i18n";
 
@@ -6,23 +7,30 @@ const contextLengthSteps = [4096, 8192, 16384, 32768, 65536, 131072, 262144];
 const contextLengthLabels = ["4k", "8k", "16k", "32k", "64k", "128k", "256k"];
 
 const modelLocation = signal("");
+const appVersion = signal("");
 const contextIndex = signal(1);
 
-function getDefaultModelLocation(): string {
-  return "C:\\Users\\www19\\CSGHub Lite\\models";
-}
-
-if (!modelLocation.value) {
-  modelLocation.value = getDefaultModelLocation();
-}
-
 function resetDefaults() {
-  modelLocation.value = getDefaultModelLocation();
   contextIndex.value = 1;
+  fetchSettings();
+}
+
+function fetchSettings() {
+  fetch("/api/settings")
+    .then((r) => r.json())
+    .then((data: { version: string; model_dir: string }) => {
+      modelLocation.value = data.model_dir || "";
+      appVersion.value = data.version || "";
+    })
+    .catch(() => {});
 }
 
 export function Settings() {
   void locale.value;
+
+  useEffect(() => {
+    fetchSettings();
+  }, []);
 
   return (
     <div class="p-8 max-w-3xl mx-auto">
@@ -38,19 +46,10 @@ export function Settings() {
           <span class="font-semibold text-gray-900">{t("settings.modelLocation")}</span>
         </div>
         <p class="text-sm text-gray-500 mb-3 ml-7">{t("settings.modelLocationDesc")}</p>
-        <div class="flex items-center gap-3 ml-7">
-          <input
-            type="text"
-            class="flex-1 px-4 py-2.5 border border-gray-200 rounded-lg text-sm text-gray-700 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
-            value={modelLocation.value}
-            onInput={(e) => (modelLocation.value = (e.target as HTMLInputElement).value)}
-          />
-          <button class="flex items-center gap-2 px-4 py-2.5 border border-gray-200 rounded-lg text-sm text-gray-700 hover:bg-gray-50 transition-colors">
-            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
-            </svg>
-            {t("settings.browse")}
-          </button>
+        <div class="ml-7">
+          <span class="inline-block px-4 py-2.5 border border-gray-200 rounded-lg text-sm text-gray-500 bg-gray-50 select-all">
+            {modelLocation.value || "..."}
+          </span>
         </div>
       </div>
 
@@ -105,7 +104,7 @@ export function Settings() {
             </svg>
             <span class="font-semibold text-gray-900">{t("settings.versionInfo")}</span>
           </div>
-          <p class="text-sm text-gray-500 ml-7">{t("settings.version")}</p>
+          <p class="text-sm text-gray-500 ml-7">{appVersion.value || "..."}</p>
         </div>
         <button
           onClick={resetDefaults}
