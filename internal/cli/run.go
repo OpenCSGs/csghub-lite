@@ -8,7 +8,6 @@ import (
 	"strings"
 
 	"github.com/opencsgs/csghub-lite/internal/config"
-	"github.com/opencsgs/csghub-lite/internal/csghub"
 	"github.com/opencsgs/csghub-lite/internal/inference"
 	"github.com/opencsgs/csghub-lite/internal/model"
 	"github.com/spf13/cobra"
@@ -40,25 +39,10 @@ func runRun(cmd *cobra.Command, args []string) error {
 	// Pull model if not present
 	if !mgr.Exists(modelID) {
 		fmt.Printf("Model %s not found locally. Pulling from %s...\n", modelID, cfg.DisplayURL())
-		var lastFile string
-		progress := func(p csghub.SnapshotProgress) {
-			if p.FileName != lastFile {
-				if lastFile != "" {
-					fmt.Println()
-				}
-				lastFile = p.FileName
-			}
-			if p.BytesTotal > 0 {
-				pct := float64(p.BytesCompleted) / float64(p.BytesTotal) * 100
-				fmt.Printf("\r  [%d/%d] %s  %.1f%%",
-					p.FileIndex+1, p.TotalFiles, p.FileName, pct)
-			}
-		}
-
-		if _, err := mgr.Pull(cmd.Context(), modelID, progress); err != nil {
+		if _, err := mgr.Pull(cmd.Context(), modelID, snapshotProgress()); err != nil {
 			return fmt.Errorf("pull failed: %w", err)
 		}
-		fmt.Println("\nPull complete.")
+		fmt.Println("Pull complete.")
 	}
 
 	fmt.Printf("Loading %s...\n", modelID)
