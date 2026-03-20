@@ -299,6 +299,70 @@ function Check-Existing {
     }
 }
 
+function Install-PythonDeps {
+    $pythonPkgs = @("torch", "safetensors", "gguf")
+
+    $python = $null
+    foreach ($name in @("python3", "python")) {
+        $cmd = Get-Command $name -ErrorAction SilentlyContinue
+        if ($cmd) {
+            try {
+                $ver = & $cmd.Source -c "import sys; print(sys.version_info.major)" 2>$null
+                if ($ver -eq "3") {
+                    $python = $cmd.Source
+                    break
+                }
+            } catch {}
+        }
+    }
+
+    if (-not $python) {
+        Warn "Python 3 not found. It is required to convert SafeTensors models to GGUF."
+        $answer = Read-Host "Install Python 3? You can download from https://www.python.org/downloads/ [y/N]"
+        if ($answer -match '^[yY](es)?$') {
+            Info "Opening Python download page..."
+            Start-Process "https://www.python.org/downloads/"
+            Warn "After installing Python, re-run this script or manually install: pip install torch safetensors gguf"
+        } else {
+            Warn "Skipping Python setup. SafeTensors auto-conversion will not be available."
+        }
+        return
+    }
+
+    Info "Python 3 found: $(& $python --version 2>&1)"
+
+    $missing = @()
+    foreach ($pkg in $pythonPkgs) {
+        try {
+            & $python -c "import $pkg" 2>$null
+            if ($LASTEXITCODE -ne 0) { $missing += $pkg }
+        } catch {
+            $missing += $pkg
+        }
+    }
+
+    if ($missing.Count -eq 0) {
+        Info "Python dependencies already installed (torch, safetensors, gguf)."
+        return
+    }
+
+    $missingStr = $missing -join ", "
+    Warn "Missing Python packages: $missingStr"
+    $answer = Read-Host "Install them now? This may download ~2GB for PyTorch. [y/N]"
+    if ($answer -match '^[yY](es)?$') {
+        $pkgList = $missing -join " "
+        Info "Installing: $pkgList..."
+        & $python -m pip install @missing
+        if ($LASTEXITCODE -eq 0) {
+            Info "Python dependencies installed successfully."
+        } else {
+            Warn "pip install failed. Try manually: $python -m pip install $pkgList"
+        }
+    } else {
+        Warn "Skipping. Install later with: $python -m pip install $($missing -join ' ')"
+    }
+}
+
 # ---- Main ----
 $script:Region = Detect-Region
 Info "Detected region: $script:Region"
@@ -313,6 +377,9 @@ $autoInstall = if ($env:CSGHUB_LITE_AUTO_INSTALL_LLAMA_SERVER) { $env:CSGHUB_LIT
 if ($autoInstall -eq "1") {
     Install-LlamaServer
 }
+
+Info "Checking Python environment for model conversion..."
+Install-PythonDeps
 
 Write-Host ""
 Write-Host "Quick start:" -ForegroundColor White
