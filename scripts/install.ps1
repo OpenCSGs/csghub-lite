@@ -348,11 +348,16 @@ function Install-PythonDeps {
 
     $missingStr = $missing -join ", "
     Warn "Missing Python packages: $missingStr"
-    $answer = Read-Host "Install them now? This may download ~2GB for PyTorch. [y/N]"
+    $answer = Read-Host "Install them now? (CPU-only torch, ~300MB) [y/N]"
     if ($answer -match '^[yY](es)?$') {
         $pkgList = $missing -join " "
         Info "Installing: $pkgList..."
-        & $python -m pip install @missing
+        $pipArgs = @("-m", "pip", "install")
+        if ($missing -contains "torch") {
+            $pipArgs += @("--extra-index-url", "https://download.pytorch.org/whl/cpu")
+        }
+        $pipArgs += $missing
+        & $python @pipArgs
         if ($LASTEXITCODE -eq 0) {
             Info "Python dependencies installed successfully."
         } else {

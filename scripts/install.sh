@@ -377,7 +377,7 @@ install_python_deps() {
     fi
 
     warn "Missing Python packages: ${_missing}"
-    printf "${YELLOW}Install them now? This may download ~2GB for PyTorch. [y/N] ${NC}"
+    printf "${YELLOW}Install them now? (CPU-only torch, ~300MB) [y/N] ${NC}"
     _answer=""
     if [ -t 0 ]; then
         read -r _answer
@@ -389,10 +389,15 @@ install_python_deps() {
     case "$_answer" in
         [yY]|[yY][eE][sS])
             info "Installing: ${_missing}..."
-            if "$_python" -m pip install $_missing; then
+            _pip_args=""
+            case " ${_missing} " in
+                *" torch "*)
+                    _pip_args="--extra-index-url https://download.pytorch.org/whl/cpu" ;;
+            esac
+            if "$_python" -m pip install $_pip_args $_missing; then
                 info "Python dependencies installed successfully."
             else
-                warn "pip install failed. Try manually: ${_python} -m pip install ${_missing}"
+                warn "pip install failed. Try manually: ${_python} -m pip install ${_pip_args} ${_missing}"
             fi ;;
         *)
             warn "Skipping. Install later with: ${_python} -m pip install ${_missing}" ;;
