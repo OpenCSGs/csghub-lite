@@ -71,9 +71,9 @@ func (c *hybridConverter) ConvertTensors(w *ggufWriter, sources []tensorSource, 
 		srcCopy := src
 		idx := i
 
-		// Conv1d squeeze for SSM layers
-		if strings.Contains(hfName, "conv1d") && len(dims) == 3 && dims[2] == 1 {
-			dims = dims[:2]
+		// Conv1d squeeze for SSM layers. PyTorch [out, 1, k] → GGML [k, 1, out] → [k, out].
+		if strings.Contains(hfName, "conv1d") && len(dims) == 3 && dims[1] == 1 {
+			dims = []uint64{dims[0], dims[2]}
 		}
 
 		ggufName := nameMapper(hfName)

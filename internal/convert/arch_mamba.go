@@ -82,9 +82,9 @@ func (c *mambaConverter) ConvertTensors(w *ggufWriter, sources []tensorSource, c
 			continue
 		}
 
-		// Conv1d squeeze
-		if strings.Contains(ggufName, "ssm_conv1d") && len(dims) == 3 && dims[2] == 1 {
-			dims = dims[:2]
+		// Conv1d squeeze. PyTorch [out, 1, k] → GGML [k, 1, out] → [k, out].
+		if strings.Contains(ggufName, "ssm_conv1d") && len(dims) == 3 && dims[1] == 1 {
+			dims = []uint64{dims[0], dims[2]}
 		}
 
 		outputType := chooseOutputTypeForSSM(ggufName, ggmlType, len(src.shape))
@@ -215,9 +215,9 @@ func (c *mamba2Converter) ConvertTensors(w *ggufWriter, sources []tensorSource, 
 		dims := reverseShape(src.shape)
 		ggufName := nameMapper(hfName)
 
-		// Conv1d squeeze
-		if strings.Contains(ggufName, "ssm_conv1d") && len(dims) == 3 && dims[2] == 1 {
-			dims = dims[:2]
+		// Conv1d squeeze. PyTorch [out, 1, k] → GGML [k, 1, out] → [k, out].
+		if strings.Contains(ggufName, "ssm_conv1d") && len(dims) == 3 && dims[1] == 1 {
+			dims = []uint64{dims[0], dims[2]}
 		}
 
 		// SSM_A and SSM_D: unsqueeze (add trailing dim=1)
@@ -353,8 +353,8 @@ func (c *jambaConverter) ConvertTensors(w *ggufWriter, sources []tensorSource, c
 		dims := reverseShape(src.shape)
 		ggufName := nameMapper(hfName)
 
-		if strings.Contains(ggufName, "ssm_conv1d") && len(dims) == 3 && dims[2] == 1 {
-			dims = dims[:2]
+		if strings.Contains(ggufName, "ssm_conv1d") && len(dims) == 3 && dims[1] == 1 {
+			dims = []uint64{dims[0], dims[2]}
 		}
 
 		outputType := chooseOutputTypeForSSM(ggufName, ggmlType, len(src.shape))

@@ -34,9 +34,9 @@ func (c *qwen35Converter) ConvertTensors(w *ggufWriter, sources []tensorSource, 
 		srcCopy := src
 		idx := i
 
-		// Conv1d weights: squeeze trailing dim=1.
-		if strings.Contains(hfName, "conv1d") && len(dims) == 3 && dims[2] == 1 {
-			dims = dims[:2]
+		// Conv1d weights: squeeze middle dim=1. PyTorch [out, 1, k] → GGML [k, 1, out] → [k, out].
+		if strings.Contains(hfName, "conv1d") && len(dims) == 3 && dims[1] == 1 {
+			dims = []uint64{dims[0], dims[2]}
 		}
 
 		ggufName := nameMapper(hfName)
