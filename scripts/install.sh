@@ -141,7 +141,7 @@ get_latest_version() {
 install_llama_server() {
     _existing_llama="$(command -v llama-server 2>/dev/null || true)"
     if [ -n "$_existing_llama" ]; then
-        info "llama-server found at ${_existing_llama}, upgrading to latest version..."
+        info "llama-server found at ${_existing_llama}"
     else
         warn "llama-server not found. It is required for model inference."
     fi
@@ -164,7 +164,6 @@ install_llama_server() {
 
     OS="$(detect_os)"
     ARCH="$(detect_arch)"
-    info "Downloading llama.cpp for ${OS}/${ARCH}..."
 
     _gh_url="${GITHUB_API}/${LLAMA_CPP_REPO}/releases/latest"
     _gl_url="${GITLAB_API}/${GITLAB_LLAMA_ID}/releases/permalink/latest"
@@ -180,6 +179,25 @@ install_llama_server() {
         warn "Failed to parse llama.cpp release tag."
         return
     fi
+
+    # Compare local and remote versions to skip unnecessary downloads.
+    # llama-server --version outputs: "version: <build_number> (<hash>)"
+    # Release tags use format: "b<build_number>"
+    if [ -n "$_existing_llama" ]; then
+        _local_build="$("$_existing_llama" --version 2>&1 | sed -n 's/.*version: *\([0-9]*\).*/\1/p' | head -1)"
+        _remote_build="${_llama_tag#b}"
+        if [ -n "$_local_build" ] && [ "$_local_build" = "$_remote_build" ]; then
+            info "llama-server is already up to date (${_llama_tag})."
+            return
+        fi
+        if [ -n "$_local_build" ]; then
+            info "Upgrading llama-server from b${_local_build} to ${_llama_tag}..."
+        else
+            info "Upgrading llama-server to ${_llama_tag}..."
+        fi
+    fi
+
+    info "Downloading llama.cpp for ${OS}/${ARCH}..."
 
     # Build ordered list of candidate asset names (best match first)
     _candidates=""

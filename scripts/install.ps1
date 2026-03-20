@@ -139,7 +139,7 @@ function Install-CsghubLite {
 function Install-LlamaServer {
     $existingLlama = Get-Command "llama-server.exe" -ErrorAction SilentlyContinue
     if ($existingLlama) {
-        Info "llama-server found at $($existingLlama.Source), upgrading to latest version..."
+        Info "llama-server found at $($existingLlama.Source)"
     } else {
         Warn "llama-server not found. It is required for model inference."
     }
@@ -168,6 +168,31 @@ function Install-LlamaServer {
     }
 
     $llamaTag = $release.tag_name
+
+    # Compare local and remote versions to skip unnecessary downloads.
+    # llama-server --version outputs: "version: <build_number> (<hash>)"
+    # Release tags use format: "b<build_number>"
+    if ($existingLlama) {
+        $localBuild = $null
+        try {
+            $verOutput = & $existingLlama.Source --version 2>&1 | Out-String
+            if ($verOutput -match 'version:\s+(\d+)') {
+                $localBuild = $Matches[1]
+            }
+        } catch {}
+
+        $remoteBuild = $llamaTag.TrimStart('b')
+        if ($localBuild -and $localBuild -eq $remoteBuild) {
+            Info "llama-server is already up to date ($llamaTag)."
+            return
+        }
+        if ($localBuild) {
+            Info "Upgrading llama-server from b$localBuild to $llamaTag..."
+        } else {
+            Info "Upgrading llama-server to $llamaTag..."
+        }
+    }
+
     Info "llama.cpp release: $llamaTag"
 
     $arch = $env:PROCESSOR_ARCHITECTURE
