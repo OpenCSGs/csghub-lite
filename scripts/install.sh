@@ -60,9 +60,9 @@ detect_region() {
 
 download() {
     if command -v curl >/dev/null 2>&1; then
-        curl -fsSL --connect-timeout 10 --max-time 120 -o "$2" "$1"
+        curl -fSL --connect-timeout 15 --retry 3 --retry-delay 5 -o "$2" "$1"
     elif command -v wget >/dev/null 2>&1; then
-        wget --timeout=10 -qO "$2" "$1"
+        wget --timeout=15 --tries=3 -O "$2" "$1"
     else
         error "curl or wget is required"
     fi
