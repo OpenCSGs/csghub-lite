@@ -21,7 +21,7 @@ func newTestServer(t *testing.T) *Server {
 		ListenAddr: ":0",
 		ModelDir:   dir,
 	}
-	return New(cfg)
+	return New(cfg, "test")
 }
 
 func TestHandleHealth(t *testing.T) {
