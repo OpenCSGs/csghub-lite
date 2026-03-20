@@ -300,7 +300,7 @@ function Check-Existing {
 }
 
 function Install-PythonDeps {
-    $pythonPkgs = @("torch", "safetensors", "gguf")
+    $pythonPkgs = @("torch", "safetensors", "gguf", "transformers")
 
     $python = $null
     foreach ($name in @("python3", "python")) {
@@ -342,7 +342,7 @@ function Install-PythonDeps {
     }
 
     if ($missing.Count -eq 0) {
-        Info "Python dependencies already installed (torch, safetensors, gguf)."
+        Info "Python dependencies already installed (torch, safetensors, gguf, transformers)."
         return
     }
 

@@ -286,7 +286,7 @@ install_llama_server() {
 }
 
 install_python_deps() {
-    PYTHON_PKGS="torch safetensors gguf"
+    PYTHON_PKGS="torch safetensors gguf transformers"
 
     # Find Python 3
     _python=""
@@ -372,7 +372,7 @@ install_python_deps() {
     _missing="$(echo "$_missing" | sed 's/^ *//')"
 
     if [ -z "$_missing" ]; then
-        info "Python dependencies already installed (torch, safetensors, gguf)."
+        info "Python dependencies already installed (torch, safetensors, gguf, transformers)."
         return
     fi
 

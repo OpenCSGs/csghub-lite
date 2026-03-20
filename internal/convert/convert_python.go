@@ -75,7 +75,7 @@ func findPythonEnv() (pythonPath string, missingDeps string) {
 
 // checkPythonDeps returns a comma-separated list of missing packages, or "" if all present.
 func checkPythonDeps(python string) string {
-	required := []string{"torch", "safetensors", "gguf"}
+	required := []string{"torch", "safetensors", "gguf", "transformers"}
 	var missing []string
 	for _, pkg := range required {
 		cmd := exec.Command(python, "-c", "import "+pkg)
@@ -138,7 +138,7 @@ func ConvertPython(modelDir string, progress ProgressFunc) (string, error) {
 		installHint := "brew install python3 (macOS) / apt install python3 (Linux) / https://python.org (Windows)"
 		return "", fmt.Errorf("this model requires Python 3 for auto-conversion, but python3 was not found.\n"+
 			"Install Python: %s\n"+
-			"Then run: pip3 install torch safetensors gguf", installHint)
+			"Then run: pip3 install torch safetensors gguf transformers", installHint)
 	}
 	if missingDeps != "" {
 		return "", fmt.Errorf("this model requires Python packages for auto-conversion.\n"+
