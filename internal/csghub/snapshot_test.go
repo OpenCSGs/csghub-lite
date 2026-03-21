@@ -32,6 +32,23 @@ func TestFilterGGUFMultiQuantDownload_singleGGUF(t *testing.T) {
 	}
 }
 
+func TestFilterGGUFMultiQuantDownload_nestedQuantDirs(t *testing.T) {
+	files := []RepoFile{
+		{Type: "file", Path: "README.md", Name: "README.md"},
+		{Type: "file", Path: "Q4_0/model.gguf", Name: "model.gguf", LFS: true},
+		{Type: "file", Path: "Q8_0/model.gguf", Name: "model.gguf", LFS: true},
+	}
+	got := filterGGUFMultiQuantDownload(files)
+	var paths []string
+	for _, f := range got {
+		paths = append(paths, f.Path)
+	}
+	want := []string{"README.md", "Q8_0/model.gguf"}
+	if !reflect.DeepEqual(paths, want) {
+		t.Errorf("got %v, want %v", paths, want)
+	}
+}
+
 func TestParseModelID(t *testing.T) {
 	tests := []struct {
 		name      string

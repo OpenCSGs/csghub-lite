@@ -111,16 +111,13 @@ func FindModelFile(modelDir string) (string, Format, error) {
 		return "", FormatUnknown, err
 	}
 
-	// Prefer GGUF weight files (skip multimodal projector); pick highest precision if several.
-	var ggufNames []string
-	for _, e := range entries {
-		lower := strings.ToLower(e.Name())
-		if !e.IsDir() && strings.HasSuffix(lower, ".gguf") && !strings.Contains(lower, "mmproj") {
-			ggufNames = append(ggufNames, e.Name())
-		}
+	// Prefer GGUF weight files (skip multimodal projector); recurse into subdirs; pick highest precision.
+	ggufRel, err := ggufpick.CollectWeightGGUFRelPaths(modelDir)
+	if err != nil {
+		return "", FormatUnknown, err
 	}
-	if len(ggufNames) > 0 {
-		best := ggufpick.BestWeightGGUFName(ggufNames)
+	if len(ggufRel) > 0 {
+		best := ggufpick.BestWeightGGUFRelPath(ggufRel)
 		return filepath.Join(modelDir, best), FormatGGUF, nil
 	}
 	// Then SafeTensors

@@ -2,6 +2,7 @@ package ggufpick
 
 import (
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -74,5 +75,63 @@ func TestBestWeightGGUFName(t *testing.T) {
 	names := []string{"x-Q4_0.gguf", "x-Q8_0.gguf", "x-Q4_K_M.gguf"}
 	if g := BestWeightGGUFName(names); g != "x-Q8_0.gguf" {
 		t.Errorf("got %q, want x-Q8_0.gguf", g)
+	}
+}
+
+func TestQuantRankFromRepoPath(t *testing.T) {
+	if g := QuantRankFromRepoPath("Q8_0/model.gguf"); g != quantRanks["q8_0"] {
+		t.Errorf("Q8_0/model.gguf = %d", g)
+	}
+	if g := QuantRankFromRepoPath(`weights\Q4_K_M\model.gguf`); g != quantRanks["q4_k_m"] {
+		t.Errorf("windows path = %d", g)
+	}
+	// Filename wins when it encodes a different quant than the parent folder.
+	if g := QuantRankFromRepoPath("Q8_0/legacy-Q4_0.gguf"); g != quantRanks["q4_0"] {
+		t.Errorf("filename should win: got %d", g)
+	}
+}
+
+func TestFilterWeightGGUFFiles_nestedDirs(t *testing.T) {
+	entries := []FileEntry{
+		{Path: "Q4_0/model.gguf", Name: "model.gguf"},
+		{Path: "Q8_0/model.gguf", Name: "model.gguf"},
+	}
+	got := FilterWeightGGUFFiles(entries)
+	if len(got) != 1 || got[0].Path != "Q8_0/model.gguf" {
+		t.Errorf("got %#v, want Q8_0/model.gguf only", got)
+	}
+}
+
+func TestBestWeightGGUFRelPath(t *testing.T) {
+	paths := []string{"Q4_0/a.gguf", "Q8_0/b.gguf"}
+	if g := BestWeightGGUFRelPath(paths); g != "Q8_0/b.gguf" {
+		t.Errorf("got %q", g)
+	}
+}
+
+// HF-style: quant folder + long basename with dots/sizes + -00001-of-00003 shards.
+func TestQuantRankFromRepoPath_Qwen35ShardInQuantFolder(t *testing.T) {
+	p := "Q3_K_M/Qwen3.5-122B-A10B-Q3_K_M-00001-of-00003.gguf"
+	if g := QuantRankFromRepoPath(p); g != quantRanks["q3_k_m"] {
+		t.Fatalf("QuantRankFromRepoPath(%q) = %d, want %d (q3_k_m)", p, g, quantRanks["q3_k_m"])
+	}
+}
+
+func TestFilterWeightGGUFFiles_ShardedPerQuantFolder(t *testing.T) {
+	entries := []FileEntry{
+		{Path: "Q4_K_M/Qwen3.5-122B-A10B-Q4_K_M-00001-of-00002.gguf"},
+		{Path: "Q4_K_M/Qwen3.5-122B-A10B-Q4_K_M-00002-of-00002.gguf"},
+		{Path: "Q3_K_M/Qwen3.5-122B-A10B-Q3_K_M-00001-of-00003.gguf"},
+		{Path: "Q3_K_M/Qwen3.5-122B-A10B-Q3_K_M-00002-of-00003.gguf"},
+		{Path: "Q3_K_M/Qwen3.5-122B-A10B-Q3_K_M-00003-of-00003.gguf"},
+	}
+	got := FilterWeightGGUFFiles(entries)
+	if len(got) != 2 {
+		t.Fatalf("len = %d, want 2 shards of Q4_K_M only: %#v", len(got), got)
+	}
+	for _, e := range got {
+		if !strings.HasPrefix(e.Path, "Q4_K_M/") {
+			t.Errorf("unexpected path %q", e.Path)
+		}
 	}
 }

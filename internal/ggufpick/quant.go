@@ -1,6 +1,7 @@
 package ggufpick
 
 import (
+	"io/fs"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -74,6 +75,39 @@ func QuantRank(basename string) int {
 	return quantRankFromStem(stem)
 }
 
+// QuantRankFromRepoPath ranks using the repo-relative path: the filename is used first;
+// if it has no known quant token, any parent directory whose name matches a quant (e.g. Q8_0/) is used.
+// This supports layouts like Q8_0/model.gguf vs Q4_0/model.gguf.
+func QuantRankFromRepoPath(relPath string) int {
+	// Repo tree paths from git APIs use '/'; normalize '\' so tests and Windows paths work.
+	relPath = strings.ReplaceAll(relPath, `\`, `/`)
+	relPath = filepath.ToSlash(relPath)
+	relPath = strings.TrimSpace(relPath)
+	if relPath == "" {
+		return -1
+	}
+	parts := strings.Split(relPath, "/")
+	if len(parts) == 0 {
+		return -1
+	}
+	base := parts[len(parts)-1]
+	fromName := QuantRank(base)
+	if fromName >= 0 {
+		return fromName
+	}
+	maxDir := -1
+	for _, seg := range parts[:len(parts)-1] {
+		seg = strings.ToLower(strings.TrimSpace(seg))
+		if seg == "" {
+			continue
+		}
+		if r, ok := quantRanks[seg]; ok && r > maxDir {
+			maxDir = r
+		}
+	}
+	return maxDir
+}
+
 func normalizeGGUFStem(basename string) string {
 	lower := strings.ToLower(basename)
 	if !strings.HasSuffix(lower, ".gguf") {
@@ -120,11 +154,11 @@ func FilterWeightGGUFFiles(entries []FileEntry) []FileEntry {
 	maxRank := -1
 	known := false
 	for i, e := range entries {
-		base := e.Name
-		if base == "" {
-			base = filepath.Base(e.Path)
+		p := e.Path
+		if p == "" {
+			p = e.Name
 		}
-		r := QuantRank(base)
+		r := QuantRankFromRepoPath(p)
 		ranks[i] = r
 		if r >= 0 {
 			known = true
@@ -167,4 +201,53 @@ func BestWeightGGUFName(names []string) string {
 		}
 	}
 	return best
+}
+
+// BestWeightGGUFRelPath picks the highest-precision file by repo-relative or filesystem-relative path.
+func BestWeightGGUFRelPath(relPaths []string) string {
+	if len(relPaths) == 0 {
+		return ""
+	}
+	if len(relPaths) == 1 {
+		return relPaths[0]
+	}
+	best := relPaths[0]
+	bestR := QuantRankFromRepoPath(best)
+	for _, p := range relPaths[1:] {
+		r := QuantRankFromRepoPath(p)
+		pSlash := filepath.ToSlash(p)
+		bestSlash := filepath.ToSlash(best)
+		if r > bestR || (r == bestR && pSlash < bestSlash) {
+			best = p
+			bestR = r
+		}
+	}
+	return best
+}
+
+// CollectWeightGGUFRelPaths returns relative paths to weight .gguf files under root (recursive walk).
+func CollectWeightGGUFRelPaths(root string) ([]string, error) {
+	var out []string
+	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			return nil
+		}
+		lower := strings.ToLower(d.Name())
+		if !strings.HasSuffix(lower, ".gguf") || strings.Contains(lower, "mmproj") {
+			return nil
+		}
+		rel, err := filepath.Rel(root, path)
+		if err != nil {
+			return err
+		}
+		out = append(out, rel)
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
 }

@@ -189,3 +189,33 @@ func TestFindModelFile_PicksHighestPrecisionGGUF(t *testing.T) {
 		t.Errorf("path = %q, want high-Q8_0.gguf", path)
 	}
 }
+
+func TestFindModelFile_NestedQuantFolders(t *testing.T) {
+	dir := t.TempDir()
+	q4 := filepath.Join(dir, "Q4_0")
+	q8 := filepath.Join(dir, "Q8_0")
+	if err := os.MkdirAll(q4, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(q8, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(q4, "model.gguf"), []byte("a"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(q8, "model.gguf"), []byte("b"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	path, format, err := FindModelFile(dir)
+	if err != nil {
+		t.Fatalf("FindModelFile: %v", err)
+	}
+	if format != FormatGGUF {
+		t.Errorf("format = %q", format)
+	}
+	want := filepath.Join(q8, "model.gguf")
+	if path != want {
+		t.Errorf("path = %q, want %q", path, want)
+	}
+}
