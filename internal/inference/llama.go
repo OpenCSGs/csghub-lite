@@ -399,10 +399,17 @@ func (e *llamaEngine) handleStream(body io.Reader, onToken TokenCallback) (strin
 			continue
 		}
 		if len(chunk.Choices) > 0 {
-			token := chunk.Choices[0].Delta.Content
-			if token != "" {
-				full.WriteString(token)
-				onToken(token)
+			d := chunk.Choices[0].Delta
+			// Qwen3 / DeepSeek-R1 style: llama-server may stream chain-of-thought in
+			// reasoning_content while content stays empty until the final answer (or only
+			// reasoning_content is used). We must forward both or the CLI shows no output.
+			if d.ReasoningContent != "" {
+				full.WriteString(d.ReasoningContent)
+				onToken(d.ReasoningContent)
+			}
+			if d.Content != "" {
+				full.WriteString(d.Content)
+				onToken(d.Content)
 			}
 		}
 	}
@@ -414,7 +421,8 @@ func (e *llamaEngine) handleNonStream(body io.Reader) (string, error) {
 	var resp struct {
 		Choices []struct {
 			Message struct {
-				Content string `json:"content"`
+				Content          string `json:"content"`
+				ReasoningContent string `json:"reasoning_content"`
 			} `json:"message"`
 		} `json:"choices"`
 	}
@@ -424,7 +432,14 @@ func (e *llamaEngine) handleNonStream(body io.Reader) (string, error) {
 	if len(resp.Choices) == 0 {
 		return "", fmt.Errorf("no choices in response")
 	}
-	return resp.Choices[0].Message.Content, nil
+	msg := resp.Choices[0].Message
+	if msg.Content != "" && msg.ReasoningContent != "" {
+		return msg.ReasoningContent + msg.Content, nil
+	}
+	if msg.Content != "" {
+		return msg.Content, nil
+	}
+	return msg.ReasoningContent, nil
 }
 
 func (e *llamaEngine) Close() error {
