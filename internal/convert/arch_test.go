@@ -15,9 +15,9 @@ func TestGetConverter(t *testing.T) {
 	}{
 		{"llama", "*convert.standardConverter", false},
 		{"qwen2", "*convert.standardConverter", false},
-		{"qwen35", "*convert.qwen35Converter", false},
-		{"qwen35moe", "*convert.qwen35Converter", false},
-		{"qwen3next", "*convert.qwen35Converter", false},
+		{"qwen35", "", true},
+		{"qwen35moe", "", true},
+		{"qwen3next", "", true},
 		{"mamba", "*convert.mambaConverter", false},
 		{"mamba2", "*convert.mamba2Converter", false},
 		{"jamba", "*convert.jambaConverter", false},
@@ -55,6 +55,15 @@ func TestGetConverter(t *testing.T) {
 		}
 		if c.Arch() != tc.arch {
 			t.Errorf("getConverter(%q).Arch() = %q, want %q", tc.arch, c.Arch(), tc.arch)
+		}
+	}
+}
+
+func TestQwen35ArchitecturesFallbackToPython(t *testing.T) {
+	cfg := &modelConfig{}
+	for _, arch := range []string{"qwen35", "qwen35moe", "qwen3next"} {
+		if got := getConverter(arch, cfg); got != nil {
+			t.Fatalf("%s should currently fall back to Python, got %T", arch, got)
 		}
 	}
 }
@@ -136,6 +145,40 @@ func TestQwen35SSMTransform(t *testing.T) {
 	got = readF32(out)
 	if math.Abs(float64(got-0.5)) > 0.001 {
 		t.Errorf("SSM norm should not transform: got %f, want 0.5", got)
+	}
+}
+
+func TestQwen35ReorderAxisBytes(t *testing.T) {
+	// axis size = num_k_heads * num_v_per_k * head_dim = 2 * 2 * 1 = 4
+	// old order: [k0v0, k0v1, k1v0, k1v1] -> new order: [k0v0, k1v0, k0v1, k1v1]
+	data := make([]byte, 16)
+	for i, v := range []float32{0, 1, 2, 3} {
+		binary.LittleEndian.PutUint32(data[i*4:], math.Float32bits(v))
+	}
+	out := reorderAxisBytes(data, []int64{4}, 0, 2, 2, 1, GGMLTypeF32)
+	expected := []float32{0, 2, 1, 3}
+	for i, want := range expected {
+		got := math.Float32frombits(binary.LittleEndian.Uint32(out[i*4:]))
+		if got != want {
+			t.Errorf("reorderAxisBytes[%d] = %f, want %f", i, got, want)
+		}
+	}
+}
+
+func TestQwen35ReorderRowsSegment(t *testing.T) {
+	// 6x1 matrix, reorder rows [2:6] with 2 key heads, 2 value-per-key, head_dim=1.
+	// rows: [0, 1 | 2, 3, 4, 5] -> [0, 1 | 2, 4, 3, 5]
+	data := make([]byte, 24)
+	for i, v := range []float32{0, 1, 2, 3, 4, 5} {
+		binary.LittleEndian.PutUint32(data[i*4:], math.Float32bits(v))
+	}
+	out := reorderRowsSegment(data, []int64{6, 1}, GGMLTypeF32, 2, 4, 2, 2, 1)
+	expected := []float32{0, 1, 2, 4, 3, 5}
+	for i, want := range expected {
+		got := math.Float32frombits(binary.LittleEndian.Uint32(out[i*4:]))
+		if got != want {
+			t.Errorf("reorderRowsSegment[%d] = %f, want %f", i, got, want)
+		}
 	}
 }
 

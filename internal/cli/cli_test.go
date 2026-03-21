@@ -17,9 +17,9 @@ func TestNewRootCmd(t *testing.T) {
 	}
 
 	expected := []string{
-		"serve", "run MODEL", "chat MODEL", "pull MODEL", "list",
-		"show MODEL", "ps", "stop MODEL", "rm MODEL",
-		"login", "search QUERY", "config",
+		"serve", "run MODEL", "chat MODEL", "pull NAME", "list",
+		"show MODEL", "ps", "stop MODEL", "stop-service",
+		"rm NAME", "login", "search QUERY", "config", "uninstall",
 	}
 	for _, name := range expected {
 		if !subcommands[name] {

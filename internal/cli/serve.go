@@ -2,6 +2,7 @@ package cli
 
 import (
 	"fmt"
+	"os"
 
 	"github.com/opencsgs/csghub-lite/internal/config"
 	"github.com/opencsgs/csghub-lite/internal/server"
@@ -22,6 +23,10 @@ func newServeCmd(version string) *cobra.Command {
 			if listenAddr != "" {
 				cfg.ListenAddr = listenAddr
 			}
+			if err := writePIDFile(os.Getpid()); err != nil {
+				fmt.Fprintf(os.Stderr, "warning: could not write PID file: %v\n", err)
+			}
+			defer func() { _ = removePIDFile() }()
 			srv := server.New(cfg, version)
 			return srv.Run(cmd.Context())
 		},

@@ -115,6 +115,17 @@ func writePIDFile(pid int) error {
 	return os.WriteFile(path, []byte(strconv.Itoa(pid)), 0o644)
 }
 
+func removePIDFile() error {
+	path, err := pidFilePath()
+	if err != nil {
+		return err
+	}
+	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	return nil
+}
+
 // ServerPID reads the stored server PID, or returns 0 if unavailable.
 func ServerPID() int {
 	path, err := pidFilePath()

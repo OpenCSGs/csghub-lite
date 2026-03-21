@@ -324,6 +324,12 @@ func (e *llamaEngine) Chat(ctx context.Context, messages []Message, opts Options
 
 	messages = e.sanitizeMessages(messages)
 
+	if shouldDebugQwen35(e.modelName) {
+		log.Printf("qwen35-debug request model=%q temp=%.3f top_p=%.3f max_tokens=%d messages=%d last_user=%q system=%q",
+			e.modelName, opts.Temperature, opts.TopP, opts.MaxTokens, len(messages),
+			lastUserText(messages), firstSystemText(messages))
+	}
+
 	reqBody := map[string]interface{}{
 		"messages":    messages,
 		"temperature": opts.Temperature,
@@ -376,6 +382,7 @@ func (e *llamaEngine) Chat(ctx context.Context, messages []Message, opts Options
 func (e *llamaEngine) handleStream(body io.Reader, onToken TokenCallback) (string, error) {
 	scanner := bufio.NewScanner(body)
 	var full strings.Builder
+	debugCount := 0
 
 	for scanner.Scan() {
 		line := scanner.Text()
@@ -413,6 +420,11 @@ func (e *llamaEngine) handleStream(body io.Reader, onToken TokenCallback) (strin
 				token = d.ReasoningContent
 			}
 			if token != "" {
+				if shouldDebugQwen35(e.modelName) && debugCount < 40 {
+					debugCount++
+					log.Printf("qwen35-debug chunk[%d] content=%q reasoning=%q chosen=%q",
+						debugCount, d.Content, d.ReasoningContent, token)
+				}
 				full.WriteString(token)
 				onToken(token)
 			}
@@ -448,6 +460,58 @@ func (e *llamaEngine) handleNonStream(body io.Reader) (string, error) {
 		return msg.Content, nil
 	}
 	return msg.ReasoningContent, nil
+}
+
+func shouldDebugQwen35(modelName string) bool {
+	return strings.Contains(strings.ToLower(modelName), "qwen3.5")
+}
+
+func firstSystemText(messages []Message) string {
+	for _, m := range messages {
+		if m.Role == "system" {
+			return summarizeMessageText(m.Content)
+		}
+	}
+	return ""
+}
+
+func lastUserText(messages []Message) string {
+	for i := len(messages) - 1; i >= 0; i-- {
+		if messages[i].Role == "user" {
+			return summarizeMessageText(messages[i].Content)
+		}
+	}
+	return ""
+}
+
+func summarizeMessageText(content interface{}) string {
+	switch v := content.(type) {
+	case string:
+		if len(v) > 120 {
+			return v[:120] + "...(truncated)"
+		}
+		return v
+	case []interface{}:
+		var parts []string
+		for _, item := range v {
+			pm, ok := item.(map[string]interface{})
+			if !ok {
+				continue
+			}
+			if pm["type"] == "text" {
+				if t, ok := pm["text"].(string); ok && t != "" {
+					parts = append(parts, t)
+				}
+			}
+		}
+		s := strings.Join(parts, "")
+		if len(s) > 120 {
+			return s[:120] + "...(truncated)"
+		}
+		return s
+	default:
+		return fmt.Sprintf("%T", content)
+	}
 }
 
 func (e *llamaEngine) Close() error {

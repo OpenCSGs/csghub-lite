@@ -1,13 +1,16 @@
 package server
 
 import (
+	"context"
 	"fmt"
+	"log"
 	"math"
 	"net/http"
 	"os/exec"
 	"runtime"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // float2 is a float64 that marshals to JSON with at most 2 decimal places.
@@ -50,6 +53,20 @@ func (s *Server) handleSystem(w http.ResponseWriter, r *http.Request) {
 	info.GPUName, info.GPUVRAMUsed, info.GPUVRAMTotal = getGPUInfo()
 
 	writeJSON(w, http.StatusOK, info)
+}
+
+// POST /api/shutdown -- gracefully stop the local server
+func (s *Server) handleShutdown(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]string{"status": "shutting down"})
+
+	go func() {
+		time.Sleep(100 * time.Millisecond)
+		log.Println("shutting down server...")
+		s.closeAllEngines()
+		shutCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = s.http.Shutdown(shutCtx)
+	}()
 }
 
 func getCPUInfo() (usage float64, clock string) {

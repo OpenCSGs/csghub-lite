@@ -17,9 +17,11 @@ type ArchConverter interface {
 // fall back to the Python converter.
 func getConverter(ggufArch string, cfg *modelConfig) ArchConverter {
 	switch ggufArch {
-	// Qwen3.5 hybrid (linear attention + standard attention)
+	// Qwen3.5 family currently falls back to the official Python converter.
+	// We have partial Go support, but it is not yet output-compatible enough
+	// with llama.cpp for stable chat quality across tested models.
 	case "qwen35", "qwen35moe", "qwen3next":
-		return &qwen35Converter{arch: ggufArch}
+		return nil
 
 	// Pure SSM
 	case "mamba":

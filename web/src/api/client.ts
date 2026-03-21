@@ -198,16 +198,40 @@ export function pullModel(
   });
 }
 
+function stripReasoningTags(text: string): string {
+  return text
+    .replace(/<think>[\s\S]*?<\/think>/gi, "")
+    .replace(/<\/?think>/gi, "")
+    .trim();
+}
+
+function sanitizeMessageForAPI(m: ChatMessage): ChatMessage {
+  if (typeof m.content === "string") {
+    if (m.role === "assistant") {
+      return { ...m, content: stripReasoningTags(m.content) };
+    }
+    return m;
+  }
+
+  const parts = (m.content as ContentPart[]).map((p) => {
+    if (p.type === "text" && p.text && m.role === "assistant") {
+      return { ...p, text: stripReasoningTags(p.text) };
+    }
+    return p;
+  });
+  return { ...m, content: parts };
+}
+
 function stripImagesFromOldMessages(msgs: ChatMessage[]): ChatMessage[] {
   if (msgs.length <= 1) return msgs;
   return msgs.map((m, i) => {
-    if (i === msgs.length - 1) return m;
-    if (!Array.isArray(m.content)) return m;
+    if (i === msgs.length - 1) return sanitizeMessageForAPI(m);
+    if (!Array.isArray(m.content)) return sanitizeMessageForAPI(m);
     const textParts = (m.content as ContentPart[])
       .filter((p) => p.type === "text")
       .map((p) => p.text || "")
       .join("");
-    return { ...m, content: textParts || "(image)" };
+    return sanitizeMessageForAPI({ ...m, content: textParts || "(image)" });
   });
 }
 

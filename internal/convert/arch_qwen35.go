@@ -52,6 +52,7 @@ func (c *qwen35Converter) ConvertTensors(w *ggufWriter, sources []tensorSource, 
 			if err != nil {
 				return nil, err
 			}
+			data = qwen35ReorderLinearAttention(data, srcCopy.shape, capturedHFName, capturedGGMLType, cfg)
 			data = convertDtype(data, capturedGGMLType, capturedOutputType)
 			data = qwen35SSMTransform(data, capturedHFName, capturedOutputType)
 			return data, nil
@@ -77,4 +78,138 @@ func qwen35SSMTransform(data []byte, hfName string, dtype GGMLType) []byte {
 		})
 	}
 	return data
+}
+
+func qwen35ReorderLinearAttention(data []byte, shape []int64, hfName string, dtype GGMLType, cfg *modelConfig) []byte {
+	if cfg == nil || !strings.Contains(hfName, "linear_attn.") {
+		return data
+	}
+	numKHeads := cfg.LinearNumKeyHeads
+	numVHeads := cfg.LinearNumValueHeads
+	headKDim := cfg.LinearKeyHeadDim
+	headVDim := cfg.LinearValueHeadDim
+	if numKHeads <= 0 || numVHeads <= 0 || headKDim <= 0 || headVDim <= 0 || numVHeads == numKHeads {
+		return data
+	}
+	if numVHeads%numKHeads != 0 {
+		return data
+	}
+	numVPerK := numVHeads / numKHeads
+
+	switch {
+	case strings.Contains(hfName, ".in_proj_qkv."):
+		qDim := headKDim * numKHeads
+		kDim := headKDim * numKHeads
+		vDim := headVDim * numVHeads
+		return reorderRowsSegment(data, shape, dtype, qDim+kDim, vDim, numKHeads, numVPerK, headVDim)
+	case strings.Contains(hfName, ".in_proj_z."):
+		return reorderAxisBytes(data, shape, 0, numKHeads, numVPerK, headVDim, dtype)
+	case strings.Contains(hfName, ".in_proj_b.") || strings.Contains(hfName, ".in_proj_a."):
+		return reorderAxisBytes(data, shape, 0, numKHeads, numVPerK, 1, dtype)
+	case strings.Contains(hfName, ".A_log") || strings.Contains(hfName, ".dt_bias") || strings.Contains(hfName, ".dt_proj"):
+		axis := len(shape) - 1
+		if len(shape) == 1 {
+			axis = 0
+		}
+		return reorderAxisBytes(data, shape, axis, numKHeads, numVPerK, 1, dtype)
+	case strings.Contains(hfName, ".conv1d"):
+		qkChannels := headKDim * numKHeads * 2
+		vChannels := headVDim * numVHeads
+		return reorderRowsSegment(data, shape, dtype, qkChannels, vChannels, numKHeads, numVPerK, headVDim)
+	case strings.Contains(hfName, ".out_proj."):
+		if len(shape) < 2 {
+			return data
+		}
+		return reorderAxisBytes(data, shape, 1, numKHeads, numVPerK, headVDim, dtype)
+	default:
+		return data
+	}
+}
+
+func reorderRowsSegment(data []byte, shape []int64, dtype GGMLType, startRows, rowCount, numKHeads, numVPerK, headDim int) []byte {
+	if len(shape) == 0 {
+		return data
+	}
+	elemSize := int(dtype.ElementSize())
+	if elemSize == 0 {
+		return data
+	}
+	rowWidthElems := int(productInts(shape[1:]))
+	if rowWidthElems <= 0 {
+		rowWidthElems = 1
+	}
+	rowWidthBytes := rowWidthElems * elemSize
+	totalRows := int(shape[0])
+	if startRows < 0 || rowCount <= 0 || startRows+rowCount > totalRows {
+		return data
+	}
+	startByte := startRows * rowWidthBytes
+	endByte := (startRows + rowCount) * rowWidthBytes
+	if startByte < 0 || endByte > len(data) {
+		return data
+	}
+	out := make([]byte, len(data))
+	copy(out, data)
+	reordered := reorderAxisBytes(data[startByte:endByte], []int64{int64(rowCount), int64(rowWidthElems)}, 0, numKHeads, numVPerK, headDim, dtype)
+	copy(out[startByte:endByte], reordered)
+	return out
+}
+
+func reorderAxisBytes(data []byte, shape []int64, axis, numKHeads, numVPerK, headDim int, dtype GGMLType) []byte {
+	elemSize := int(dtype.ElementSize())
+	if elemSize == 0 || len(shape) == 0 {
+		return data
+	}
+	if axis < 0 {
+		axis += len(shape)
+	}
+	if axis < 0 || axis >= len(shape) {
+		return data
+	}
+	expected := numKHeads * numVPerK * headDim
+	if int(shape[axis]) != expected {
+		return data
+	}
+	totalElems := int(productInts(shape))
+	if totalElems <= 0 || totalElems*elemSize != len(data) {
+		return data
+	}
+	prefix := int(productInts(shape[:axis]))
+	if prefix <= 0 {
+		prefix = 1
+	}
+	suffix := int(productInts(shape[axis+1:]))
+	if suffix <= 0 {
+		suffix = 1
+	}
+	out := make([]byte, len(data))
+	for p := 0; p < prefix; p++ {
+		for oldAxis := 0; oldAxis < expected; oldAxis++ {
+			kh := oldAxis / (numVPerK * headDim)
+			rem := oldAxis % (numVPerK * headDim)
+			vpk := rem / headDim
+			hd := rem % headDim
+			newAxis := (vpk*numKHeads+kh)*headDim + hd
+			for s := 0; s < suffix; s++ {
+				oldElem := ((p*expected + oldAxis) * suffix) + s
+				newElem := ((p*expected + newAxis) * suffix) + s
+				copy(out[newElem*elemSize:(newElem+1)*elemSize], data[oldElem*elemSize:(oldElem+1)*elemSize])
+			}
+		}
+	}
+	return out
+}
+
+func productInts(vals []int64) int64 {
+	if len(vals) == 0 {
+		return 1
+	}
+	p := int64(1)
+	for _, v := range vals {
+		if v <= 0 {
+			return 0
+		}
+		p *= v
+	}
+	return p
 }
