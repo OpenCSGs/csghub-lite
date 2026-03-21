@@ -20,7 +20,7 @@ func TestDownloadLFSFile(t *testing.T) {
 			t.Errorf("path = %q, want %q", r.URL.Path, wantPath)
 		}
 		w.Header().Set("Content-Length", fmt.Sprintf("%d", len(content)))
-		w.Write([]byte(content))
+		_, _ = w.Write([]byte(content))
 	}))
 	defer server.Close()
 
@@ -58,7 +58,7 @@ func TestDownloadRawFile(t *testing.T) {
 			t.Errorf("path = %q, want %q", r.URL.Path, wantPath)
 		}
 		resp := map[string]string{"msg": "OK", "data": content}
-		json.NewEncoder(w).Encode(resp)
+		_ = json.NewEncoder(w).Encode(resp)
 	}))
 	defer server.Close()
 
@@ -94,9 +94,9 @@ func TestDownloadLFSFile_Resume(t *testing.T) {
 		rangeHeader := r.Header.Get("Range")
 		if rangeHeader == "bytes=5-" {
 			w.WriteHeader(http.StatusPartialContent)
-			w.Write([]byte(fullContent[5:]))
+			_, _ = w.Write([]byte(fullContent[5:]))
 		} else {
-			w.Write([]byte(fullContent))
+			_, _ = w.Write([]byte(fullContent))
 		}
 	}))
 	defer server.Close()
@@ -126,7 +126,7 @@ func TestDownloadLFSFile_Resume(t *testing.T) {
 func TestDownloadFile_CreatesDirs(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		resp := map[string]string{"msg": "OK", "data": "content"}
-		json.NewEncoder(w).Encode(resp)
+		_ = json.NewEncoder(w).Encode(resp)
 	}))
 	defer server.Close()
 

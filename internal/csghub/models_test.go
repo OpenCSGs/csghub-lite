@@ -27,7 +27,7 @@ func TestListModels(t *testing.T) {
 			Data:  []Model{{ID: 1, Name: "Qwen-7B", Path: "Qwen/Qwen-7B"}},
 			Total: 50,
 		}
-		json.NewEncoder(w).Encode(resp)
+		_ = json.NewEncoder(w).Encode(resp)
 	}))
 	defer server.Close()
 
@@ -59,7 +59,7 @@ func TestGetModel(t *testing.T) {
 			Msg:  "OK",
 			Data: Model{ID: 367, Name: "csg-wukong-1B", Path: "OpenCSG/csg-wukong-1B", DefaultBranch: "main"},
 		}
-		json.NewEncoder(w).Encode(resp)
+		_ = json.NewEncoder(w).Encode(resp)
 	}))
 	defer server.Close()
 

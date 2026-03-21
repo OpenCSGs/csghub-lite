@@ -29,12 +29,14 @@ type FileEntry struct {
 
 func dirSize(path string) int64 {
 	var size int64
-	filepath.Walk(path, func(_ string, info os.FileInfo, err error) error {
+	if err := filepath.Walk(path, func(_ string, info os.FileInfo, err error) error {
 		if err != nil || info.IsDir() {
 			return nil
 		}
 		size += info.Size()
 		return nil
-	})
+	}); err != nil {
+		return 0
+	}
 	return size
 }

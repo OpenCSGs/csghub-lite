@@ -52,7 +52,7 @@ func TestGetJSON(t *testing.T) {
 		}
 
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]string{"msg": "OK"})
+		_ = json.NewEncoder(w).Encode(map[string]string{"msg": "OK"})
 	}))
 	defer server.Close()
 
@@ -85,7 +85,7 @@ func TestGetJSON_NoAuth(t *testing.T) {
 		if r.Header.Get("Authorization") != "" {
 			t.Error("Authorization should be empty when no token is set")
 		}
-		json.NewEncoder(w).Encode(map[string]string{"msg": "OK"})
+		_ = json.NewEncoder(w).Encode(map[string]string{"msg": "OK"})
 	}))
 	defer server.Close()
 

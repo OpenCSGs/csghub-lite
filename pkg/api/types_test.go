@@ -112,7 +112,9 @@ func TestChatResponse_WithMessage(t *testing.T) {
 	}
 
 	var decoded ChatResponse
-	json.Unmarshal(data, &decoded)
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		t.Fatalf("Unmarshal error: %v", err)
+	}
 
 	if decoded.Message == nil {
 		t.Fatal("Message should not be nil")
@@ -135,7 +137,9 @@ func TestPullResponse_Serialization(t *testing.T) {
 	}
 
 	var decoded PullResponse
-	json.Unmarshal(data, &decoded)
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		t.Fatalf("Unmarshal error: %v", err)
+	}
 
 	if decoded.Total != 1000000 {
 		t.Errorf("Total = %d, want 1000000", decoded.Total)
@@ -147,10 +151,15 @@ func TestPullResponse_Serialization(t *testing.T) {
 
 func TestTagsResponse_Empty(t *testing.T) {
 	resp := TagsResponse{Models: nil}
-	data, _ := json.Marshal(resp)
+	data, err := json.Marshal(resp)
+	if err != nil {
+		t.Fatalf("Marshal error: %v", err)
+	}
 
 	var decoded TagsResponse
-	json.Unmarshal(data, &decoded)
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		t.Fatalf("Unmarshal error: %v", err)
+	}
 
 	if decoded.Models != nil {
 		t.Errorf("Models should be nil, got %v", decoded.Models)
@@ -161,7 +170,9 @@ func TestStreamOptional(t *testing.T) {
 	// When stream is not provided, it should be nil
 	raw := `{"model": "test", "prompt": "hi"}`
 	var req GenerateRequest
-	json.Unmarshal([]byte(raw), &req)
+	if err := json.Unmarshal([]byte(raw), &req); err != nil {
+		t.Fatalf("Unmarshal error: %v", err)
+	}
 
 	if req.Stream != nil {
 		t.Error("Stream should be nil when not provided")
