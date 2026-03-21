@@ -160,3 +160,20 @@ func TestFindModelFile_NotFound(t *testing.T) {
 		t.Error("expected error when no model file found")
 	}
 }
+
+func TestFindModelFile_PicksHighestPrecisionGGUF(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "low-Q4_0.gguf"), []byte("a"), 0o644)
+	os.WriteFile(filepath.Join(dir, "high-Q8_0.gguf"), []byte("b"), 0o644)
+
+	path, format, err := FindModelFile(dir)
+	if err != nil {
+		t.Fatalf("FindModelFile: %v", err)
+	}
+	if format != FormatGGUF {
+		t.Errorf("format = %q", format)
+	}
+	if filepath.Base(path) != "high-Q8_0.gguf" {
+		t.Errorf("path = %q, want high-Q8_0.gguf", path)
+	}
+}

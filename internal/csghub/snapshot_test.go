@@ -1,8 +1,36 @@
 package csghub
 
 import (
+	"reflect"
 	"testing"
 )
+
+func TestFilterGGUFMultiQuantDownload(t *testing.T) {
+	files := []RepoFile{
+		{Type: "file", Path: "README.md", Name: "README.md"},
+		{Type: "file", Path: "Q8_0.gguf", Name: "Q8_0.gguf", LFS: true},
+		{Type: "file", Path: "Q4_0.gguf", Name: "Q4_0.gguf", LFS: true},
+	}
+	got := filterGGUFMultiQuantDownload(files)
+	var names []string
+	for _, f := range got {
+		names = append(names, f.Name)
+	}
+	want := []string{"README.md", "Q8_0.gguf"}
+	if !reflect.DeepEqual(names, want) {
+		t.Errorf("got %v, want %v", names, want)
+	}
+}
+
+func TestFilterGGUFMultiQuantDownload_singleGGUF(t *testing.T) {
+	files := []RepoFile{
+		{Type: "file", Path: "Q4_0.gguf", Name: "Q4_0.gguf"},
+	}
+	got := filterGGUFMultiQuantDownload(files)
+	if len(got) != 1 {
+		t.Fatalf("len = %d", len(got))
+	}
+}
 
 func TestParseModelID(t *testing.T) {
 	tests := []struct {

@@ -5,6 +5,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/opencsgs/csghub-lite/internal/ggufpick"
 )
 
 // Vision-related HuggingFace architecture suffixes/names.
@@ -109,12 +111,17 @@ func FindModelFile(modelDir string) (string, Format, error) {
 		return "", FormatUnknown, err
 	}
 
-	// Prefer GGUF files (skip multimodal projector files)
+	// Prefer GGUF weight files (skip multimodal projector); pick highest precision if several.
+	var ggufNames []string
 	for _, e := range entries {
 		lower := strings.ToLower(e.Name())
 		if !e.IsDir() && strings.HasSuffix(lower, ".gguf") && !strings.Contains(lower, "mmproj") {
-			return filepath.Join(modelDir, e.Name()), FormatGGUF, nil
+			ggufNames = append(ggufNames, e.Name())
 		}
+	}
+	if len(ggufNames) > 0 {
+		best := ggufpick.BestWeightGGUFName(ggufNames)
+		return filepath.Join(modelDir, best), FormatGGUF, nil
 	}
 	// Then SafeTensors
 	for _, e := range entries {

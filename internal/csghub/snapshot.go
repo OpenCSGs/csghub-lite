@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+
+	"github.com/opencsgs/csghub-lite/internal/ggufpick"
 )
 
 // SnapshotProgress reports progress for a multi-file download.
@@ -135,6 +137,10 @@ func (c *Client) downloadSnapshot(ctx context.Context, repoType, namespace, name
 		}
 	}
 
+	if repoType == "models" {
+		downloadFiles = filterGGUFMultiQuantDownload(downloadFiles)
+	}
+
 	if len(downloadFiles) == 0 {
 		return nil, fmt.Errorf("no files found in %s/%s", namespace, name)
 	}
@@ -192,6 +198,45 @@ func (c *Client) downloadSnapshot(ctx context.Context, repoType, namespace, name
 		return nil, firstErr
 	}
 	return downloadFiles, nil
+}
+
+func repoFileBaseName(f RepoFile) string {
+	if f.Name != "" {
+		return f.Name
+	}
+	return filepath.Base(f.Path)
+}
+
+func filterGGUFMultiQuantDownload(files []RepoFile) []RepoFile {
+	var weights []RepoFile
+	for _, f := range files {
+		if ggufpick.IsWeightGGUF(repoFileBaseName(f)) {
+			weights = append(weights, f)
+		}
+	}
+	if len(weights) <= 1 {
+		return files
+	}
+	entries := make([]ggufpick.FileEntry, len(weights))
+	for i, f := range weights {
+		entries[i] = ggufpick.FileEntry{Path: f.Path, Name: repoFileBaseName(f), Size: f.Size}
+	}
+	filtered := ggufpick.FilterWeightGGUFFiles(entries)
+	kept := make(map[string]struct{}, len(filtered))
+	for _, e := range filtered {
+		kept[e.Path] = struct{}{}
+	}
+	out := make([]RepoFile, 0, len(files)-len(weights)+len(filtered))
+	for _, f := range files {
+		if !ggufpick.IsWeightGGUF(repoFileBaseName(f)) {
+			out = append(out, f)
+			continue
+		}
+		if _, ok := kept[f.Path]; ok {
+			out = append(out, f)
+		}
+	}
+	return out
 }
 
 // ParseModelID splits a model identifier like "namespace/name" into parts.
