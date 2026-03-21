@@ -126,11 +126,17 @@ func chooseOutputType(ggufName string, ggmlType GGMLType, ndims int) GGMLType {
 }
 
 func convertDtype(data []byte, from, to GGMLType) []byte {
+	if from == to {
+		return data
+	}
 	if from == GGMLTypeBF16 && to == GGMLTypeF32 {
 		return bf16ToF32(data)
 	}
 	if from == GGMLTypeBF16 && to == GGMLTypeF16 {
 		return bf16ToF16(data)
+	}
+	if from == GGMLTypeF16 && to == GGMLTypeF32 {
+		return f16ToF32(data)
 	}
 	return data
 }
@@ -142,6 +148,10 @@ func isNormTensor(name string) bool {
 func chooseOutputTypeForSSM(ggufName string, ggmlType GGMLType, ndims int) GGMLType {
 	if ndims <= 1 || strings.HasSuffix(ggufName, "_norm.weight") || strings.HasSuffix(ggufName, ".norm.weight") ||
 		strings.HasSuffix(ggufName, ".ssm_norm.weight") {
+		return GGMLTypeF32
+	}
+	// llama.cpp SSM_CONV / SSM_SCAN require F32 for conv weights and A (see ggml_compute_forward_ssm_conv_f32).
+	if strings.Contains(ggufName, "ssm_conv1d") || strings.HasSuffix(ggufName, ".ssm_a") {
 		return GGMLTypeF32
 	}
 	if ggmlType == GGMLTypeBF16 {

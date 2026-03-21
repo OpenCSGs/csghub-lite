@@ -273,16 +273,18 @@ install_llama_server() {
     fi
     mkdir -p "$_llama_dir"
 
-    # Install llama-server binary and all shared libraries it depends on
+    # Install llama-server binary and all shared libraries it depends on.
+    # Parentheses are required: without them, find's -o only applies to the first path
+    # and .so files under the extract dir may be skipped (breaking e.g. libmtmd.so.0).
     if [ -w "$_llama_dir" ]; then
         mv "$_llama_bin" "$_llama_dir/"
-        find "$_llama_extract_dir" -name "*.dylib" -o -name "*.so" -o -name "*.so.*" | while read -r _lib; do
+        find "$_llama_extract_dir" \( -name "*.dylib" -o -name "*.so" -o -name "*.so.*" \) -type f | while read -r _lib; do
             mv "$_lib" "$_llama_dir/"
         done
     else
         info "Requires sudo to install llama-server."
         sudo mv "$_llama_bin" "$_llama_dir/"
-        find "$_llama_extract_dir" -name "*.dylib" -o -name "*.so" -o -name "*.so.*" | while read -r _lib; do
+        find "$_llama_extract_dir" \( -name "*.dylib" -o -name "*.so" -o -name "*.so.*" \) -type f | while read -r _lib; do
             sudo mv "$_lib" "$_llama_dir/"
         done
     fi
@@ -299,6 +301,23 @@ install_llama_server() {
             fi
         fi
     fi
+
+    # Linux: default dynamic linker does not search the executable directory.
+    # Match co-located .so loading with macOS/Windows when patchelf is available.
+    if [ "$OS" = "linux" ]; then
+        _llama_installed="${_llama_dir}/llama-server"
+        if [ -f "$_llama_installed" ] && command -v patchelf >/dev/null 2>&1; then
+            if [ -w "$_llama_installed" ]; then
+                patchelf --set-rpath '$ORIGIN' "$_llama_installed" 2>/dev/null || true
+            else
+                sudo patchelf --set-rpath '$ORIGIN' "$_llama_installed" 2>/dev/null || true
+            fi
+        elif [ -f "$_llama_installed" ]; then
+            info "To run llama-server directly, set: export LD_LIBRARY_PATH=\"${_llama_dir}:\${LD_LIBRARY_PATH}\""
+            info "(csghub-lite sets this automatically when starting inference.)"
+        fi
+    fi
+
     rm -rf "$_tmpdir"
     info "llama-server installed successfully."
 }

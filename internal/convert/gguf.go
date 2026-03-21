@@ -329,6 +329,19 @@ func bf16ToF16(data []byte) []byte {
 	return out
 }
 
+// f16ToF32 converts little-endian float16 raw bytes to float32 raw bytes.
+func f16ToF32(data []byte) []byte {
+	if len(data)%2 != 0 {
+		return data
+	}
+	out := make([]byte, len(data)*2)
+	for i := 0; i < len(data); i += 2 {
+		h := binary.LittleEndian.Uint16(data[i:])
+		binary.LittleEndian.PutUint32(out[i*2:], math.Float32bits(float16ToFloat32(h)))
+	}
+	return out
+}
+
 func float32BitsToFloat16(bits uint32) uint16 {
 	f := math.Float32frombits(bits)
 	if math.IsNaN(float64(f)) {

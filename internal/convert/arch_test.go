@@ -316,6 +316,30 @@ func TestConvertDtype(t *testing.T) {
 	if math.Abs(float64(v-1.0)) > 0.01 {
 		t.Errorf("BF16→F32: got %f, want 1.0", v)
 	}
+
+	// F16 1.0 = 0x3C00 (IEEE half)
+	f16One := []byte{0x00, 0x3C}
+	f32FromF16 := convertDtype(f16One, GGMLTypeF16, GGMLTypeF32)
+	if len(f32FromF16) != 4 {
+		t.Fatalf("F16→F32: expected 4 bytes, got %d", len(f32FromF16))
+	}
+	v2 := math.Float32frombits(binary.LittleEndian.Uint32(f32FromF16))
+	if math.Abs(float64(v2-1.0)) > 0.01 {
+		t.Errorf("F16→F32: got %f, want 1.0", v2)
+	}
+}
+
+func TestChooseOutputTypeForSSM(t *testing.T) {
+	// SSM conv and A must be F32 for llama.cpp SSM_CONV / SSM_SCAN (see ggml-cpu ops.cpp).
+	if got := chooseOutputTypeForSSM("blk.0.ssm_conv1d.weight", GGMLTypeBF16, 2); got != GGMLTypeF32 {
+		t.Errorf("ssm_conv1d should be F32, got %v", got)
+	}
+	if got := chooseOutputTypeForSSM("blk.0.ssm_a", GGMLTypeF16, 2); got != GGMLTypeF32 {
+		t.Errorf("ssm_a should be F32, got %v", got)
+	}
+	if got := chooseOutputTypeForSSM("blk.0.ssm_in.weight", GGMLTypeBF16, 2); got != GGMLTypeF16 {
+		t.Errorf("ssm_in should stay F16 when source BF16, got %v", got)
+	}
 }
 
 func TestHybridSSMTransform(t *testing.T) {
