@@ -128,10 +128,12 @@ jobs:
         with:
           go-version: "1.22"
 
+      # Without HOMEBREW_TAP_TOKEN, publishing the tap fails with 401 and marks the job failed
+      # even though the GitHub release assets already uploaded.
       - uses: goreleaser/goreleaser-action@v6
         with:
           version: latest
-          args: release --clean
+          args: release --clean${{ secrets.HOMEBREW_TAP_TOKEN == '' && ' --skip=homebrew' || '' }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
