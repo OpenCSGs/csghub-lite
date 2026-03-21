@@ -170,8 +170,8 @@ function Install-LlamaServer {
     $llamaTag = $release.tag_name
 
     # Compare local and remote versions to skip unnecessary downloads.
-    # llama-server --version outputs: "version: <build_number> (<hash>)"
-    # Release tags use format: "b<build_number>"
+    # llama-server --version prints "version: <n> (<hash>)". Release tags: "b<n>".
+    # Upstream <n> is often git rev-list --count; shallow clones get small n — do not treat as official b-id.
     if ($existingLlama) {
         $localBuild = $null
         $llamaBinDir = Split-Path $existingLlama.Source -Parent
@@ -181,9 +181,17 @@ function Install-LlamaServer {
             if ($llamaBinDir -and $env:Path -notlike "*$llamaBinDir*") {
                 $env:Path = "$llamaBinDir;$env:Path"
             }
-            $verOutput = & $existingLlama.Source --version 2>&1 | Out-String
-            if ($verOutput -match 'version:\s+(\d+)') {
+            $verLines = @(& $existingLlama.Source --version 2>&1 | ForEach-Object { $_.ToString() })
+            $verFooter = $verLines | Where-Object { $_ -match '^\s*version:\s+\d+\s+\(' } | Select-Object -Last 1
+            if ($verFooter -match 'version:\s+(\d+)\s+\(') {
                 $localBuild = $Matches[1]
+            } elseif ($verLines) {
+                foreach ($line in ($verLines | Select-Object -Last 20)) {
+                    if ($line -match 'version:\s+(\d+)') {
+                        $localBuild = $Matches[1]
+                        break
+                    }
+                }
             }
         } catch {
         } finally {
@@ -191,6 +199,14 @@ function Install-LlamaServer {
         }
 
         $remoteBuild = $llamaTag.TrimStart('b')
+        $rn = 0
+        $ln = 0
+        if ($localBuild -and [int]::TryParse($remoteBuild, [ref]$rn) -and [int]::TryParse($localBuild, [ref]$ln)) {
+            if ($ln -le 100 -and $rn -ge 2000) {
+                Info "Ignoring local llama-server build id $localBuild (not comparable to official $llamaTag; often from shallow git clone)."
+                $localBuild = $null
+            }
+        }
         if ($localBuild -and $localBuild -eq $remoteBuild) {
             Info "llama-server is already up to date ($llamaTag)."
             return

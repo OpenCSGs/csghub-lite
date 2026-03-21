@@ -37,7 +37,14 @@ GGUF（General GGML Universal Format）是 llama.cpp 项目的模型格式。特
 
 SafeTensors 是 Hugging Face 推出的模型存储格式。csghub-lite 支持下载但不支持直接推理。
 
-### 转换为 GGUF
+### 自动转换（内置脚本）
+
+首次推理时，csghub-lite 会把 `convert_hf_to_gguf.py` **随二进制打包**（来自固定版本的 llama.cpp），解压到 `~/.csghub-lite/tools/` 后调用本机 Python，**运行时不需要访问 GitHub**。升级 csghub-lite 后若脚本更新，会随 **`bundledConverterRevision`** 自动刷新缓存。
+
+- 使用镜像上的脚本：设置环境变量 **`CSGHUB_LITE_CONVERTER_URL`** 为 raw 地址（下载一次后按 URL 缓存）。
+- 维护者更新内置脚本：见 `internal/convert/data/README.md`。
+
+### 转换为 GGUF（手动）
 
 使用 llama.cpp 提供的转换工具：
 

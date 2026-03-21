@@ -181,8 +181,9 @@ install_llama_server() {
     fi
 
     # Compare local and remote versions to skip unnecessary downloads.
-    # llama-server --version outputs: "version: <build_number> (<hash>)"
-    # Release tags use format: "b<build_number>"
+    # llama-server --version prints: "version: <n> (<hash>)" (stderr). Release tags: "b<n>".
+    # Upstream sets <n> from git rev-list --count at build time; shallow clones often get n=1,
+    # which must not be compared to official b-tags (would falsely show "from b1").
     # Linux does not load co-located .so from the binary directory by default; without
     # patchelf $ORIGIN, --version fails and we must not treat that as "unknown version"
     # (would re-download every install).
@@ -199,8 +200,19 @@ install_llama_server() {
                 _llama_ver_out="$("$_existing_llama" --version 2>&1 || true)"
                 ;;
         esac
-        _local_build="$(printf "%s\n" "$_llama_ver_out" | sed -n 's/.*version: *\([0-9]*\).*/\1/p' | head -1)"
+        # Prefer the real footer line (after CUDA/backend init), not a stray "version:" elsewhere.
+        _local_build="$(printf "%s\n" "$_llama_ver_out" | grep -E '^version: [0-9]+ \(' | tail -1 | sed -n 's/^version: *\([0-9][0-9]*\) (.*/\1/p')"
+        if [ -z "$_local_build" ]; then
+            _local_build="$(printf "%s\n" "$_llama_ver_out" | sed -n 's/^version: *\([0-9][0-9]*\).*/\1/p' | tail -1)"
+        fi
         _remote_build="${_llama_tag#b}"
+        # Ignore tiny local ids when release is large (shallow clone / non-official build id).
+        if [ -n "$_local_build" ] && [ -n "$_remote_build" ]; then
+            if [ "$_local_build" -le 100 ] 2>/dev/null && [ "$_remote_build" -ge 2000 ] 2>/dev/null; then
+                info "Ignoring local llama-server build id ${_local_build} (not comparable to official ${_llama_tag}; often from shallow git clone)."
+                _local_build=""
+            fi
+        fi
         if [ -n "$_local_build" ] && [ "$_local_build" = "$_remote_build" ]; then
             info "llama-server is already up to date (${_llama_tag})."
             return

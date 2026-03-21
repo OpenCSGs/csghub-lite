@@ -12,8 +12,8 @@ import (
 type ProgressFunc func(step string, current, total int)
 
 // Convert converts SafeTensors model files in modelDir to a GGUF file.
-// Conversion is delegated to the official llama.cpp convert_hf_to_gguf.py
-// so users only need one consistent conversion path.
+// It runs the llama.cpp convert_hf_to_gguf.py bundled in the binary (or from
+// CSGHUB_LITE_CONVERTER_URL when set); see convert_python.go.
 func Convert(modelDir string, progress ProgressFunc) (string, error) {
 	if progress == nil {
 		progress = func(string, int, int) {}

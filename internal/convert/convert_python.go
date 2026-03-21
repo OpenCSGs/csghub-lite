@@ -11,17 +11,16 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"time"
 )
 
-const converterURL = "https://raw.githubusercontent.com/ggml-org/llama.cpp/master/convert_hf_to_gguf.py"
+// CSGHUB_LITE_CONVERTER_URL, if set, is the raw URL of convert_hf_to_gguf.py to download
+// once per URL (e.g. GitLab mirror). When unset, the copy embedded in the binary is used
+// (no GitHub access required at runtime).
 
 func converterCacheDir() string {
 	home, _ := os.UserHomeDir()
 	return filepath.Join(home, ".csghub-lite", "tools")
-}
-
-func converterScriptPath() string {
-	return filepath.Join(converterCacheDir(), "convert_hf_to_gguf.py")
 }
 
 // findPythonEnv locates a suitable Python interpreter.
@@ -86,26 +85,68 @@ func checkPythonDeps(python string) string {
 	return strings.Join(missing, ", ")
 }
 
-func downloadConverter() (string, error) {
-	dst := converterScriptPath()
-	if _, err := os.Stat(dst); err == nil {
-		return dst, nil
+func ensureConverterScript() (string, error) {
+	if u := strings.TrimSpace(os.Getenv("CSGHUB_LITE_CONVERTER_URL")); u != "" {
+		return ensureRemoteConverterScript(u)
 	}
+	return materializeBundledConverter()
+}
 
+func bundledConverterStamp() string {
+	return fmt.Sprintf("%d %s", bundledConverterRevision, BundledConverterLLamacppRef)
+}
+
+func materializeBundledConverter() (string, error) {
+	if len(bundledConverterPy) == 0 {
+		return "", fmt.Errorf("embedded convert_hf_to_gguf.py is missing (rebuild csghub-lite)")
+	}
 	dir := converterCacheDir()
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return "", fmt.Errorf("creating tools dir: %w", err)
 	}
+	revPath := filepath.Join(dir, "bundled_convert_hf_revision")
+	dst := filepath.Join(dir, "convert_hf_to_gguf_bundled.py")
+	wantStamp := bundledConverterStamp()
+	if prev, err := os.ReadFile(revPath); err == nil && string(prev) == wantStamp {
+		if _, err := os.Stat(dst); err == nil {
+			return dst, nil
+		}
+	}
+	tmp := dst + ".tmp"
+	if err := os.WriteFile(tmp, bundledConverterPy, 0o644); err != nil {
+		return "", fmt.Errorf("writing converter: %w", err)
+	}
+	if err := os.Rename(tmp, dst); err != nil {
+		os.Remove(tmp)
+		return "", fmt.Errorf("installing converter: %w", err)
+	}
+	if err := os.WriteFile(revPath, []byte(wantStamp), 0o644); err != nil {
+		return "", fmt.Errorf("writing converter revision: %w", err)
+	}
+	return dst, nil
+}
 
-	resp, err := http.Get(converterURL)
+func ensureRemoteConverterScript(rawURL string) (string, error) {
+	dir := converterCacheDir()
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return "", fmt.Errorf("creating tools dir: %w", err)
+	}
+	urlPath := filepath.Join(dir, "remote_convert_hf_url")
+	dst := filepath.Join(dir, "convert_hf_to_gguf_remote.py")
+	if prev, err := os.ReadFile(urlPath); err == nil && string(prev) == rawURL {
+		if _, err := os.Stat(dst); err == nil {
+			return dst, nil
+		}
+	}
+	client := &http.Client{Timeout: 5 * time.Minute}
+	resp, err := client.Get(rawURL)
 	if err != nil {
-		return "", fmt.Errorf("downloading converter: %w", err)
+		return "", fmt.Errorf("downloading converter from CSGHUB_LITE_CONVERTER_URL: %w", err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		return "", fmt.Errorf("downloading converter: HTTP %d", resp.StatusCode)
 	}
-
 	tmp := dst + ".tmp"
 	f, err := os.Create(tmp)
 	if err != nil {
@@ -114,12 +155,17 @@ func downloadConverter() (string, error) {
 	if _, err := io.Copy(f, resp.Body); err != nil {
 		f.Close()
 		os.Remove(tmp)
+		return "", fmt.Errorf("writing downloaded converter: %w", err)
+	}
+	if err := f.Close(); err != nil {
+		os.Remove(tmp)
 		return "", err
 	}
-	f.Close()
-
 	if err := os.Rename(tmp, dst); err != nil {
 		os.Remove(tmp)
+		return "", err
+	}
+	if err := os.WriteFile(urlPath, []byte(rawURL), 0o644); err != nil {
 		return "", err
 	}
 	return dst, nil
@@ -136,20 +182,34 @@ func ConvertPython(modelDir string, progress ProgressFunc) (string, error) {
 	python, missingDeps := findPythonEnv()
 	if python == "" {
 		installHint := "brew install python3 (macOS) / apt install python3 (Linux) / https://python.org (Windows)"
-		return "", fmt.Errorf("this model architecture is not yet supported by the built-in Go converter "+
-			"and requires Python 3 as a fallback, but python3 was not found.\n"+
-			"Install Python: %s\n"+
-			"Then run: pip3 install torch safetensors gguf transformers", installHint)
+		return "", fmt.Errorf(
+			"this checkpoint is SafeTensors-only; csghub-lite converts it to GGUF once using the official llama.cpp Python script.\n" +
+				"Install packages are not bundled with the binary (no PyTorch inside the tarball).\n\n" +
+				"python3 was not found on PATH. Install Python: %s\n\n" +
+				"Then install conversion deps (one-time):\n" +
+				"  pip3 install torch safetensors gguf transformers\n\n" +
+				"If the hub offers a GGUF build of the same model, download that instead to skip conversion.",
+			installHint,
+		)
 	}
 	if missingDeps != "" {
-		return "", fmt.Errorf("this model architecture is not yet supported by the built-in Go converter "+
-			"and requires Python packages as a fallback.\n"+
-			"Missing packages: %s\n"+
-			"Install with: pip3 install %s", missingDeps, missingDeps)
+		return "", fmt.Errorf(
+			"this checkpoint is SafeTensors-only; csghub-lite converts it to GGUF once using the official llama.cpp Python script.\n" +
+				"Those Python packages are not bundled with the release binary.\n\n" +
+				"Missing: %s\n\n" +
+				"Install (one-time, space-separated):\n" +
+				"  pip3 install torch safetensors gguf transformers\n\n" +
+				"If a GGUF variant exists on CSGHub or Hugging Face, use it to skip conversion.",
+			missingDeps,
+		)
 	}
 
-	progress("Downloading converter", 0, 0)
-	script, err := downloadConverter()
+	step := "Preparing converter (bundled)"
+	if strings.TrimSpace(os.Getenv("CSGHUB_LITE_CONVERTER_URL")) != "" {
+		step = "Downloading converter"
+	}
+	progress(step, 0, 0)
+	script, err := ensureConverterScript()
 	if err != nil {
 		return "", err
 	}
@@ -168,7 +228,7 @@ func ConvertPython(modelDir string, progress ProgressFunc) (string, error) {
 	if err != nil {
 		lines := strings.TrimSpace(string(output))
 		lastLines := lastNLines(lines, 5)
-		return "", fmt.Errorf("convert_hf_to_gguf.py failed: %s\n%s", err, lastLines)
+		return "", fmt.Errorf("convert_hf_to_gguf.py failed: %s\n%s%s", err, lastLines, hintForConverterScriptFailure(lines))
 	}
 
 	if _, err := os.Stat(outputPath); err != nil {
@@ -220,4 +280,22 @@ func lastNLines(s string, n int) string {
 		return s
 	}
 	return strings.Join(lines[len(lines)-n:], "\n")
+}
+
+func hintForConverterScriptFailure(combined string) string {
+	if combined == "" {
+		return ""
+	}
+	// Typical mismatch: script from a new llama.cpp tag + older PyPI/distro `gguf`.
+	if strings.Contains(combined, "AttributeError") &&
+		(strings.Contains(combined, "MODEL_ARCH") || strings.Contains(combined, "gguf.")) {
+		return fmt.Sprintf(
+			"\n\nLikely the `gguf` Python package is older than this converter script expects.\n"+
+				"Try: pip3 install -U gguf\n"+
+				"Or point CSGHUB_LITE_CONVERTER_URL at a raw copy of a newer convert_hf_to_gguf.py (mirror).\n"+
+				"To reset the bundled copy, delete convert_hf_to_gguf_bundled.py and bundled_convert_hf_revision under %s\n",
+			converterCacheDir(),
+		)
+	}
+	return ""
 }
