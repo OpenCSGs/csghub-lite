@@ -2,7 +2,6 @@ package convert
 
 import (
 	"encoding/binary"
-	"fmt"
 	"math"
 	"os"
 	"path/filepath"
@@ -13,87 +12,14 @@ import (
 type ProgressFunc func(step string, current, total int)
 
 // Convert converts SafeTensors model files in modelDir to a GGUF file.
-// Each architecture has a dedicated Go converter. For architectures without
-// a Go converter, it falls back to the official llama.cpp convert_hf_to_gguf.py.
+// Conversion is delegated to the official llama.cpp convert_hf_to_gguf.py
+// so users only need one consistent conversion path.
 func Convert(modelDir string, progress ProgressFunc) (string, error) {
 	if progress == nil {
 		progress = func(string, int, int) {}
 	}
 
-	progress("Reading model configuration", 0, 0)
-
-	cfg, err := loadModelConfig(modelDir)
-	if err != nil {
-		return "", fmt.Errorf("loading config: %w", err)
-	}
-
-	hfArch := cfg.Architectures[0]
-	ggufArch, ok := detectGGUFArch(hfArch)
-	if !ok {
-		return ConvertPython(modelDir, progress)
-	}
-
-	converter := getConverter(ggufArch, cfg)
-	if converter == nil {
-		return ConvertPython(modelDir, progress)
-	}
-
-	progress("Scanning SafeTensors files", 0, 0)
-
-	stFiles, err := scanSafeTensorsFiles(modelDir)
-	if err != nil {
-		return "", fmt.Errorf("scanning SafeTensors: %w", err)
-	}
-
-	sources := collectTensors(stFiles)
-
-	progress("Parsing tokenizer", 0, 0)
-
-	tok, err := parseTokenizer(modelDir, hfArch)
-	if err != nil {
-		return "", fmt.Errorf("parsing tokenizer: %w", err)
-	}
-
-	if cfg.VocabSize > len(tok.Tokens) {
-		for i := len(tok.Tokens); i < cfg.VocabSize; i++ {
-			tok.Tokens = append(tok.Tokens, fmt.Sprintf("[PAD%d]", i))
-			tok.Scores = append(tok.Scores, -1)
-			tok.Types = append(tok.Types, tokenTypeUserDefined)
-		}
-	}
-
-	progress("Building GGUF", 0, 0)
-
-	writer := newGGUFWriter()
-	converter.WriteKV(writer, cfg)
-	writeTokenizerKV(writer, tok, cfg)
-
-	if err := converter.ConvertTensors(writer, sources, cfg, progress); err != nil {
-		return "", fmt.Errorf("converting tensors: %w", err)
-	}
-
-	idx := findKVIndex(writer.kvs, "general.file_type")
-	if idx >= 0 {
-		writer.kvs[idx].value = uint32(1) // GGML_FTYPE_MOSTLY_F16
-	}
-
-	outputName := generateOutputName(modelDir, cfg)
-	outputPath := filepath.Join(modelDir, outputName)
-	tmpPath := outputPath + ".tmp"
-
-	progress("Writing GGUF file", 0, 0)
-
-	if err := writer.writeTo(tmpPath); err != nil {
-		os.Remove(tmpPath)
-		return "", fmt.Errorf("writing GGUF: %w", err)
-	}
-
-	if err := os.Rename(tmpPath, outputPath); err != nil {
-		os.Remove(tmpPath)
-		return "", fmt.Errorf("finalizing GGUF: %w", err)
-	}
-
-	return outputPath, nil
+	return ConvertPython(modelDir, progress)
 }
 
 // HasGGUF checks if a GGUF file already exists in the model directory.
