@@ -17,6 +17,25 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Build web UI (required for go:embed)
+        shell: bash
+        run: |
+          set -e
+          (cd web && npm ci && npm run build)
+          rm -rf internal/server/static/assets \
+            internal/server/static/*.html \
+            internal/server/static/*.js \
+            internal/server/static/*.css \
+            internal/server/static/*.svg 2>/dev/null || true
+          mkdir -p internal/server/static
+          cp -r web/dist/. internal/server/static/
+
       - uses: actions/setup-go@v5
         with:
           go-version: ${{ matrix.go-version }}
@@ -42,6 +61,25 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Build web UI (required for go:embed)
+        shell: bash
+        run: |
+          set -e
+          (cd web && npm ci && npm run build)
+          rm -rf internal/server/static/assets \
+            internal/server/static/*.html \
+            internal/server/static/*.js \
+            internal/server/static/*.css \
+            internal/server/static/*.svg 2>/dev/null || true
+          mkdir -p internal/server/static
+          cp -r web/dist/. internal/server/static/
+
       - uses: actions/setup-go@v5
         with:
           go-version: "1.22"
@@ -61,6 +99,25 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Build web UI (required for go:embed)
+        shell: bash
+        run: |
+          set -e
+          (cd web && npm ci && npm run build)
+          rm -rf internal/server/static/assets \
+            internal/server/static/*.html \
+            internal/server/static/*.js \
+            internal/server/static/*.css \
+            internal/server/static/*.svg 2>/dev/null || true
+          mkdir -p internal/server/static
+          cp -r web/dist/. internal/server/static/
 
       - uses: actions/setup-go@v5
         with:
