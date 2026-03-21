@@ -22,6 +22,15 @@ curl -fsSL https://raw.githubusercontent.com/opencsgs/csghub-lite/main/scripts/i
 CSGHUB_LITE_VERSION=v0.1.0 curl -fsSL https://raw.githubusercontent.com/opencsgs/csghub-lite/main/scripts/install.sh | sh
 ```
 
+安装脚本环境变量（可选）：
+
+| 变量 | 说明 |
+|------|------|
+| `CSGHUB_LITE_AUTO_INSTALL_LLAMA_SERVER` | 设为 `0` 可跳过自动安装/升级 `llama-server`。 |
+| `CSGHUB_LITE_AUTO_INSTALL_PATCHELF` | Linux 上设为 `0` 可禁止自动 `apt/dnf/yum install patchelf`（用于为 `llama-server` 设置 `$ORIGIN`，使同目录 `.so` 可被直接加载）。 |
+
+说明：若远程 llama.cpp 与本地 **build 号一致**，脚本会跳过重新下载；此前若因缺少 `libmtmd.so.0` 等导致 `llama-server --version` 失败，会被误判为需要升级——新版本已用 `LD_LIBRARY_PATH` 检测版本，并从压缩包 **递归** 安装所有 `.so`。
+
 ### 方式二：Homebrew
 
 适用于 macOS 和 Linux。

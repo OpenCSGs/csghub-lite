@@ -183,8 +183,23 @@ install_llama_server() {
     # Compare local and remote versions to skip unnecessary downloads.
     # llama-server --version outputs: "version: <build_number> (<hash>)"
     # Release tags use format: "b<build_number>"
+    # Linux does not load co-located .so from the binary directory by default; without
+    # patchelf $ORIGIN, --version fails and we must not treat that as "unknown version"
+    # (would re-download every install).
     if [ -n "$_existing_llama" ]; then
-        _local_build="$("$_existing_llama" --version 2>&1 | sed -n 's/.*version: *\([0-9]*\).*/\1/p' | head -1)"
+        _llama_bin_dir="$(dirname "$_existing_llama")"
+        case "$OS" in
+            linux)
+                _llama_ver_out="$(env LD_LIBRARY_PATH="${_llama_bin_dir}${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}" "$_existing_llama" --version 2>&1 || true)"
+                ;;
+            darwin)
+                _llama_ver_out="$(env DYLD_LIBRARY_PATH="${_llama_bin_dir}${DYLD_LIBRARY_PATH:+:${DYLD_LIBRARY_PATH}}" "$_existing_llama" --version 2>&1 || true)"
+                ;;
+            *)
+                _llama_ver_out="$("$_existing_llama" --version 2>&1 || true)"
+                ;;
+        esac
+        _local_build="$(printf "%s\n" "$_llama_ver_out" | sed -n 's/.*version: *\([0-9]*\).*/\1/p' | head -1)"
         _remote_build="${_llama_tag#b}"
         if [ -n "$_local_build" ] && [ "$_local_build" = "$_remote_build" ]; then
             info "llama-server is already up to date (${_llama_tag})."
@@ -258,7 +273,6 @@ install_llama_server() {
         rm -rf "$_tmpdir"
         return
     fi
-    _llama_extract_dir="$(dirname "$_llama_bin")"
     chmod +x "$_llama_bin"
 
     _llama_dir="${CSGHUB_LITE_LLAMA_SERVER_INSTALL_DIR:-}"
@@ -273,20 +287,20 @@ install_llama_server() {
     fi
     mkdir -p "$_llama_dir"
 
-    # Install llama-server binary and all shared libraries it depends on.
-    # Parentheses are required: without them, find's -o only applies to the first path
-    # and .so files under the extract dir may be skipped (breaking e.g. libmtmd.so.0).
+    # Install shared libraries from the entire extract tree (tarballs may put .so under lib/
+    # next to bin/llama-server; only searching dirname(llama-server) misses them).
+    # Parentheses are required for correct find -o grouping.
     if [ -w "$_llama_dir" ]; then
-        mv "$_llama_bin" "$_llama_dir/"
-        find "$_llama_extract_dir" \( -name "*.dylib" -o -name "*.so" -o -name "*.so.*" \) -type f | while read -r _lib; do
+        find "$_tmpdir" \( -name "*.dylib" -o -name "*.so" -o -name "*.so.*" \) -type f | while read -r _lib; do
             mv "$_lib" "$_llama_dir/"
         done
+        mv "$_llama_bin" "$_llama_dir/"
     else
         info "Requires sudo to install llama-server."
-        sudo mv "$_llama_bin" "$_llama_dir/"
-        find "$_llama_extract_dir" \( -name "*.dylib" -o -name "*.so" -o -name "*.so.*" \) -type f | while read -r _lib; do
+        find "$_tmpdir" \( -name "*.dylib" -o -name "*.so" -o -name "*.so.*" \) -type f | while read -r _lib; do
             sudo mv "$_lib" "$_llama_dir/"
         done
+        sudo mv "$_llama_bin" "$_llama_dir/"
     fi
 
     # Fix @rpath on macOS so llama-server can find co-located dylibs
@@ -303,18 +317,34 @@ install_llama_server() {
     fi
 
     # Linux: default dynamic linker does not search the executable directory.
-    # Match co-located .so loading with macOS/Windows when patchelf is available.
+    # Prefer patchelf $ORIGIN so `llama-server --version` works without LD_LIBRARY_PATH.
     if [ "$OS" = "linux" ]; then
         _llama_installed="${_llama_dir}/llama-server"
+        if [ -f "$_llama_installed" ] && ! command -v patchelf >/dev/null 2>&1; then
+            if [ "${CSGHUB_LITE_AUTO_INSTALL_PATCHELF:-1}" = "1" ]; then
+                if command -v apt-get >/dev/null 2>&1; then
+                    info "Installing patchelf (apt) so llama-server can load co-located .so..."
+                    sudo apt-get update -qq && sudo apt-get install -y patchelf >/dev/null 2>&1 || true
+                elif command -v dnf >/dev/null 2>&1; then
+                    info "Installing patchelf (dnf) so llama-server can load co-located .so..."
+                    sudo dnf install -y patchelf >/dev/null 2>&1 || true
+                elif command -v yum >/dev/null 2>&1; then
+                    info "Installing patchelf (yum) so llama-server can load co-located .so..."
+                    sudo yum install -y patchelf >/dev/null 2>&1 || true
+                fi
+            fi
+        fi
         if [ -f "$_llama_installed" ] && command -v patchelf >/dev/null 2>&1; then
             if [ -w "$_llama_installed" ]; then
                 patchelf --set-rpath '$ORIGIN' "$_llama_installed" 2>/dev/null || true
             else
                 sudo patchelf --set-rpath '$ORIGIN' "$_llama_installed" 2>/dev/null || true
             fi
+            info "patchelf: llama-server uses RUNPATH \$ORIGIN (co-located .so)."
         elif [ -f "$_llama_installed" ]; then
             info "To run llama-server directly, set: export LD_LIBRARY_PATH=\"${_llama_dir}:\${LD_LIBRARY_PATH}\""
             info "(csghub-lite sets this automatically when starting inference.)"
+            info "Or install patchelf: apt install patchelf / dnf install patchelf — then re-run this installer."
         fi
     fi
 

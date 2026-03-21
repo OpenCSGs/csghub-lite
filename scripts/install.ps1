@@ -174,12 +174,21 @@ function Install-LlamaServer {
     # Release tags use format: "b<build_number>"
     if ($existingLlama) {
         $localBuild = $null
+        $llamaBinDir = Split-Path $existingLlama.Source -Parent
+        $savedPath = $env:Path
         try {
+            # Help loader find co-located DLLs when running --version
+            if ($llamaBinDir -and $env:Path -notlike "*$llamaBinDir*") {
+                $env:Path = "$llamaBinDir;$env:Path"
+            }
             $verOutput = & $existingLlama.Source --version 2>&1 | Out-String
             if ($verOutput -match 'version:\s+(\d+)') {
                 $localBuild = $Matches[1]
             }
-        } catch {}
+        } catch {
+        } finally {
+            $env:Path = $savedPath
+        }
 
         $remoteBuild = $llamaTag.TrimStart('b')
         if ($localBuild -and $localBuild -eq $remoteBuild) {
@@ -262,10 +271,11 @@ function Install-LlamaServer {
     }
 
     New-Item -ItemType Directory -Force -Path $llamaInstallDir | Out-Null
-    Copy-Item -Path $server.FullName -Destination (Join-Path $llamaInstallDir "llama-server.exe") -Force
-    Get-ChildItem -Path $server.Directory.FullName -Filter "*.dll" | ForEach-Object {
+    # Recursively copy all DLLs from the extract tree (archives may place deps outside the exe folder).
+    Get-ChildItem -Path $tmpDir -Recurse -Filter "*.dll" -File | ForEach-Object {
         Copy-Item -Path $_.FullName -Destination (Join-Path $llamaInstallDir $_.Name) -Force
     }
+    Copy-Item -Path $server.FullName -Destination (Join-Path $llamaInstallDir "llama-server.exe") -Force
     Ensure-PathContains -dir $llamaInstallDir
     Info "Installed llama-server to $llamaInstallDir"
 }
