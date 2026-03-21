@@ -400,16 +400,21 @@ func (e *llamaEngine) handleStream(body io.Reader, onToken TokenCallback) (strin
 		}
 		if len(chunk.Choices) > 0 {
 			d := chunk.Choices[0].Delta
-			// Qwen3 / DeepSeek-R1 style: llama-server may stream chain-of-thought in
-			// reasoning_content while content stays empty until the final answer (or only
-			// reasoning_content is used). We must forward both or the CLI shows no output.
-			if d.ReasoningContent != "" {
-				full.WriteString(d.ReasoningContent)
-				onToken(d.ReasoningContent)
+			// Use at most one delta text per chunk. Some llama-server builds populate both
+			// content and reasoning_content with the same or overlapping text; emitting both
+			// caused duplicated / runaway-looking output on normal (non-reasoning) models.
+			// Reasoning-first models stream with content empty until the answer — then we
+			// fall back to reasoning_content.
+			var token string
+			switch {
+			case d.Content != "":
+				token = d.Content
+			case d.ReasoningContent != "":
+				token = d.ReasoningContent
 			}
-			if d.Content != "" {
-				full.WriteString(d.Content)
-				onToken(d.Content)
+			if token != "" {
+				full.WriteString(token)
+				onToken(token)
 			}
 		}
 	}
@@ -434,6 +439,9 @@ func (e *llamaEngine) handleNonStream(body io.Reader) (string, error) {
 	}
 	msg := resp.Choices[0].Message
 	if msg.Content != "" && msg.ReasoningContent != "" {
+		if msg.Content == msg.ReasoningContent {
+			return msg.Content, nil
+		}
 		return msg.ReasoningContent + msg.Content, nil
 	}
 	if msg.Content != "" {
