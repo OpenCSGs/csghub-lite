@@ -189,6 +189,9 @@ func preloadModel(serverURL, modelID string) error {
 			if lr.Total > 0 {
 				pct := lr.Current * 100 / lr.Total
 				fmt.Fprintf(os.Stderr, "\r\033[K  %s (%d/%d) %d%%", lr.Step, lr.Current, lr.Total, pct)
+			} else if lr.Current > 0 {
+				// Heartbeat (e.g. seconds waiting for llama-server while loading a large GGUF).
+				fmt.Fprintf(os.Stderr, "\r\033[K  %s (%ds)", lr.Step, lr.Current)
 			} else if lr.Step != lastStep {
 				if lastStep != "" {
 					fmt.Fprintf(os.Stderr, "\n")

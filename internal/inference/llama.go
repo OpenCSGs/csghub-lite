@@ -14,6 +14,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -99,7 +100,34 @@ func findFreePort() (int, error) {
 	return l.Addr().(*net.TCPAddr).Port, nil
 }
 
-func newLlamaEngine(modelPath, modelName string, verbose bool, mmproj ...string) (*llamaEngine, error) {
+// llamaReadyTimeout returns how long to wait for llama-server /health after start.
+// Large GGUF files can take many minutes to mmap / load to GPU.
+func llamaReadyTimeout(modelPath string) time.Duration {
+	if v := strings.TrimSpace(os.Getenv("CSGHUB_LITE_LLAMA_READY_TIMEOUT")); v != "" {
+		if d, err := time.ParseDuration(v); err == nil && d > 0 {
+			return d
+		}
+		if sec, err := strconv.Atoi(v); err == nil && sec > 0 {
+			return time.Duration(sec) * time.Second
+		}
+	}
+	fi, err := os.Stat(modelPath)
+	if err != nil {
+		return 20 * time.Minute
+	}
+	gb := float64(fi.Size()) / (1024 * 1024 * 1024)
+	// 2 min base + ~1 min per GiB (F16 9B is ~17GiB on disk → ~19 min).
+	sec := int(120 + gb*60)
+	if sec < 120 {
+		sec = 120
+	}
+	if sec > 45*60 {
+		sec = 45 * 60
+	}
+	return time.Duration(sec) * time.Second
+}
+
+func newLlamaEngine(modelPath, modelName string, verbose bool, progress ConvertProgressFunc, mmproj ...string) (*llamaEngine, error) {
 	binary := findLlamaBinary()
 	if binary == "" {
 		return nil, fmt.Errorf("llama-server not found in PATH.\n" +
@@ -141,7 +169,8 @@ func newLlamaEngine(modelPath, modelName string, verbose bool, mmproj ...string)
 		engine.cmd.Stdout = os.Stderr
 		engine.cmd.Stderr = os.Stderr
 	} else {
-		w := newCappedWriter(8192)
+		// Large models print long tensor/KV lists; keep more tail for error diagnosis.
+		w := newCappedWriter(64 * 1024)
 		engine.cmd.Stdout = w
 		engine.cmd.Stderr = w
 		engine.logBuf = w
@@ -164,7 +193,11 @@ func newLlamaEngine(modelPath, modelName string, verbose bool, mmproj ...string)
 		return nil, fmt.Errorf("starting llama-server: %w", err)
 	}
 
-	if err := engine.waitForReady(30 * time.Second); err != nil {
+	readyTimeout := llamaReadyTimeout(modelPath)
+	if progress != nil {
+		progress("Starting llama-server", 0, 0)
+	}
+	if err := engine.waitForReady(readyTimeout, progress); err != nil {
 		engine.Close()
 		return nil, fmt.Errorf("llama-server failed to start: %w", err)
 	}
@@ -172,7 +205,7 @@ func newLlamaEngine(modelPath, modelName string, verbose bool, mmproj ...string)
 	return engine, nil
 }
 
-func (e *llamaEngine) waitForReady(timeout time.Duration) error {
+func (e *llamaEngine) waitForReady(timeout time.Duration, progress ConvertProgressFunc) error {
 	deadline := time.Now().Add(timeout)
 	url := fmt.Sprintf("http://127.0.0.1:%d/health", e.port)
 
@@ -182,7 +215,15 @@ func (e *llamaEngine) waitForReady(timeout time.Duration) error {
 	exited := make(chan error, 1)
 	go func() { exited <- e.cmd.Wait() }()
 
+	start := time.Now()
+	lastBeat := time.Time{}
+
 	for time.Now().Before(deadline) {
+		if progress != nil && time.Since(lastBeat) >= 2*time.Second {
+			progress("Loading model with llama-server", int(time.Since(start).Seconds()), 0)
+			lastBeat = time.Now()
+		}
+
 		select {
 		case err := <-exited:
 			msg := "llama-server exited unexpectedly"
@@ -209,7 +250,7 @@ func (e *llamaEngine) waitForReady(timeout time.Duration) error {
 		time.Sleep(500 * time.Millisecond)
 	}
 
-	msg := "timeout waiting for llama-server to be ready"
+	msg := fmt.Sprintf("timeout waiting for llama-server to be ready (waited %v; large models need more time — try CSGHUB_LITE_LLAMA_READY_TIMEOUT=45m)", timeout)
 	if e.logBuf != nil {
 		if tail := strings.TrimSpace(e.logBuf.String()); tail != "" {
 			msg += "\n\nllama-server output:\n" + tail

@@ -52,14 +52,14 @@ func LoadEngineWithProgress(modelDir string, lm *model.LocalModel, progress Conv
 
 	switch format {
 	case model.FormatGGUF:
-		return newLlamaEngine(modelFile, lm.FullName(), verbose, mmproj)
+		return newLlamaEngine(modelFile, lm.FullName(), verbose, progress, mmproj)
 
 	case model.FormatSafeTensors:
 		ggufPath, err := convertSafeTensors(modelDir, progress)
 		if err != nil {
 			return nil, fmt.Errorf("auto-converting SafeTensors to GGUF: %w", err)
 		}
-		eng, err := newLlamaEngine(ggufPath, lm.FullName(), verbose, mmproj)
+		eng, err := newLlamaEngine(ggufPath, lm.FullName(), verbose, progress, mmproj)
 		if err != nil {
 			log.Printf("removing invalid converted GGUF: %s", ggufPath)
 			os.Remove(ggufPath)
