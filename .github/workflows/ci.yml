@@ -40,13 +40,17 @@ jobs:
         with:
           go-version: ${{ matrix.go-version }}
 
+      # Use bash on Windows too: PowerShell parses coverage.out as member access on $coverage.
       - name: Run tests
+        shell: bash
         run: go test -race -count=1 -coverprofile=coverage.out ./...
 
       - name: Build binary
+        shell: bash
         run: go build -o bin/csghub-lite ./cmd/csghub-lite
 
       - name: Verify version flag
+        shell: bash
         run: ./bin/csghub-lite --version
 
       - name: Upload coverage

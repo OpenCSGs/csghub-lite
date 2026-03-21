@@ -43,8 +43,12 @@ func TestRemoveModelDir(t *testing.T) {
 
 	// Create model directory with a file
 	modelDir := filepath.Join(dir, "ns", "model")
-	os.MkdirAll(modelDir, 0o755)
-	os.WriteFile(filepath.Join(modelDir, "test.txt"), []byte("test"), 0o644)
+	if err := os.MkdirAll(modelDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(modelDir, "test.txt"), []byte("test"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 
 	if err := RemoveModelDir(dir, "ns", "model"); err != nil {
 		t.Fatalf("RemoveModelDir error: %v", err)
@@ -65,9 +69,15 @@ func TestRemoveModelDir_KeepsOtherModels(t *testing.T) {
 	dir := t.TempDir()
 
 	// Create two models in the same namespace
-	os.MkdirAll(filepath.Join(dir, "ns", "model1"), 0o755)
-	os.MkdirAll(filepath.Join(dir, "ns", "model2"), 0o755)
-	os.WriteFile(filepath.Join(dir, "ns", "model2", "file.txt"), []byte("keep"), 0o644)
+	if err := os.MkdirAll(filepath.Join(dir, "ns", "model1"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(dir, "ns", "model2"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "ns", "model2", "file.txt"), []byte("keep"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 
 	if err := RemoveModelDir(dir, "ns", "model1"); err != nil {
 		t.Fatalf("RemoveModelDir error: %v", err)

@@ -119,8 +119,12 @@ func TestFindModelFile(t *testing.T) {
 	dir := t.TempDir()
 
 	// Create a GGUF file
-	os.WriteFile(filepath.Join(dir, "model.gguf"), []byte("gguf"), 0o644)
-	os.WriteFile(filepath.Join(dir, "config.json"), []byte("{}"), 0o644)
+	if err := os.WriteFile(filepath.Join(dir, "model.gguf"), []byte("gguf"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "config.json"), []byte("{}"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 
 	path, format, err := FindModelFile(dir)
 	if err != nil {
@@ -137,7 +141,9 @@ func TestFindModelFile(t *testing.T) {
 func TestFindModelFile_SafeTensors(t *testing.T) {
 	dir := t.TempDir()
 
-	os.WriteFile(filepath.Join(dir, "model.safetensors"), []byte("st"), 0o644)
+	if err := os.WriteFile(filepath.Join(dir, "model.safetensors"), []byte("st"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 
 	path, format, err := FindModelFile(dir)
 	if err != nil {
@@ -153,7 +159,9 @@ func TestFindModelFile_SafeTensors(t *testing.T) {
 
 func TestFindModelFile_NotFound(t *testing.T) {
 	dir := t.TempDir()
-	os.WriteFile(filepath.Join(dir, "config.json"), []byte("{}"), 0o644)
+	if err := os.WriteFile(filepath.Join(dir, "config.json"), []byte("{}"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 
 	_, _, err := FindModelFile(dir)
 	if err == nil {
@@ -163,8 +171,12 @@ func TestFindModelFile_NotFound(t *testing.T) {
 
 func TestFindModelFile_PicksHighestPrecisionGGUF(t *testing.T) {
 	dir := t.TempDir()
-	os.WriteFile(filepath.Join(dir, "low-Q4_0.gguf"), []byte("a"), 0o644)
-	os.WriteFile(filepath.Join(dir, "high-Q8_0.gguf"), []byte("b"), 0o644)
+	if err := os.WriteFile(filepath.Join(dir, "low-Q4_0.gguf"), []byte("a"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "high-Q8_0.gguf"), []byte("b"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 
 	path, format, err := FindModelFile(dir)
 	if err != nil {

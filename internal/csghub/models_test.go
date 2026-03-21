@@ -88,7 +88,7 @@ func TestGetModelTree(t *testing.T) {
 				{Name: "model.safetensors", Type: "file", Size: 2200119664, LFS: true, LFSSHA256: "abc123"},
 			},
 		}
-		json.NewEncoder(w).Encode(resp)
+		_ = json.NewEncoder(w).Encode(resp)
 	}))
 	defer server.Close()
 
@@ -123,7 +123,7 @@ func TestSearchModels(t *testing.T) {
 			Data:  []Model{{Name: "llama-7b"}},
 			Total: 5,
 		}
-		json.NewEncoder(w).Encode(resp)
+		_ = json.NewEncoder(w).Encode(resp)
 	}))
 	defer server.Close()
 

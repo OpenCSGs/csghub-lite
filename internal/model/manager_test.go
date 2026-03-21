@@ -31,7 +31,9 @@ func TestManager_List_WithModels(t *testing.T) {
 		{Namespace: "ns1", Name: "model1", Format: FormatGGUF, Size: 100, DownloadedAt: time.Now()},
 		{Namespace: "ns2", Name: "model2", Format: FormatSafeTensors, Size: 200, DownloadedAt: time.Now()},
 	} {
-		SaveManifest(dir, m)
+		if err := SaveManifest(dir, m); err != nil {
+			t.Fatal(err)
+		}
 	}
 
 	models, err := mgr.List()
@@ -54,7 +56,9 @@ func TestManager_Get(t *testing.T) {
 		Format:    FormatGGUF,
 		Size:      1024,
 	}
-	SaveManifest(dir, lm)
+	if err := SaveManifest(dir, lm); err != nil {
+		t.Fatal(err)
+	}
 
 	got, err := mgr.Get("test/model")
 	if err != nil {
@@ -86,7 +90,9 @@ func TestManager_Remove(t *testing.T) {
 		Name:      "removeme",
 		Format:    FormatGGUF,
 	}
-	SaveManifest(dir, lm)
+	if err := SaveManifest(dir, lm); err != nil {
+		t.Fatal(err)
+	}
 
 	if err := mgr.Remove("test/removeme"); err != nil {
 		t.Fatalf("Remove error: %v", err)
