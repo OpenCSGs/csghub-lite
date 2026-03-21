@@ -3,6 +3,13 @@
 # Usage: scripts/push.sh [--gitlab-token TOKEN] [--tag TAG]
 set -eu
 
+# Optional: load GITLAB_TOKEN from gitignored local/secrets.env (repo root).
+_REPO_ROOT="$(CDPATH='' cd "$(dirname "$0")/.." && pwd)"
+if [ -z "${GITLAB_TOKEN:-}" ] && [ -f "${_REPO_ROOT}/local/secrets.env" ]; then
+	# shellcheck source=/dev/null
+	. "${_REPO_ROOT}/local/secrets.env"
+fi
+
 BINARY_NAME="csghub-lite"
 GITHUB_REPO="OpenCSGs/csghub-lite"
 GITLAB_HOST="https://git-devops.opencsg.com"
@@ -29,7 +36,10 @@ Options:
   -h, --help             Show this help
 
 Environment variables:
-  GITLAB_TOKEN           GitLab PAT with api scope
+  GITLAB_TOKEN           GitLab PAT with api scope (optional: put in local/secrets.env)
+
+Local file (gitignored):
+  local/secrets.env      Sourced automatically when GITLAB_TOKEN is unset
 EOF
 }
 

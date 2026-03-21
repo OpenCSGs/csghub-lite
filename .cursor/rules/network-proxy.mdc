@@ -23,3 +23,9 @@ When pushing to both remotes:
 
 - Downloading from GitHub releases: `source ~/.myshrc` then `curl` / `wget`
 - Uploading to GitLab: `unset https_proxy` then use GitLab API
+
+## GitLab API token (local only)
+
+- **`local/secrets.env`** (gitignored): set `GITLAB_TOKEN="glpat-..."` for `scripts/push.sh`.
+- Copy from `local/secrets.env.example`. **`scripts/push.sh` auto-sources `local/secrets.env`** when `GITLAB_TOKEN` is unset.
+- **Never commit** `local/secrets.env`. If a PAT was pasted in chat, **revoke and rotate** it in GitLab.

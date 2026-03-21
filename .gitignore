@@ -12,3 +12,5 @@ internal/server/static/*.svg
 internal/server/static/assets/
 design/
 csghub-lite
+# Local secrets (GitLab PAT for scripts/push.sh); never commit
+local/secrets.env
