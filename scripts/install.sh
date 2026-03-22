@@ -450,6 +450,27 @@ check_existing() {
     printf "\n"
 }
 
+start_csghub_lite_server() {
+    _server_bin="$1"
+    if "$_server_bin" ps >/dev/null 2>&1; then
+        info "csghub-lite server is already running."
+        return 0
+    fi
+
+    if command -v nohup >/dev/null 2>&1; then
+        nohup "$_server_bin" serve >/dev/null 2>&1 &
+    else
+        "$_server_bin" serve >/dev/null 2>&1 &
+    fi
+
+    sleep 1
+    if "$_server_bin" ps >/dev/null 2>&1; then
+        info "Started csghub-lite server in background."
+    else
+        warn "Could not verify background server startup. Try: ${BINARY_NAME} serve"
+    fi
+}
+
 main() {
     TOTAL_STEPS=6
     printf "\n${BOLD}Installing ${BINARY_NAME}${NC}\n\n"
@@ -532,6 +553,9 @@ main() {
     # Step 6: Install llama-server
     step 6 "$TOTAL_STEPS" "Setting up inference engine..."
     install_llama_server
+
+    # Start API server in background by default after install
+    start_csghub_lite_server "$TARGET"
 
     # Done
     printf "\n${GREEN}${BOLD}✔ ${BINARY_NAME} ${VERSION} installed successfully!${NC}\n\n"

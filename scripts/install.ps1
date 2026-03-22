@@ -374,6 +374,31 @@ function Check-PythonOptional {
     }
 }
 
+function Start-CsghubLiteServer {
+    param([string]$BinaryPath)
+
+    & $BinaryPath ps *> $null
+    if ($LASTEXITCODE -eq 0) {
+        Info "csghub-lite server is already running."
+        return
+    }
+
+    try {
+        Start-Process -FilePath $BinaryPath -ArgumentList "serve" -WindowStyle Hidden | Out-Null
+    } catch {
+        Warn "Failed to launch background server: $($_.Exception.Message)"
+        return
+    }
+
+    Start-Sleep -Seconds 1
+    & $BinaryPath ps *> $null
+    if ($LASTEXITCODE -eq 0) {
+        Info "Started csghub-lite server in background."
+    } else {
+        Warn "Could not verify background server startup. Try: csghub-lite serve"
+    }
+}
+
 # ---- Main ----
 $script:Region = Detect-Region
 Info "Detected region: $script:Region"
@@ -390,6 +415,7 @@ if ($autoInstall -eq "1") {
 }
 
 Check-PythonOptional
+Start-CsghubLiteServer -BinaryPath (Join-Path $InstallDir "csghub-lite.exe")
 
 Write-Host ""
 Write-Host "Quick start:" -ForegroundColor White
