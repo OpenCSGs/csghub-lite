@@ -214,6 +214,14 @@ csghub-lite config set server_url https://my-private-csghub.example.com
 | GGUF | Yes | Yes (via llama.cpp) |
 | SafeTensors | Yes | Yes (auto-converted to GGUF) |
 
+SafeTensors checkpoints are converted once using the bundled llama.cpp `convert_hf_to_gguf.py` and **system Python** (PyTorch is not shipped inside the release binary). Install these packages once:
+
+```bash
+pip3 install torch safetensors gguf transformers
+```
+
+Use Python 3.10+ on `PATH` (Windows: `python` or `python3`). Some models may need extra packages (for example `sentencepiece`); see [`internal/convert/data/README.md`](internal/convert/data/README.md) for the full list and troubleshooting (`gguf` version mismatch, optional `CSGHUB_LITE_CONVERTER_URL`).
+
 ## Development
 
 ```bash
