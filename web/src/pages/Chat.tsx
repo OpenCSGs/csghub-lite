@@ -32,45 +32,12 @@ const isVisionModel = computed(() => {
   return m?.pipeline_tag === "image-text-to-text" && m?.has_mmproj === true;
 });
 
-const MAX_IMAGE_DIM = 1024;
-const THUMB_DIM = 480;
-
 function normalizeImage(file: File): Promise<{ full: string; thumb: string }> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => {
-      const img = new (window.Image as typeof HTMLImageElement)();
-      img.onload = () => {
-        try {
-          let { width, height } = img;
-          if (!width || !height) { width = width || 512; height = height || 512; }
-          if (width > MAX_IMAGE_DIM || height > MAX_IMAGE_DIM) {
-            const scale = MAX_IMAGE_DIM / Math.max(width, height);
-            width = Math.round(width * scale);
-            height = Math.round(height * scale);
-          }
-          const canvas = document.createElement("canvas");
-          canvas.width = width;
-          canvas.height = height;
-          const ctx = canvas.getContext("2d")!;
-          ctx.drawImage(img, 0, 0, width, height);
-          const full = canvas.toDataURL("image/jpeg", 0.85);
-
-          const ts = Math.min(THUMB_DIM, width, height);
-          const tw = Math.round(width * (ts / Math.max(width, height)));
-          const th = Math.round(height * (ts / Math.max(width, height)));
-          canvas.width = tw;
-          canvas.height = th;
-          ctx.drawImage(img, 0, 0, tw, th);
-          const thumb = canvas.toDataURL("image/jpeg", 0.6);
-
-          resolve({ full, thumb });
-        } catch (e) {
-          reject(new Error("Canvas conversion failed: " + (e as Error).message));
-        }
-      };
-      img.onerror = () => reject(new Error("Failed to load image"));
-      img.src = reader.result as string;
+      const dataURL = reader.result as string;
+      resolve({ full: dataURL, thumb: dataURL });
     };
     reader.onerror = () => reject(new Error("Failed to read file"));
     reader.readAsDataURL(file);
