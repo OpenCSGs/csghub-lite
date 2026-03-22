@@ -137,3 +137,14 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+
+      # GitLab releases are not created by GoReleaser. Mirror the five platform archives
+      # to GitLab generic packages + release links (same layout as scripts/push.sh).
+      - name: Upload release assets to GitLab
+        if: ${{ secrets.GITLAB_TOKEN != '' }}
+        env:
+          GITLAB_TOKEN: ${{ secrets.GITLAB_TOKEN }}
+        run: |
+          set -euo pipefail
+          ./scripts/rename-dist-for-gitlab.sh "${GITHUB_REF_NAME#v}"
+          ./scripts/push.sh --skip-github --skip-build --skip-gitlab-git --tag "${GITHUB_REF_NAME}"

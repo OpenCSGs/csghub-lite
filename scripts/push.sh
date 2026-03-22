@@ -32,6 +32,7 @@ Options:
   --tag TAG              Release tag (default: auto-detect from git)
   --skip-github          Skip GitHub upload
   --skip-gitlab          Skip GitLab upload
+  --skip-gitlab-git      Skip git push to GitLab (only upload packages + release links)
   --skip-build           Skip make package (reuse existing dist/)
   -h, --help             Show this help
 
@@ -47,6 +48,7 @@ GITLAB_TOKEN="${GITLAB_TOKEN:-}"
 TAG=""
 SKIP_GITHUB=0
 SKIP_GITLAB=0
+SKIP_GITLAB_GIT=0
 SKIP_BUILD=0
 
 while [ $# -gt 0 ]; do
@@ -55,6 +57,7 @@ while [ $# -gt 0 ]; do
         --tag)          TAG="$2"; shift 2 ;;
         --skip-github)  SKIP_GITHUB=1; shift ;;
         --skip-gitlab)  SKIP_GITLAB=1; shift ;;
+        --skip-gitlab-git) SKIP_GITLAB_GIT=1; shift ;;
         --skip-build)   SKIP_BUILD=1; shift ;;
         -h|--help)      usage; exit 0 ;;
         *)              die "Unknown option: $1" ;;
@@ -112,14 +115,16 @@ if [ "$SKIP_GITLAB" -eq 0 ]; then
     info ""
     info "==> Uploading to GitLab..."
 
-    # Ensure gitlab remote exists and push code + tag
-    if ! git remote | grep -q "^gitlab$"; then
-        git remote add gitlab "$GITLAB_REMOTE_URL"
-        info "Added git remote: gitlab -> ${GITLAB_REMOTE_URL}"
+    if [ "$SKIP_GITLAB_GIT" -eq 0 ]; then
+        # Ensure gitlab remote exists and push code + tag
+        if ! git remote | grep -q "^gitlab$"; then
+            git remote add gitlab "$GITLAB_REMOTE_URL"
+            info "Added git remote: gitlab -> ${GITLAB_REMOTE_URL}"
+        fi
+        info "Pushing code and tag to GitLab..."
+        git push gitlab HEAD:main 2>/dev/null || warn "Push code failed (may already exist)"
+        git push gitlab "$TAG" 2>/dev/null    || warn "Push tag failed (may already exist)"
     fi
-    info "Pushing code and tag to GitLab..."
-    git push gitlab HEAD:main 2>/dev/null || warn "Push code failed (may already exist)"
-    git push gitlab "$TAG" 2>/dev/null    || warn "Push tag failed (may already exist)"
 
     # Ensure release exists
     if ! curl -fsSL -H "PRIVATE-TOKEN: ${GITLAB_TOKEN}" \

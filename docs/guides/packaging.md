@@ -104,6 +104,27 @@ CI 自动执行：
 4. 更新 Homebrew tap
 5. 生成 deb / rpm 包
 
+### GitLab 同步（CSGHub / 国内安装源）
+
+推送 `v*` 标签只会触发 **GitHub** 上的 GoReleaser 发布；**GitLab** 上的 Release 与 Generic Package 需要单独上传，否则 `install.sh` 在国内（CN）从 GitLab 拉取时会缺包。
+
+**推荐（自动化）**：在 GitHub 仓库 **Settings → Secrets and variables → Actions** 中新增 `GITLAB_TOKEN`（GitLab 个人访问令牌，`api` 权限）。发布工作流在 GoReleaser 成功后会调用 `scripts/push.sh`，将五个平台压缩包同步到 `git-devops.opencsg.com` 上与本项目 `scripts/push.sh` 一致的 Generic Package 路径。未配置该 secret 时此步骤跳过，行为与以前一致。
+
+**手动补发某个版本**（例如已发 GitHub 但未发 GitLab）：
+
+```bash
+# 从 GitHub Release 拉取 GoReleaser 产物到 dist/
+gh release download v0.5.10 --repo OpenCSGs/csghub-lite -D dist/
+
+# 文件名改为与 install.sh / push.sh 一致（OS-ARCH 用连字符）
+./scripts/rename-dist-for-gitlab.sh 0.5.10
+
+export GITLAB_TOKEN="glpat-..."   # 或写入 local/secrets.env 后由 push.sh 自动加载
+./scripts/push.sh --skip-github --skip-build --skip-gitlab-git --tag v0.5.10
+```
+
+本地从零构建再上传时，检出对应 tag 后执行 `make package`，然后 `scripts/push.sh --skip-github --skip-build --tag vX.Y.Z`（会包含向 GitLab 推送 tag，除非加 `--skip-gitlab-git`）。
+
 ### 本地测试发布
 
 ```bash
