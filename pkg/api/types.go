@@ -183,6 +183,7 @@ type OpenAIChatRequest struct {
 	Temperature *float64  `json:"temperature,omitempty"`
 	TopP        *float64  `json:"top_p,omitempty"`
 	MaxTokens   *int      `json:"max_tokens,omitempty"`
+	NumCtx      *int      `json:"num_ctx,omitempty"`
 	Seed        *int      `json:"seed,omitempty"`
 	Stop        []string  `json:"stop,omitempty"`
 }

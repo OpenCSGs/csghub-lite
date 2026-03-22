@@ -5,13 +5,36 @@ import type { Locale } from "../i18n";
 
 const contextLengthSteps = [4096, 8192, 16384, 32768, 65536, 131072, 262144];
 const contextLengthLabels = ["4k", "8k", "16k", "32k", "64k", "128k", "256k"];
+const contextStorageKey = "csghub.chat.num_ctx";
 
 const modelLocation = signal("");
 const appVersion = signal("");
 const contextIndex = signal(1);
 
+function loadContextIndex(): number {
+  try {
+    const raw = localStorage.getItem(contextStorageKey);
+    const num = Number(raw);
+    const idx = contextLengthSteps.indexOf(num);
+    if (idx >= 0) return idx;
+  } catch {
+    /* ignore */
+  }
+  return 1;
+}
+
+function saveContextIndex(idx: number) {
+  const value = contextLengthSteps[idx] || contextLengthSteps[1];
+  try {
+    localStorage.setItem(contextStorageKey, String(value));
+  } catch {
+    /* ignore */
+  }
+}
+
 function resetDefaults() {
   contextIndex.value = 1;
+  saveContextIndex(1);
   fetchSettings();
 }
 
@@ -30,6 +53,7 @@ export function Settings() {
 
   useEffect(() => {
     fetchSettings();
+    contextIndex.value = loadContextIndex();
   }, []);
 
   return (
@@ -69,7 +93,11 @@ export function Settings() {
             max={contextLengthSteps.length - 1}
             step="1"
             value={contextIndex.value}
-            onInput={(e) => (contextIndex.value = Number((e.target as HTMLInputElement).value))}
+            onInput={(e) => {
+              const idx = Number((e.target as HTMLInputElement).value);
+              contextIndex.value = idx;
+              saveContextIndex(idx);
+            }}
             class="w-full h-1.5 bg-gray-200 rounded-full appearance-none cursor-pointer accent-indigo-600"
           />
           <div class="flex justify-between mt-2">

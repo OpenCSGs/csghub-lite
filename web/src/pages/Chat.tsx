@@ -8,6 +8,7 @@ interface Session {
   id: string;
   title: string;
   messages: ChatMessage[];
+  numCtx?: number;
 }
 
 const availableModels = signal<ModelInfo[]>([]);
@@ -26,6 +27,9 @@ const maxTokens = signal(4096);
 const streamingContent = signal("");
 const chatError = signal("");
 const pendingImages = signal<PendingImage[]>([]);
+const contextStorageKey = "csghub.chat.num_ctx";
+const contextLengthSteps = [4096, 8192, 16384, 32768, 65536, 131072, 262144];
+const contextLengthLabels = ["4k", "8k", "16k", "32k", "64k", "128k", "256k"];
 
 const isVisionModel = computed(() => {
   const m = availableModels.value.find((x) => x.name === selectedModel.value);
@@ -49,6 +53,29 @@ interface PendingImage {
   thumb: string;
 }
 
+function readNumCtx(): number | undefined {
+  try {
+    const raw = localStorage.getItem(contextStorageKey);
+    const n = Number(raw);
+    if (Number.isFinite(n) && n >= 1024) return n;
+  } catch {
+    /* ignore */
+  }
+  return undefined;
+}
+
+function defaultNumCtx(): number {
+  return readNumCtx() || 8192;
+}
+
+function normalizeNumCtx(v: number | undefined): number {
+  if (!v) return defaultNumCtx();
+  for (const s of contextLengthSteps) {
+    if (s === v) return v;
+  }
+  return defaultNumCtx();
+}
+
 function makeId(): string {
   if (typeof crypto !== "undefined" && crypto.randomUUID) {
     return crypto.randomUUID();
@@ -63,10 +90,15 @@ function loadSessions(): Session[] {
     const raw = localStorage.getItem("csghub-chat-sessions");
     if (raw) {
       const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        return parsed.map((s) => ({
+          ...s,
+          numCtx: normalizeNumCtx(s?.numCtx),
+        }));
+      }
     }
   } catch { /* ignore */ }
-  const s: Session = { id: makeId(), title: "New Chat", messages: [] };
+  const s: Session = { id: makeId(), title: "New Chat", messages: [], numCtx: defaultNumCtx() };
   return [s];
 }
 
@@ -206,6 +238,7 @@ export function Chat() {
           temperature: temperature.value,
           top_p: topP.value,
           max_tokens: maxTokens.value,
+          num_ctx: normalizeNumCtx(session.numCtx),
           system: systemPrompt.value || undefined,
         },
         (token, done) => {
@@ -246,7 +279,7 @@ export function Chat() {
   };
 
   const handleNewSession = () => {
-    const s: Session = { id: makeId(), title: "New Chat", messages: [] };
+    const s: Session = { id: makeId(), title: "New Chat", messages: [], numCtx: defaultNumCtx() };
     sessions.value = [s, ...sessions.value];
     activeSessionId.value = s.id;
     saveSessions();
@@ -430,6 +463,33 @@ export function Chat() {
           </div>
 
           <SliderSetting label="max_tokens" value={maxTokens.value} min={1} max={8192} step={1} onChange={(v) => (maxTokens.value = v)} />
+          <div>
+            <div class="flex items-center justify-between mb-1.5">
+              <label class="text-sm font-medium text-gray-700">num_ctx</label>
+              <span class="text-sm text-gray-500 tabular-nums">{normalizeNumCtx(session?.numCtx)}</span>
+            </div>
+            <input
+              type="range"
+              min={0}
+              max={contextLengthSteps.length - 1}
+              step={1}
+              value={Math.max(0, contextLengthSteps.indexOf(normalizeNumCtx(session?.numCtx)))}
+              onInput={(e) => {
+                const idx = Number((e.target as HTMLInputElement).value);
+                const s = getActiveSession();
+                if (!s) return;
+                s.numCtx = contextLengthSteps[idx] || defaultNumCtx();
+                sessions.value = [...sessions.value];
+                saveSessions();
+              }}
+              class="w-full h-1.5 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-indigo-600"
+            />
+            <div class="flex justify-between mt-1.5">
+              {contextLengthLabels.map((label) => (
+                <span key={label} class="text-[10px] text-gray-400">{label}</span>
+              ))}
+            </div>
+          </div>
           <SliderSetting label="Temperature" value={temperature.value} min={0} max={2} step={0.05} onChange={(v) => (temperature.value = v)} />
           <SliderSetting label="Top-P" value={topP.value} min={0} max={1} step={0.05} onChange={(v) => (topP.value = v)} />
 

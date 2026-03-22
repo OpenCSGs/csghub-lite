@@ -267,14 +267,8 @@ func (s *Server) handleGenerate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	eng, err := s.getOrLoadEngine(req.Model)
-	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
-		return
-	}
-	defer s.touchEngine(req.Model)
-
 	opts := inference.DefaultOptions()
+	requestedNumCtx := 0
 	if req.Options != nil {
 		if req.Options.Temperature > 0 {
 			opts.Temperature = req.Options.Temperature
@@ -288,7 +282,18 @@ func (s *Server) handleGenerate(w http.ResponseWriter, r *http.Request) {
 		if req.Options.MaxTokens > 0 {
 			opts.MaxTokens = req.Options.MaxTokens
 		}
+		if req.Options.NumCtx > 0 {
+			opts.NumCtx = req.Options.NumCtx
+			requestedNumCtx = req.Options.NumCtx
+		}
 	}
+
+	eng, err := s.getOrLoadEngineWithNumCtx(req.Model, requestedNumCtx)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	defer s.touchEngine(req.Model)
 
 	stream := req.Stream == nil || *req.Stream
 
@@ -344,14 +349,8 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	eng, err := s.getOrLoadEngine(req.Model)
-	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
-		return
-	}
-	defer s.touchEngine(req.Model)
-
 	opts := inference.DefaultOptions()
+	requestedNumCtx := 0
 	if req.Options != nil {
 		if req.Options.Temperature > 0 {
 			opts.Temperature = req.Options.Temperature
@@ -365,7 +364,18 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 		if req.Options.MaxTokens > 0 {
 			opts.MaxTokens = req.Options.MaxTokens
 		}
+		if req.Options.NumCtx > 0 {
+			opts.NumCtx = req.Options.NumCtx
+			requestedNumCtx = req.Options.NumCtx
+		}
 	}
+
+	eng, err := s.getOrLoadEngineWithNumCtx(req.Model, requestedNumCtx)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	defer s.touchEngine(req.Model)
 
 	var messages []inference.Message
 	for _, m := range req.Messages {

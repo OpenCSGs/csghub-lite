@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -61,6 +62,15 @@ type llamaEngine struct {
 	client         *http.Client
 	logBuf         *cappedWriter
 	hasMultimodal  bool
+}
+
+type inferenceHTTPError struct {
+	status int
+	body   string
+}
+
+func (e *inferenceHTTPError) Error() string {
+	return fmt.Sprintf("inference error %d: %s", e.status, e.body)
 }
 
 func findLlamaBinary() string {
@@ -127,7 +137,23 @@ func llamaReadyTimeout(modelPath string) time.Duration {
 	return time.Duration(sec) * time.Second
 }
 
-func newLlamaEngine(modelPath, modelName string, verbose bool, progress ConvertProgressFunc, mmproj ...string) (*llamaEngine, error) {
+// llamaContextSize returns the llama-server context window (--ctx-size / -c).
+// Defaults to 8192 to better handle multimodal requests with image inputs.
+// Override via CSGHUB_LITE_LLAMA_NUM_CTX.
+func llamaContextSize(requested int) int {
+	if requested >= 1024 {
+		return requested
+	}
+	const defaultCtx = 8192
+	if v := strings.TrimSpace(os.Getenv("CSGHUB_LITE_LLAMA_NUM_CTX")); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n >= 1024 {
+			return n
+		}
+	}
+	return defaultCtx
+}
+
+func newLlamaEngine(modelPath, modelName string, verbose bool, progress ConvertProgressFunc, numCtx int, mmproj ...string) (*llamaEngine, error) {
 	binary := findLlamaBinary()
 	if binary == "" {
 		return nil, fmt.Errorf("llama-server not found in PATH.\n" +
@@ -153,7 +179,7 @@ func newLlamaEngine(modelPath, modelName string, verbose bool, progress ConvertP
 		"-m", modelPath,
 		"--host", "127.0.0.1",
 		"--port", fmt.Sprintf("%d", port),
-		"-c", "4096",
+		"-c", strconv.Itoa(llamaContextSize(numCtx)),
 		"--reasoning", "off",
 	}
 	if len(mmproj) > 0 && mmproj[0] != "" {
@@ -371,6 +397,26 @@ func (e *llamaEngine) Chat(ctx context.Context, messages []Message, opts Options
 			lastUserText(messages), firstSystemText(messages))
 	}
 
+	for {
+		respBody, err := e.chatOnce(ctx, messages, opts, onToken)
+		if err == nil {
+			return respBody, nil
+		}
+		httpErr := &inferenceHTTPError{}
+		if !errors.As(err, &httpErr) || httpErr.status != http.StatusBadRequest || !strings.Contains(httpErr.body, "exceed_context_size_error") {
+			return "", err
+		}
+
+		trimmed, ok := trimOldestNonSystemMessage(messages)
+		if !ok {
+			return "", err
+		}
+		log.Printf("context overflow for model %q; trimming history and retrying (%d -> %d messages)", e.modelName, len(messages), len(trimmed))
+		messages = trimmed
+	}
+}
+
+func (e *llamaEngine) chatOnce(ctx context.Context, messages []Message, opts Options, onToken TokenCallback) (string, error) {
 	reqBody := map[string]interface{}{
 		"messages":    messages,
 		"temperature": opts.Temperature,
@@ -411,13 +457,30 @@ func (e *llamaEngine) Chat(ctx context.Context, messages []Message, opts Options
 			reqDebug = reqDebug[:500] + "...(truncated)"
 		}
 		log.Printf("llama-server error %d: %s\nRequest (truncated): %s", resp.StatusCode, string(errBody), reqDebug)
-		return "", fmt.Errorf("inference error %d: %s", resp.StatusCode, string(errBody))
+		return "", &inferenceHTTPError{status: resp.StatusCode, body: string(errBody)}
 	}
 
 	if onToken != nil {
 		return e.handleStream(resp.Body, onToken)
 	}
 	return e.handleNonStream(resp.Body)
+}
+
+func trimOldestNonSystemMessage(messages []Message) ([]Message, bool) {
+	if len(messages) == 0 {
+		return nil, false
+	}
+	start := 0
+	if messages[0].Role == "system" {
+		start = 1
+	}
+	if len(messages)-start <= 1 {
+		return nil, false
+	}
+	trimmed := make([]Message, 0, len(messages)-1)
+	trimmed = append(trimmed, messages[:start]...)
+	trimmed = append(trimmed, messages[start+1:]...)
+	return trimmed, true
 }
 
 func (e *llamaEngine) handleStream(body io.Reader, onToken TokenCallback) (string, error) {

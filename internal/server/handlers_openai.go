@@ -22,14 +22,8 @@ func (s *Server) handleOpenAIChatCompletions(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	eng, err := s.getOrLoadEngine(req.Model)
-	if err != nil {
-		writeOpenAIError(w, http.StatusBadRequest, "model_not_found", err.Error())
-		return
-	}
-	defer s.touchEngine(req.Model)
-
 	opts := inference.DefaultOptions()
+	requestedNumCtx := 0
 	if req.Temperature != nil {
 		opts.Temperature = *req.Temperature
 	}
@@ -39,12 +33,23 @@ func (s *Server) handleOpenAIChatCompletions(w http.ResponseWriter, r *http.Requ
 	if req.MaxTokens != nil {
 		opts.MaxTokens = *req.MaxTokens
 	}
+	if req.NumCtx != nil && *req.NumCtx > 0 {
+		opts.NumCtx = *req.NumCtx
+		requestedNumCtx = *req.NumCtx
+	}
 	if req.Seed != nil {
 		opts.Seed = *req.Seed
 	}
 	if len(req.Stop) > 0 {
 		opts.Stop = req.Stop
 	}
+
+	eng, err := s.getOrLoadEngineWithNumCtx(req.Model, requestedNumCtx)
+	if err != nil {
+		writeOpenAIError(w, http.StatusBadRequest, "model_not_found", err.Error())
+		return
+	}
+	defer s.touchEngine(req.Model)
 
 	var messages []inference.Message
 	for _, m := range req.Messages {

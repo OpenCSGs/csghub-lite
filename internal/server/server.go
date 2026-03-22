@@ -26,6 +26,7 @@ const (
 
 type managedEngine struct {
 	engine    inference.Engine
+	numCtx    int
 	lastUsed  time.Time
 	keepAlive time.Duration
 }
@@ -158,22 +159,38 @@ func (s *Server) touchEngine(modelID string) {
 }
 
 func (s *Server) getOrLoadEngine(modelID string) (inference.Engine, error) {
-	return s.getOrLoadEngineWithProgress(modelID, nil)
+	return s.getOrLoadEngineWithProgressAndNumCtx(modelID, nil, 0)
 }
 
 func (s *Server) getOrLoadEngineWithProgress(modelID string, progress inference.ConvertProgressFunc) (inference.Engine, error) {
+	return s.getOrLoadEngineWithProgressAndNumCtx(modelID, progress, 0)
+}
+
+func (s *Server) getOrLoadEngineWithNumCtx(modelID string, numCtx int) (inference.Engine, error) {
+	return s.getOrLoadEngineWithProgressAndNumCtx(modelID, nil, numCtx)
+}
+
+func (s *Server) getOrLoadEngineWithProgressAndNumCtx(modelID string, progress inference.ConvertProgressFunc, numCtx int) (inference.Engine, error) {
 	s.mu.RLock()
 	me, ok := s.engines[modelID]
 	s.mu.RUnlock()
 	if ok {
-		return me.engine, nil
+		if numCtx == 0 || me.numCtx == numCtx {
+			return me.engine, nil
+		}
+		// fall through to replace engine with requested context window
 	}
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	if me, ok := s.engines[modelID]; ok {
-		return me.engine, nil
+		if numCtx == 0 || me.numCtx == numCtx {
+			return me.engine, nil
+		}
+		log.Printf("reloading model %s due to num_ctx change (%d -> %d)", modelID, me.numCtx, numCtx)
+		me.engine.Close()
+		delete(s.engines, modelID)
 	}
 
 	modelDir, err := s.manager.ModelPath(modelID)
@@ -186,13 +203,14 @@ func (s *Server) getOrLoadEngineWithProgress(modelID string, progress inference.
 		return nil, err
 	}
 
-	eng, err := inference.LoadEngineWithProgress(modelDir, lm, progress, false)
+	eng, err := inference.LoadEngineWithProgress(modelDir, lm, progress, false, numCtx)
 	if err != nil {
 		return nil, err
 	}
 
 	s.engines[modelID] = &managedEngine{
 		engine:    eng,
+		numCtx:    numCtx,
 		lastUsed:  time.Now(),
 		keepAlive: DefaultKeepAlive,
 	}

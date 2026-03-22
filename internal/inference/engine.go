@@ -36,13 +36,13 @@ type ConvertProgressFunc func(step string, current, total int)
 // If the model is SafeTensors, it auto-converts to GGUF first.
 // The llama-server output is suppressed by default.
 func LoadEngine(modelDir string, lm *model.LocalModel) (Engine, error) {
-	return LoadEngineWithProgress(modelDir, lm, nil, false)
+	return LoadEngineWithProgress(modelDir, lm, nil, false, 0)
 }
 
 // LoadEngineWithProgress is like LoadEngine but accepts a progress callback
 // for SafeTensors → GGUF conversion. When verbose is true, llama-server
 // output is printed to stderr.
-func LoadEngineWithProgress(modelDir string, lm *model.LocalModel, progress ConvertProgressFunc, verbose bool) (Engine, error) {
+func LoadEngineWithProgress(modelDir string, lm *model.LocalModel, progress ConvertProgressFunc, verbose bool, numCtx int) (Engine, error) {
 	modelFile, format, err := model.FindModelFile(modelDir)
 	if err != nil {
 		return nil, fmt.Errorf("finding model file: %w", err)
@@ -52,14 +52,14 @@ func LoadEngineWithProgress(modelDir string, lm *model.LocalModel, progress Conv
 
 	switch format {
 	case model.FormatGGUF:
-		return newLlamaEngine(modelFile, lm.FullName(), verbose, progress, mmproj)
+		return newLlamaEngine(modelFile, lm.FullName(), verbose, progress, numCtx, mmproj)
 
 	case model.FormatSafeTensors:
 		ggufPath, err := convertSafeTensors(modelDir, progress)
 		if err != nil {
 			return nil, fmt.Errorf("auto-converting SafeTensors to GGUF: %w", err)
 		}
-		eng, err := newLlamaEngine(ggufPath, lm.FullName(), verbose, progress, mmproj)
+		eng, err := newLlamaEngine(ggufPath, lm.FullName(), verbose, progress, numCtx, mmproj)
 		if err != nil {
 			log.Printf("removing invalid converted GGUF: %s", ggufPath)
 			os.Remove(ggufPath)
