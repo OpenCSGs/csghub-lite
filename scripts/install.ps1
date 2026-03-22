@@ -380,6 +380,7 @@ function Start-CsghubLiteServer {
     & $BinaryPath ps *> $null
     if ($LASTEXITCODE -eq 0) {
         Info "csghub-lite server is already running."
+        $script:ServerStartStatus = "running"
         return
     }
 
@@ -394,13 +395,16 @@ function Start-CsghubLiteServer {
     & $BinaryPath ps *> $null
     if ($LASTEXITCODE -eq 0) {
         Info "Started csghub-lite server in background."
+        $script:ServerStartStatus = "started"
     } else {
         Warn "Could not verify background server startup. Try: csghub-lite serve"
+        $script:ServerStartStatus = "failed"
     }
 }
 
 # ---- Main ----
 $script:Region = Detect-Region
+$script:ServerStartStatus = "failed"
 Info "Detected region: $script:Region"
 
 Info "Checking for existing installation..."
@@ -419,14 +423,24 @@ Start-CsghubLiteServer -BinaryPath (Join-Path $InstallDir "csghub-lite.exe")
 
 Write-Host ""
 Write-Host "Quick start:" -ForegroundColor White
-Write-Host "  csghub-lite serve                       # Start server with Web UI"
-Write-Host "  csghub-lite run Qwen/Qwen3-0.6B-GGUF    # Run a model"
-Write-Host "  csghub-lite ps                          # List running models"
+if ($script:ServerStartStatus -eq "started" -or $script:ServerStartStatus -eq "running") {
+    Write-Host "  csghub-lite run Qwen/Qwen3-0.6B-GGUF    # Run a model"
+    Write-Host "  csghub-lite ps                          # List running models"
+    Write-Host "  csghub-lite stop-service                # Stop background server"
+} else {
+    Write-Host "  csghub-lite serve                       # Start server with Web UI"
+    Write-Host "  csghub-lite run Qwen/Qwen3-0.6B-GGUF    # Run a model"
+    Write-Host "  csghub-lite ps                          # List running models"
+}
 Write-Host "  csghub-lite login                       # Set CSGHub token"
 Write-Host "  csghub-lite --help                      # Show all commands"
 Write-Host ""
 Write-Host "Web UI:" -ForegroundColor White
-Write-Host "  Start the server and open " -NoNewline
+if ($script:ServerStartStatus -eq "started" -or $script:ServerStartStatus -eq "running") {
+    Write-Host "  Server is already running. Open " -NoNewline
+} else {
+    Write-Host "  Start the server and open " -NoNewline
+}
 Write-Host "http://localhost:11435" -ForegroundColor Cyan -NoNewline
 Write-Host " in your browser."
 Write-Host "  Dashboard, Marketplace, Library and Chat are all available."

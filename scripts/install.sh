@@ -454,6 +454,7 @@ start_csghub_lite_server() {
     _server_bin="$1"
     if "$_server_bin" ps >/dev/null 2>&1; then
         info "csghub-lite server is already running."
+        SERVER_START_STATUS="running"
         return 0
     fi
 
@@ -466,13 +467,16 @@ start_csghub_lite_server() {
     sleep 1
     if "$_server_bin" ps >/dev/null 2>&1; then
         info "Started csghub-lite server in background."
+        SERVER_START_STATUS="started"
     else
         warn "Could not verify background server startup. Try: ${BINARY_NAME} serve"
+        SERVER_START_STATUS="failed"
     fi
 }
 
 main() {
     TOTAL_STEPS=6
+    SERVER_START_STATUS="failed"
     printf "\n${BOLD}Installing ${BINARY_NAME}${NC}\n\n"
 
     # Step 1: Detect environment
@@ -561,14 +565,24 @@ main() {
     printf "\n${GREEN}${BOLD}✔ ${BINARY_NAME} ${VERSION} installed successfully!${NC}\n\n"
 
     printf "${BOLD}Quick start:${NC}\n"
-    printf "  ${BINARY_NAME} serve                       # Start server with Web UI\n"
-    printf "  ${BINARY_NAME} run Qwen/Qwen3-0.6B-GGUF    # Run a model\n"
-    printf "  ${BINARY_NAME} ps                          # List running models\n"
+    if [ "$SERVER_START_STATUS" = "started" ] || [ "$SERVER_START_STATUS" = "running" ]; then
+        printf "  ${BINARY_NAME} run Qwen/Qwen3-0.6B-GGUF    # Run a model\n"
+        printf "  ${BINARY_NAME} ps                          # List running models\n"
+        printf "  ${BINARY_NAME} stop-service                # Stop background server\n"
+    else
+        printf "  ${BINARY_NAME} serve                       # Start server with Web UI\n"
+        printf "  ${BINARY_NAME} run Qwen/Qwen3-0.6B-GGUF    # Run a model\n"
+        printf "  ${BINARY_NAME} ps                          # List running models\n"
+    fi
     printf "  ${BINARY_NAME} login                       # Set CSGHub token\n"
     printf "  ${BINARY_NAME} --help                      # Show all commands\n"
     printf "\n"
     printf "${BOLD}Web UI:${NC}\n"
-    printf "  Start the server and open ${CYAN}http://localhost:11435${NC} in your browser.\n"
+    if [ "$SERVER_START_STATUS" = "started" ] || [ "$SERVER_START_STATUS" = "running" ]; then
+        printf "  Server is already running. Open ${CYAN}http://localhost:11435${NC} in your browser.\n"
+    else
+        printf "  Start the server and open ${CYAN}http://localhost:11435${NC} in your browser.\n"
+    fi
     printf "  Dashboard, Marketplace, Library and Chat are all available.\n"
     printf "\n"
 
