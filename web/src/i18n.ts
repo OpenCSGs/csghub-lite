@@ -21,7 +21,7 @@ const en: Record<string, string> = {
   // Nav
   "nav.dashboard": "Dashboard",
   "nav.marketplace": "Marketplace",
-  "nav.library": "Library",
+  "nav.library": "Models",
   "nav.chat": "Chat",
 
   // Dashboard
@@ -79,8 +79,8 @@ const en: Record<string, string> = {
   "mp.viewer": "Viewer",
 
   // Settings
-  "nav.settings": "settings",
-  "settings.title": "settings",
+  "nav.settings": "Settings",
+  "settings.title": "Settings",
   "settings.subtitle": "This page offers a unified settings hub for the product.",
   "settings.modelLocation": "Model location",
   "settings.modelLocationDesc": "Location where models are stored.",
@@ -92,7 +92,7 @@ const en: Record<string, string> = {
   "settings.languageDesc": "Select the display language for the interface.",
 
   // Library
-  "lib.title": "Library",
+  "lib.title": "Models",
   "lib.subtitle": "Existing model management",
   "lib.all": "All",
   "lib.modelName": "Model Name",
