@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"net/http"
 	"os"
 
 	"github.com/opencsgs/csghub-lite/internal/convert"
@@ -26,6 +27,13 @@ type Engine interface {
 
 	// ModelName returns the loaded model identifier.
 	ModelName() string
+}
+
+// ChatCompletionProxier exposes direct access to the underlying
+// OpenAI-compatible /v1/chat/completions API for advanced use cases
+// such as native Ollama tool-calling compatibility.
+type ChatCompletionProxier interface {
+	ChatCompletion(ctx context.Context, reqBody map[string]interface{}) (*http.Response, error)
 }
 
 // ConvertProgressFunc receives conversion progress updates.

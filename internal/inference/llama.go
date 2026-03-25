@@ -55,13 +55,13 @@ func (w *cappedWriter) String() string {
 // OpenAI-compatible HTTP API. This avoids CGO complexity while providing
 // full llama.cpp inference capabilities.
 type llamaEngine struct {
-	cmd            *exec.Cmd
-	port           int
-	modelPath      string
-	modelName      string
-	client         *http.Client
-	logBuf         *cappedWriter
-	hasMultimodal  bool
+	cmd           *exec.Cmd
+	port          int
+	modelPath     string
+	modelName     string
+	client        *http.Client
+	logBuf        *cappedWriter
+	hasMultimodal bool
 }
 
 type inferenceHTTPError struct {
@@ -289,6 +289,35 @@ func (e *llamaEngine) baseURL() string {
 	return fmt.Sprintf("http://127.0.0.1:%d", e.port)
 }
 
+func (e *llamaEngine) ChatCompletion(ctx context.Context, reqBody map[string]interface{}) (*http.Response, error) {
+	body, err := json.Marshal(reqBody)
+	if err != nil {
+		return nil, fmt.Errorf("marshaling request: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, e.baseURL()+"/v1/chat/completions", bytes.NewReader(body))
+	if err != nil {
+		return nil, fmt.Errorf("creating request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := e.client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("inference request failed: %w", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		defer resp.Body.Close()
+		errBody, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		reqDebug := string(body)
+		if len(reqDebug) > 500 {
+			reqDebug = reqDebug[:500] + "...(truncated)"
+		}
+		log.Printf("llama-server error %d: %s\nRequest (truncated): %s", resp.StatusCode, string(errBody), reqDebug)
+		return nil, &inferenceHTTPError{status: resp.StatusCode, body: string(errBody)}
+	}
+	return resp, nil
+}
+
 func (e *llamaEngine) Generate(ctx context.Context, prompt string, opts Options, onToken TokenCallback) (string, error) {
 	messages := []Message{
 		{Role: "user", Content: interface{}(prompt)},
@@ -431,34 +460,11 @@ func (e *llamaEngine) chatOnce(ctx context.Context, messages []Message, opts Opt
 		reqBody["stop"] = opts.Stop
 	}
 
-	body, err := json.Marshal(reqBody)
+	resp, err := e.ChatCompletion(ctx, reqBody)
 	if err != nil {
-		return "", fmt.Errorf("marshaling request: %w", err)
-	}
-
-	url := e.baseURL() + "/v1/chat/completions"
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
-	if err != nil {
-		return "", fmt.Errorf("creating request: %w", err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := e.client.Do(req)
-	if err != nil {
-		return "", fmt.Errorf("inference request failed: %w", err)
+		return "", err
 	}
 	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		errBody, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-		// Log the request body (truncate image data for readability)
-		reqDebug := string(body)
-		if len(reqDebug) > 500 {
-			reqDebug = reqDebug[:500] + "...(truncated)"
-		}
-		log.Printf("llama-server error %d: %s\nRequest (truncated): %s", resp.StatusCode, string(errBody), reqDebug)
-		return "", &inferenceHTTPError{status: resp.StatusCode, body: string(errBody)}
-	}
 
 	if onToken != nil {
 		return e.handleStream(resp.Body, onToken)

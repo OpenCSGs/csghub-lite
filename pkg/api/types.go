@@ -5,17 +5,18 @@ import "time"
 // -- Request types --
 
 type GenerateRequest struct {
-	Model  string         `json:"model"`
-	Prompt string         `json:"prompt"`
-	Stream *bool          `json:"stream,omitempty"`
+	Model   string        `json:"model"`
+	Prompt  string        `json:"prompt"`
+	Stream  *bool         `json:"stream,omitempty"`
 	Options *ModelOptions `json:"options,omitempty"`
 }
 
 type ChatRequest struct {
-	Model    string         `json:"model"`
-	Messages []Message      `json:"messages"`
-	Stream   *bool          `json:"stream,omitempty"`
-	Options  *ModelOptions  `json:"options,omitempty"`
+	Model    string        `json:"model"`
+	Messages []Message     `json:"messages"`
+	Tools    []Tool        `json:"tools,omitempty"`
+	Stream   *bool         `json:"stream,omitempty"`
+	Options  *ModelOptions `json:"options,omitempty"`
 }
 
 type PullRequest struct {
@@ -40,10 +41,10 @@ type LoadRequest struct {
 }
 
 type LoadResponse struct {
-	Status    string `json:"status"`
-	Step      string `json:"step,omitempty"`
-	Current   int    `json:"current,omitempty"`
-	Total     int    `json:"total,omitempty"`
+	Status  string `json:"status"`
+	Step    string `json:"step,omitempty"`
+	Current int    `json:"current,omitempty"`
+	Total   int    `json:"total,omitempty"`
 }
 
 // -- Response types --
@@ -67,8 +68,8 @@ type TagsResponse struct {
 }
 
 type ShowResponse struct {
-	ModelFile  string     `json:"modelfile"`
-	Details   ModelInfo   `json:"details"`
+	ModelFile string    `json:"modelfile"`
+	Details   ModelInfo `json:"details"`
 }
 
 type PullResponse struct {
@@ -93,8 +94,32 @@ type RunningModel struct {
 // -- Shared types --
 
 type Message struct {
-	Role    string      `json:"role"`
-	Content interface{} `json:"content"`
+	Role       string      `json:"role"`
+	Content    interface{} `json:"content"`
+	Thinking   string      `json:"thinking,omitempty"`
+	ToolCalls  []ToolCall  `json:"tool_calls,omitempty"`
+	ToolName   string      `json:"tool_name,omitempty"`
+	ToolCallID string      `json:"tool_call_id,omitempty"`
+}
+
+type Tool struct {
+	Type     string       `json:"type"`
+	Function ToolFunction `json:"function"`
+}
+
+type ToolCall struct {
+	Index    *int         `json:"index,omitempty"`
+	ID       string       `json:"id,omitempty"`
+	Type     string       `json:"type"`
+	Function ToolFunction `json:"function"`
+}
+
+type ToolFunction struct {
+	Index       *int        `json:"index,omitempty"`
+	Name        string      `json:"name"`
+	Description string      `json:"description,omitempty"`
+	Parameters  interface{} `json:"parameters,omitempty"`
+	Arguments   interface{} `json:"arguments,omitempty"`
 }
 
 type ModelInfo struct {
@@ -172,6 +197,43 @@ type DatasetPullResponse struct {
 	Digest    string `json:"digest,omitempty"`
 	Total     int64  `json:"total,omitempty"`
 	Completed int64  `json:"completed,omitempty"`
+}
+
+// -- AI Apps request/response types --
+
+type AIAppActionRequest struct {
+	AppID string `json:"app_id"`
+}
+
+type AIAppInstallRequest = AIAppActionRequest
+
+type AIAppUninstallRequest = AIAppActionRequest
+
+type AIAppOpenRequest = AIAppActionRequest
+
+type AIAppInfo struct {
+	ID             string    `json:"id"`
+	Installed      bool      `json:"installed"`
+	Supported      bool      `json:"supported"`
+	Disabled       bool      `json:"disabled"`
+	Status         string    `json:"status"`
+	Phase          string    `json:"phase,omitempty"`
+	ProgressMode   string    `json:"progress_mode"`
+	Progress       int       `json:"progress,omitempty"`
+	InstallPath    string    `json:"install_path,omitempty"`
+	Version        string    `json:"version,omitempty"`
+	LogPath        string    `json:"log_path,omitempty"`
+	LastError      string    `json:"last_error,omitempty"`
+	DisabledReason string    `json:"disabled_reason,omitempty"`
+	UpdatedAt      time.Time `json:"updated_at"`
+}
+
+type AIAppsResponse struct {
+	Apps []AIAppInfo `json:"apps"`
+}
+
+type AIAppOpenResponse struct {
+	URL string `json:"url"`
 }
 
 // -- OpenAI-compatible types --

@@ -31,6 +31,30 @@ func NewRemoteEngine(baseURL, modelName string) Engine {
 	}
 }
 
+func (e *remoteEngine) ChatCompletion(ctx context.Context, reqBody map[string]interface{}) (*http.Response, error) {
+	body, err := json.Marshal(reqBody)
+	if err != nil {
+		return nil, fmt.Errorf("marshaling request: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, e.baseURL+"/v1/chat/completions", bytes.NewReader(body))
+	if err != nil {
+		return nil, fmt.Errorf("creating request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := e.client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("chat completion request failed: %w", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		defer resp.Body.Close()
+		errBody, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		return nil, fmt.Errorf("server error %d: %s", resp.StatusCode, string(errBody))
+	}
+	return resp, nil
+}
+
 func (e *remoteEngine) Generate(ctx context.Context, prompt string, opts Options, onToken TokenCallback) (string, error) {
 	messages := []Message{
 		{Role: "user", Content: prompt},
@@ -68,6 +92,8 @@ func (e *remoteEngine) Chat(ctx context.Context, messages []Message, opts Option
 		return "", fmt.Errorf("creating request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "text/event-stream")
+	req.Header.Set("X-CSGHUB-Stream", "sse")
 
 	resp, err := e.client.Do(req)
 	if err != nil {

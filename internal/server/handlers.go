@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -30,6 +31,21 @@ func writeSSE(w http.ResponseWriter, v interface{}) {
 	if f, ok := w.(http.Flusher); ok {
 		f.Flush()
 	}
+}
+
+func writeNDJSON(w http.ResponseWriter, v interface{}) {
+	data, _ := json.Marshal(v)
+	fmt.Fprintf(w, "%s\n", data)
+	if f, ok := w.(http.Flusher); ok {
+		f.Flush()
+	}
+}
+
+func requestWantsSSE(r *http.Request) bool {
+	if strings.EqualFold(r.Header.Get("X-CSGHUB-Stream"), "sse") {
+		return true
+	}
+	return strings.Contains(strings.ToLower(r.Header.Get("Accept")), "text/event-stream")
 }
 
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
@@ -383,14 +399,57 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 	}
 
 	stream := req.Stream == nil || *req.Stream
+	if hasToolChatFeatures(req) {
+		s.handleChatWithTools(w, r, req, eng, opts, stream)
+		return
+	}
 
 	if stream {
-		w.Header().Set("Content-Type", "text/event-stream")
+		if requestWantsSSE(r) {
+			w.Header().Set("Content-Type", "text/event-stream")
+			w.Header().Set("Cache-Control", "no-cache")
+			w.Header().Set("Connection", "keep-alive")
+
+			onToken := func(token string) {
+				writeSSE(w, api.ChatResponse{
+					Model: req.Model,
+					Message: &api.Message{
+						Role:    "assistant",
+						Content: token,
+					},
+					Done:      false,
+					CreatedAt: time.Now(),
+				})
+			}
+
+			fullResp, err := eng.Chat(r.Context(), messages, opts, onToken)
+			if err != nil {
+				writeSSE(w, api.ChatResponse{
+					Model: req.Model,
+					Message: &api.Message{
+						Role:    "assistant",
+						Content: "Error: " + err.Error(),
+					},
+					Done:      true,
+					CreatedAt: time.Now(),
+				})
+				return
+			}
+			_ = fullResp
+			writeSSE(w, api.ChatResponse{
+				Model:     req.Model,
+				Done:      true,
+				CreatedAt: time.Now(),
+			})
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/x-ndjson")
 		w.Header().Set("Cache-Control", "no-cache")
 		w.Header().Set("Connection", "keep-alive")
 
 		onToken := func(token string) {
-			writeSSE(w, api.ChatResponse{
+			writeNDJSON(w, api.ChatResponse{
 				Model: req.Model,
 				Message: &api.Message{
 					Role:    "assistant",
@@ -401,9 +460,9 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 			})
 		}
 
-		fullResp, err := eng.Chat(r.Context(), messages, opts, onToken)
+		_, err := eng.Chat(r.Context(), messages, opts, onToken)
 		if err != nil {
-			writeSSE(w, api.ChatResponse{
+			writeNDJSON(w, api.ChatResponse{
 				Model: req.Model,
 				Message: &api.Message{
 					Role:    "assistant",
@@ -414,9 +473,12 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 			})
 			return
 		}
-		_ = fullResp
-		writeSSE(w, api.ChatResponse{
-			Model:     req.Model,
+		writeNDJSON(w, api.ChatResponse{
+			Model: req.Model,
+			Message: &api.Message{
+				Role:    "assistant",
+				Content: "",
+			},
 			Done:      true,
 			CreatedAt: time.Now(),
 		})

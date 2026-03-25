@@ -59,7 +59,7 @@ func TestHandleTags_Empty(t *testing.T) {
 	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
 		t.Fatalf("decode error: %v", err)
 	}
-	if resp.Models != nil && len(resp.Models) != 0 {
+	if len(resp.Models) != 0 {
 		t.Errorf("models len = %d, want 0", len(resp.Models))
 	}
 }
@@ -206,6 +206,54 @@ func TestHandleChat_InvalidBody(t *testing.T) {
 	}
 }
 
+func TestHandleAnthropicMessages_InvalidBody(t *testing.T) {
+	s := newTestServer(t)
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader("not json"))
+	w := httptest.NewRecorder()
+
+	s.handleAnthropicMessages(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want %d", w.Code, http.StatusBadRequest)
+	}
+}
+
+func TestHandleAnthropicCountTokens(t *testing.T) {
+	s := newTestServer(t)
+
+	body := `{"model":"test/model","system":"You are helpful","messages":[{"role":"user","content":"hello there"}]}`
+	req := httptest.NewRequest(http.MethodPost, "/v1/messages/count_tokens", strings.NewReader(body))
+	w := httptest.NewRecorder()
+
+	s.handleAnthropicCountTokens(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", w.Code, http.StatusOK)
+	}
+
+	var resp api.AnthropicCountTokensResponse
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode error: %v", err)
+	}
+	if resp.InputTokens <= 0 {
+		t.Fatalf("input_tokens = %d, want > 0", resp.InputTokens)
+	}
+}
+
+func TestHandleOpenAIResponses_InvalidBody(t *testing.T) {
+	s := newTestServer(t)
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader("not json"))
+	w := httptest.NewRecorder()
+
+	s.handleOpenAIResponses(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want %d", w.Code, http.StatusBadRequest)
+	}
+}
+
 func TestHandleGenerate_ModelNotFound(t *testing.T) {
 	s := newTestServer(t)
 
@@ -235,6 +283,10 @@ func TestRoutes(t *testing.T) {
 		{"DELETE", "/api/delete"},
 		{"POST", "/api/generate"},
 		{"POST", "/api/chat"},
+		{"GET", "/v1/responses"},
+		{"POST", "/v1/responses"},
+		{"POST", "/v1/messages"},
+		{"POST", "/v1/messages/count_tokens"},
 	}
 
 	for _, tt := range tests {

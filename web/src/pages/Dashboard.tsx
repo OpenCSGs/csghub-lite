@@ -46,7 +46,22 @@ export function Dashboard() {
   const sys = sysInfo.value;
   const cpuPct = sys ? Math.round(sys.cpu_usage * 100) / 100 : 0;
   const ramPct = sys ? Math.round((sys.ram_used / sys.ram_total) * 100) : 0;
-  const gpuPct = sys && sys.gpu_vram_total > 0 ? Math.round((sys.gpu_vram_used / sys.gpu_vram_total) * 100) : 0;
+  const gpuUsageAvailable = Boolean(sys?.gpu_usage_available);
+  const gpuPct = sys && gpuUsageAvailable && sys.gpu_vram_total > 0 ? Math.round((sys.gpu_vram_used / sys.gpu_vram_total) * 100) : 0;
+  const gpuValue = !sys
+    ? "—"
+    : sys.gpu_vram_total > 0
+      ? gpuUsageAvailable
+        ? `${fmtGB(sys.gpu_vram_used)} / ${fmtGB(sys.gpu_vram_total)} GB`
+        : t("dash.totalOnly", fmtGB(sys.gpu_vram_total))
+      : t("dash.na");
+  const gpuDetail = [
+    sys?.gpu_name || "",
+    sys?.gpu_shared_memory ? t("dash.unifiedMemory") : "",
+    sys && sys.gpu_vram_total > 0 && !gpuUsageAvailable ? t("dash.usageUnavailable") : "",
+  ]
+    .filter(Boolean)
+    .join(" · ");
 
   return (
     <div class="p-8 max-w-6xl mx-auto space-y-6">
@@ -67,22 +82,21 @@ export function Dashboard() {
             value={sys ? `${sys.cpu_cores} Cores` : "—"}
             detail={sys?.cpu_clock || ""}
             percent={cpuPct}
+            usageAvailable
           />
           <ResourceCard
             label={t("dash.ram")}
             value={sys ? `${fmtGB(sys.ram_used)} / ${fmtGB(sys.ram_total)} GB` : "—"}
             detail={sys?.ram_info || ""}
             percent={ramPct}
+            usageAvailable
           />
           <ResourceCard
             label={t("dash.gpu")}
-            value={
-              sys && sys.gpu_vram_total > 0
-                ? `${fmtGB(sys.gpu_vram_used)} / ${fmtGB(sys.gpu_vram_total)} GB`
-                : t("dash.na")
-            }
-            detail={sys?.gpu_name || ""}
+            value={gpuValue}
+            detail={gpuDetail}
             percent={gpuPct}
+            usageAvailable={gpuUsageAvailable}
           />
         </div>
       </section>
@@ -373,15 +387,18 @@ function ResourceCard({
   value,
   detail,
   percent,
+  usageAvailable = true,
 }: {
   label: string;
   value: string;
   detail: string;
   percent: number;
+  usageAvailable?: boolean;
 }) {
   const circumference = 2 * Math.PI * 36;
   const offset = circumference - (percent / 100) * circumference;
-  const color = percent > 80 ? "#EF4444" : percent > 50 ? "#F59E0B" : "#6366F1";
+  const color = !usageAvailable ? "#D1D5DB" : percent > 80 ? "#EF4444" : percent > 50 ? "#F59E0B" : "#6366F1";
+  const percentLabel = usageAvailable ? `${percent}%` : "—";
 
   return (
     <div class="flex items-center gap-5">
@@ -401,7 +418,7 @@ function ResourceCard({
           />
         </svg>
         <span class="absolute inset-0 flex items-center justify-center text-sm font-semibold text-gray-700">
-          {percent}%
+          {percentLabel}
         </span>
       </div>
       <div>

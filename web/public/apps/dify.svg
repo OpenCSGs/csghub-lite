@@ -1,0 +1,5 @@
+<svg width="64" height="64" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+<rect width="64" height="64" rx="16" fill="#FBFDFF"/>
+<rect x="8" y="8" width="48" height="48" rx="12" fill="white" stroke="#E5E7EB" stroke-width="2"/>
+<text x="32" y="38" text-anchor="middle" fill="#2563EB" font-size="18" font-weight="700" font-family="Inter, Arial, sans-serif">Dify</text>
+</svg>

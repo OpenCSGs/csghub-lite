@@ -24,6 +24,10 @@ func (s *Server) routes() http.Handler {
 
 	mux.HandleFunc("POST /v1/chat/completions", s.handleOpenAIChatCompletions)
 	mux.HandleFunc("GET /v1/models", s.handleOpenAIModels)
+	mux.HandleFunc("GET /v1/responses", s.handleOpenAIResponsesUnsupported)
+	mux.HandleFunc("POST /v1/responses", s.handleOpenAIResponses)
+	mux.HandleFunc("POST /v1/messages", s.handleAnthropicMessages)
+	mux.HandleFunc("POST /v1/messages/count_tokens", s.handleAnthropicCountTokens)
 
 	// New: marketplace, system, logs, settings
 	mux.HandleFunc("GET /api/marketplace/models", s.handleMarketplaceModels)
@@ -32,6 +36,11 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("GET /api/settings", s.handleSettings)
 	mux.HandleFunc("POST /api/shutdown", s.handleShutdown)
 	mux.HandleFunc("GET /api/logs", s.handleLogs)
+	mux.HandleFunc("GET /api/apps", s.handleApps)
+	mux.HandleFunc("POST /api/apps/install", s.handleAppInstall)
+	mux.HandleFunc("POST /api/apps/uninstall", s.handleAppUninstall)
+	mux.HandleFunc("POST /api/apps/open", s.handleAppOpen)
+	mux.HandleFunc("GET /api/apps/logs", s.handleAppLogs)
 
 	// Static files: serve embedded web UI or dev fallback
 	if hasEmbeddedStatic() {

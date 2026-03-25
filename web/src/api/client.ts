@@ -52,6 +52,29 @@ export interface SystemInfo {
   gpu_name: string;
   gpu_vram_used: number;
   gpu_vram_total: number;
+  gpu_usage_available: boolean;
+  gpu_shared_memory: boolean;
+}
+
+export interface AIAppInfo {
+  id: string;
+  installed: boolean;
+  supported: boolean;
+  disabled: boolean;
+  status: "idle" | "installing" | "uninstalling" | "installed" | "failed" | "disabled";
+  phase?: string;
+  progress_mode: "percent" | "indeterminate";
+  progress?: number;
+  install_path?: string;
+  version?: string;
+  log_path?: string;
+  last_error?: string;
+  disabled_reason?: string;
+  updated_at: string;
+}
+
+export interface AIAppOpenResponse {
+  url: string;
 }
 
 export type ChatContent = string | ContentPart[];
@@ -74,13 +97,58 @@ export interface PullProgress {
   completed?: number;
 }
 
+function previewResponseBody(text: string): string {
+  return text.replace(/\s+/g, " ").trim().slice(0, 160);
+}
+
+function isLikelyHTML(text: string): boolean {
+  const normalized = text.trim().toLowerCase();
+  return normalized.startsWith("<!doctype html") || normalized.startsWith("<html");
+}
+
+function unexpectedJSONError(url: string, contentType: string, body: string): Error {
+  if (isLikelyHTML(body)) {
+    return new Error(`Expected JSON from ${url}, but received HTML. Check the API server port or dev proxy target.`);
+  }
+
+  const preview = previewResponseBody(body);
+  if (preview) {
+    return new Error(`Expected JSON from ${url}, but received ${contentType || "non-JSON response"}: ${preview}`);
+  }
+
+  return new Error(`Expected JSON from ${url}, but received ${contentType || "non-JSON response"}.`);
+}
+
 async function fetchJSON<T>(url: string, init?: RequestInit): Promise<T> {
   const resp = await fetch(url, init);
+  const contentType = resp.headers.get("content-type") || "";
+  const body = await resp.text();
+
   if (!resp.ok) {
-    const err = await resp.json().catch(() => ({ error: resp.statusText }));
-    throw new Error(err.error || resp.statusText);
+    if (contentType.includes("application/json")) {
+      let errorMessage = resp.statusText;
+      try {
+        const err = JSON.parse(body) as { error?: string };
+        errorMessage = err.error || resp.statusText;
+      } catch {
+        /* keep status text */
+      }
+      throw new Error(errorMessage);
+    }
+
+    const preview = previewResponseBody(body);
+    throw new Error(preview || resp.statusText);
   }
-  return resp.json();
+
+  if (!contentType.includes("application/json")) {
+    throw unexpectedJSONError(url, contentType, body);
+  }
+
+  try {
+    return JSON.parse(body) as T;
+  } catch {
+    throw unexpectedJSONError(url, contentType, body);
+  }
 }
 
 export async function getTags(): Promise<ModelInfo[]> {
@@ -250,7 +318,11 @@ export function streamChat(
   return new Promise((resolve, reject) => {
     fetch("/api/chat", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "text/event-stream",
+        "X-CSGHUB-Stream": "sse",
+      },
       body: JSON.stringify({
         model,
         messages: msgs,
@@ -550,11 +622,54 @@ export async function getSystemInfo(): Promise<SystemInfo> {
   return fetchJSON<SystemInfo>("/api/system");
 }
 
+export async function getAIApps(): Promise<AIAppInfo[]> {
+  const data = await fetchJSON<{ apps: AIAppInfo[] }>("/api/apps");
+  return data.apps || [];
+}
+
+export async function installAIApp(appId: string): Promise<AIAppInfo> {
+  return fetchJSON<AIAppInfo>("/api/apps/install", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ app_id: appId }),
+  });
+}
+
+export async function uninstallAIApp(appId: string): Promise<AIAppInfo> {
+  return fetchJSON<AIAppInfo>("/api/apps/uninstall", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ app_id: appId }),
+  });
+}
+
+export async function openAIApp(appId: string): Promise<AIAppOpenResponse> {
+  return fetchJSON<AIAppOpenResponse>("/api/apps/open", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ app_id: appId }),
+  });
+}
+
 export function streamLogs(
   onLog: (line: string) => void,
   signal?: AbortSignal
 ): void {
   const evtSource = new EventSource("/api/logs");
+  evtSource.onmessage = (e) => onLog(e.data);
+  evtSource.onerror = () => {
+    evtSource.close();
+  };
+  signal?.addEventListener("abort", () => evtSource.close());
+}
+
+export function streamAIAppLogs(
+  appId: string,
+  onLog: (line: string) => void,
+  signal?: AbortSignal
+): void {
+  const q = new URLSearchParams({ app_id: appId });
+  const evtSource = new EventSource(`/api/apps/logs?${q}`);
   evtSource.onmessage = (e) => onLog(e.data);
   evtSource.onerror = () => {
     evtSource.close();

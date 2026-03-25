@@ -6,6 +6,7 @@ import { Library } from "./pages/Library";
 import { Datasets } from "./pages/Datasets";
 import { Chat } from "./pages/Chat";
 import { Settings } from "./pages/Settings";
+import { AIApps } from "./pages/AIApps";
 
 export function App() {
   return (
@@ -17,6 +18,7 @@ export function App() {
           <Route path="/library" component={Library} />
           <Route path="/datasets" component={Datasets} />
           <Route path="/chat" component={Chat} />
+          <Route path="/ai-apps" component={AIApps} />
           <Route path="/settings" component={Settings} />
         </Router>
       </Layout>

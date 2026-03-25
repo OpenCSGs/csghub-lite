@@ -93,7 +93,7 @@ func (s *Server) handleOpenAIChatCompletions(w http.ResponseWriter, r *http.Requ
 			Model:   req.Model,
 			Choices: []api.OpenAIChoice{{
 				Index:        0,
-				Delta:        &api.Message{},
+				Delta:        &api.Message{Role: "assistant", Content: ""},
 				FinishReason: &stop,
 			}},
 		})

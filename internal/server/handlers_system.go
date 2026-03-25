@@ -2,11 +2,14 @@ package server
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"math"
 	"net/http"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"strconv"
 	"strings"
@@ -21,15 +24,25 @@ func (f float2) MarshalJSON() ([]byte, error) {
 }
 
 type systemInfo struct {
-	CPUCores     int    `json:"cpu_cores"`
-	CPUUsage     float2 `json:"cpu_usage"`
-	CPUClock     string `json:"cpu_clock"`
-	RAMUsed      uint64 `json:"ram_used"`
-	RAMTotal     uint64 `json:"ram_total"`
-	RAMInfo      string `json:"ram_info"`
-	GPUName      string `json:"gpu_name"`
-	GPUVRAMUsed  uint64 `json:"gpu_vram_used"`
-	GPUVRAMTotal uint64 `json:"gpu_vram_total"`
+	CPUCores          int    `json:"cpu_cores"`
+	CPUUsage          float2 `json:"cpu_usage"`
+	CPUClock          string `json:"cpu_clock"`
+	RAMUsed           uint64 `json:"ram_used"`
+	RAMTotal          uint64 `json:"ram_total"`
+	RAMInfo           string `json:"ram_info"`
+	GPUName           string `json:"gpu_name"`
+	GPUVRAMUsed       uint64 `json:"gpu_vram_used"`
+	GPUVRAMTotal      uint64 `json:"gpu_vram_total"`
+	GPUUsageAvailable bool   `json:"gpu_usage_available"`
+	GPUSharedMemory   bool   `json:"gpu_shared_memory"`
+}
+
+type gpuInfo struct {
+	Name           string
+	VRAMUsed       uint64
+	VRAMTotal      uint64
+	UsageAvailable bool
+	SharedMemory   bool
 }
 
 // GET /api/settings -- application settings (version, model directory, etc.)
@@ -50,7 +63,12 @@ func (s *Server) handleSystem(w http.ResponseWriter, r *http.Request) {
 	info.CPUUsage = float2(cpuUsage)
 	info.CPUClock = cpuClock
 	info.RAMUsed, info.RAMTotal, info.RAMInfo = getRAMInfo()
-	info.GPUName, info.GPUVRAMUsed, info.GPUVRAMTotal = getGPUInfo()
+	gpu := getGPUInfo(info.RAMTotal)
+	info.GPUName = gpu.Name
+	info.GPUVRAMUsed = gpu.VRAMUsed
+	info.GPUVRAMTotal = gpu.VRAMTotal
+	info.GPUUsageAvailable = gpu.UsageAvailable
+	info.GPUSharedMemory = gpu.SharedMemory
 
 	writeJSON(w, http.StatusOK, info)
 }
@@ -159,56 +177,218 @@ func getRAMInfo() (used, total uint64, info string) {
 	return
 }
 
-func getGPUInfo() (name string, used, total uint64) {
-	out, err := exec.Command("nvidia-smi",
+func getGPUInfo(systemMemoryTotal uint64) gpuInfo {
+	if info, ok := getNVIDIAGPUInfo(systemMemoryTotal); ok {
+		return info
+	}
+	if runtime.GOOS == "darwin" {
+		return getDarwinGPUInfo(systemMemoryTotal)
+	}
+	return gpuInfo{}
+}
+
+func getNVIDIAGPUInfo(systemMemoryTotal uint64) (gpuInfo, bool) {
+	binary, err := resolveNVIDIASMI()
+	if err != nil {
+		return gpuInfo{}, false
+	}
+
+	out, err := exec.Command(binary,
 		"--query-gpu=name,memory.used,memory.total",
 		"--format=csv,noheader,nounits").Output()
 	if err != nil {
-		switch runtime.GOOS {
-		case "darwin":
-			out, err := exec.Command("system_profiler", "SPDisplaysDataType").Output()
-			if err == nil {
-				for _, line := range strings.Split(string(out), "\n") {
-					trimmed := strings.TrimSpace(line)
-					if strings.HasPrefix(trimmed, "Chipset Model:") || strings.HasPrefix(trimmed, "Chip:") {
-						parts := strings.SplitN(trimmed, ":", 2)
-						if len(parts) == 2 {
-							name = strings.TrimSpace(parts[1])
-						}
-					}
-					if strings.Contains(trimmed, "VRAM") || strings.Contains(trimmed, "Memory") {
-						parts := strings.SplitN(trimmed, ":", 2)
-						if len(parts) == 2 {
-							val := strings.TrimSpace(parts[1])
-							val = strings.TrimSuffix(val, " MB")
-							val = strings.TrimSuffix(val, " GB")
-							if v, e := strconv.ParseUint(val, 10, 64); e == nil {
-								if strings.Contains(parts[1], "GB") {
-									total = v * 1024 * 1024 * 1024
-								} else {
-									total = v * 1024 * 1024
-								}
-							}
-						}
-					}
-				}
-			}
-		}
-		return
+		return gpuInfo{}, false
+	}
+	info, ok := parseNVIDIASMIOutput(out)
+	if ok && info.SharedMemory && info.VRAMTotal == 0 {
+		info.VRAMTotal = systemMemoryTotal
+	}
+	return info, ok
+}
+
+func resolveNVIDIASMI() (string, error) {
+	if path, err := exec.LookPath("nvidia-smi"); err == nil {
+		return path, nil
 	}
 
-	lines := strings.Split(strings.TrimSpace(string(out)), "\n")
-	if len(lines) > 0 {
-		fields := strings.Split(lines[0], ",")
-		if len(fields) >= 3 {
-			name = strings.TrimSpace(fields[0])
-			if v, e := strconv.ParseUint(strings.TrimSpace(fields[1]), 10, 64); e == nil {
-				used = v * 1024 * 1024 // MiB to bytes
-			}
-			if v, e := strconv.ParseUint(strings.TrimSpace(fields[2]), 10, 64); e == nil {
-				total = v * 1024 * 1024 // MiB to bytes
-			}
+	candidates := []string{
+		"/usr/bin/nvidia-smi",
+		"/usr/local/nvidia/bin/nvidia-smi",
+		"/opt/nvidia/bin/nvidia-smi",
+	}
+	if runtime.GOOS == "windows" {
+		if programFiles := os.Getenv("ProgramFiles"); programFiles != "" {
+			candidates = append(candidates, filepath.Join(programFiles, "NVIDIA Corporation", "NVSMI", "nvidia-smi.exe"))
+		}
+		if programFilesX86 := os.Getenv("ProgramFiles(x86)"); programFilesX86 != "" {
+			candidates = append(candidates, filepath.Join(programFilesX86, "NVIDIA Corporation", "NVSMI", "nvidia-smi.exe"))
 		}
 	}
-	return
+
+	for _, candidate := range candidates {
+		if _, err := os.Stat(candidate); err == nil {
+			return candidate, nil
+		}
+	}
+	return "", exec.ErrNotFound
+}
+
+func parseNVIDIASMIOutput(out []byte) (gpuInfo, bool) {
+	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		fields := strings.Split(line, ",")
+		if len(fields) < 3 {
+			continue
+		}
+
+		name := strings.TrimSpace(fields[0])
+		if name == "" {
+			continue
+		}
+
+		usedField := strings.TrimSpace(fields[1])
+		totalField := strings.TrimSpace(fields[2])
+		usedMiB, errUsed := strconv.ParseUint(strings.TrimSpace(fields[1]), 10, 64)
+		totalMiB, errTotal := strconv.ParseUint(strings.TrimSpace(fields[2]), 10, 64)
+		if errUsed == nil && errTotal == nil {
+			return gpuInfo{
+				Name:           name,
+				VRAMUsed:       usedMiB * 1024 * 1024,
+				VRAMTotal:      totalMiB * 1024 * 1024,
+				UsageAvailable: true,
+			}, true
+		}
+
+		if memoryFieldUnsupported(usedField) || memoryFieldUnsupported(totalField) {
+			return gpuInfo{
+				Name:           name,
+				UsageAvailable: false,
+				SharedMemory:   isNVIDIAUnifiedMemoryGPU(name),
+			}, true
+		}
+	}
+	return gpuInfo{}, false
+}
+
+func getDarwinGPUInfo(systemMemoryTotal uint64) gpuInfo {
+	out, err := exec.Command("system_profiler", "-json", "SPDisplaysDataType").Output()
+	if err != nil {
+		return gpuInfo{}
+	}
+
+	name, total, shared := parseDarwinSystemProfilerOutput(out)
+	if total == 0 && shared {
+		total = systemMemoryTotal
+	}
+	if name == "" && total == 0 {
+		return gpuInfo{}
+	}
+
+	return gpuInfo{
+		Name:           name,
+		VRAMTotal:      total,
+		UsageAvailable: false,
+		SharedMemory:   shared,
+	}
+}
+
+func parseDarwinSystemProfilerOutput(out []byte) (name string, total uint64, shared bool) {
+	var payload struct {
+		Displays []map[string]interface{} `json:"SPDisplaysDataType"`
+	}
+	if err := json.Unmarshal(out, &payload); err != nil {
+		return "", 0, false
+	}
+
+	for _, display := range payload.Displays {
+		if name == "" {
+			name = stringField(display, "sppci_model", "_name")
+		}
+
+		total = parseMemoryBytes(
+			stringField(display, "spdisplays_vram"),
+			stringField(display, "spdisplays_vram_shared"),
+			stringField(display, "spdisplays_vram_dynamic"),
+		)
+
+		vendor := strings.ToLower(stringField(display, "spdisplays_vendor"))
+		lowerName := strings.ToLower(name)
+		if strings.Contains(vendor, "apple") || strings.Contains(lowerName, "apple") {
+			shared = true
+		}
+
+		if name != "" || total > 0 {
+			return name, total, shared
+		}
+	}
+
+	return "", 0, false
+}
+
+func stringField(values map[string]interface{}, keys ...string) string {
+	for _, key := range keys {
+		raw, ok := values[key]
+		if !ok {
+			continue
+		}
+		if text, ok := raw.(string); ok && strings.TrimSpace(text) != "" {
+			return strings.TrimSpace(text)
+		}
+	}
+	return ""
+}
+
+func parseMemoryBytes(values ...string) uint64 {
+	for _, value := range values {
+		if bytes := parseMemoryString(value); bytes > 0 {
+			return bytes
+		}
+	}
+	return 0
+}
+
+func parseMemoryString(value string) uint64 {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return 0
+	}
+
+	if idx := strings.LastIndex(value, ":"); idx >= 0 {
+		value = strings.TrimSpace(value[idx+1:])
+	}
+	value = strings.ReplaceAll(value, ",", "")
+	fields := strings.Fields(value)
+	if len(fields) < 2 {
+		return 0
+	}
+
+	number, err := strconv.ParseFloat(fields[0], 64)
+	if err != nil {
+		return 0
+	}
+
+	unit := strings.ToUpper(fields[1])
+	switch {
+	case strings.HasPrefix(unit, "TB"):
+		return uint64(number * 1024 * 1024 * 1024 * 1024)
+	case strings.HasPrefix(unit, "GB"):
+		return uint64(number * 1024 * 1024 * 1024)
+	case strings.HasPrefix(unit, "MB"):
+		return uint64(number * 1024 * 1024)
+	case strings.HasPrefix(unit, "KB"):
+		return uint64(number * 1024)
+	default:
+		return 0
+	}
+}
+
+func memoryFieldUnsupported(value string) bool {
+	value = strings.TrimSpace(strings.ToLower(value))
+	return value == "n/a" || value == "na" || strings.Contains(value, "not supported")
+}
+
+func isNVIDIAUnifiedMemoryGPU(name string) bool {
+	name = strings.ToLower(name)
+	return strings.Contains(name, "gb10") ||
+		strings.Contains(name, "grace blackwell") ||
+		strings.Contains(name, "dgx spark")
 }

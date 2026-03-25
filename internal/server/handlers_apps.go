@@ -1,0 +1,149 @@
+package server
+
+import (
+	"encoding/json"
+	"fmt"
+	"net/http"
+	"strings"
+
+	"github.com/opencsgs/csghub-lite/pkg/api"
+)
+
+func (s *Server) handleApps(w http.ResponseWriter, r *http.Request) {
+	apps, err := s.appManager.List(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, api.AIAppsResponse{Apps: apps})
+}
+
+func (s *Server) handleAppInstall(w http.ResponseWriter, r *http.Request) {
+	var req api.AIAppInstallRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if strings.TrimSpace(req.AppID) == "" {
+		writeError(w, http.StatusBadRequest, "app_id is required")
+		return
+	}
+
+	info, err := s.appManager.Install(req.AppID)
+	if err != nil {
+		if info.ID != "" && info.Disabled {
+			writeJSON(w, http.StatusConflict, info)
+			return
+		}
+		if strings.Contains(err.Error(), "unknown app") {
+			writeError(w, http.StatusNotFound, err.Error())
+			return
+		}
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusAccepted, info)
+}
+
+func (s *Server) handleAppUninstall(w http.ResponseWriter, r *http.Request) {
+	var req api.AIAppUninstallRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if strings.TrimSpace(req.AppID) == "" {
+		writeError(w, http.StatusBadRequest, "app_id is required")
+		return
+	}
+
+	info, err := s.appManager.Uninstall(req.AppID)
+	if err != nil {
+		if info.ID != "" && info.Disabled {
+			writeJSON(w, http.StatusConflict, info)
+			return
+		}
+		if strings.Contains(err.Error(), "unknown app") {
+			writeError(w, http.StatusNotFound, err.Error())
+			return
+		}
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusAccepted, info)
+}
+
+func (s *Server) handleAppOpen(w http.ResponseWriter, r *http.Request) {
+	var req api.AIAppOpenRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if strings.TrimSpace(req.AppID) == "" {
+		writeError(w, http.StatusBadRequest, "app_id is required")
+		return
+	}
+
+	url, err := s.openAIAppURL(r.Context(), req.AppID)
+	if err != nil {
+		if strings.Contains(err.Error(), "unknown app") {
+			writeError(w, http.StatusNotFound, err.Error())
+			return
+		}
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusOK, api.AIAppOpenResponse{URL: url})
+}
+
+func (s *Server) handleAppLogs(w http.ResponseWriter, r *http.Request) {
+	appID := strings.TrimSpace(r.URL.Query().Get("app_id"))
+	if appID == "" {
+		writeError(w, http.StatusBadRequest, "app_id is required")
+		return
+	}
+
+	recent, err := s.appManager.RecentLogs(appID, 100)
+	if err != nil {
+		writeError(w, http.StatusNotFound, err.Error())
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		writeError(w, http.StatusInternalServerError, "streaming not supported")
+		return
+	}
+
+	for _, line := range recent {
+		fmt.Fprintf(w, "data: %s\n\n", trimNewline(line))
+	}
+	flusher.Flush()
+
+	ch, err := s.appManager.SubscribeLogs(appID)
+	if err != nil {
+		writeError(w, http.StatusNotFound, err.Error())
+		return
+	}
+	defer s.appManager.UnsubscribeLogs(appID, ch)
+
+	ctx := r.Context()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case line, ok := <-ch:
+			if !ok {
+				return
+			}
+			fmt.Fprintf(w, "data: %s\n\n", trimNewline(line))
+			flusher.Flush()
+		}
+	}
+}

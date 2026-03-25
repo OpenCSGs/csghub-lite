@@ -13,6 +13,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/opencsgs/csghub-lite/internal/apps"
 	"github.com/opencsgs/csghub-lite/internal/config"
 	"github.com/opencsgs/csghub-lite/internal/dataset"
 	"github.com/opencsgs/csghub-lite/internal/inference"
@@ -40,6 +41,7 @@ type Server struct {
 	version        string
 	manager        *model.Manager
 	datasetManager *dataset.Manager
+	appManager     *apps.Manager
 	http           *http.Server
 	logBuf         *LogBuffer
 
@@ -58,6 +60,7 @@ func New(cfg *config.Config, version string) *Server {
 		version:        version,
 		manager:        mgr,
 		datasetManager: dsMgr,
+		appManager:     apps.NewManager(cfg),
 		engines:        make(map[string]*managedEngine),
 		logBuf:         logBuf,
 	}
@@ -94,6 +97,7 @@ func (s *Server) Run(ctx context.Context) error {
 		fmt.Printf("  Web UI:     http://%s/\n", addr)
 		fmt.Printf("  Ollama API: http://%s/api/chat\n", addr)
 		fmt.Printf("  OpenAI API: http://%s/v1/chat/completions\n", addr)
+		fmt.Printf("  Anthropic API: http://%s/v1/messages\n", addr)
 		if err := s.http.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			errCh <- err
 		}
