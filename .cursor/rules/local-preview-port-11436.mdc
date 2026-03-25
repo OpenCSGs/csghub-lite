@@ -1,0 +1,19 @@
+---
+description: Use only port 11436 for local preview and redeploys
+alwaysApply: true
+---
+
+# Local Preview Port
+
+- Do not start a separate frontend dev server for this workspace.
+- For local preview, redeploy, and verification, use only `http://localhost:11436`.
+- If frontend files change, rebuild `web`, sync `web/dist` into `internal/server/static`, and then restart the backend on `:11436`.
+- Do not start or keep `5173` or any alternate preview port running unless the user explicitly asks for it.
+
+```sh
+# ✅ Preferred local workflow
+cd web && npm run build
+cd ..
+cp -r web/dist/. internal/server/static/
+go run ./cmd/csghub-lite serve --listen :11436
+```
