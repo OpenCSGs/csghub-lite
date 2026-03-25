@@ -831,7 +831,7 @@ function actionLabel(state: AIAppRuntimeState): string {
   if (state.disabled) return t("aiApps.disabled");
   if (state.status === "installed") return t("aiApps.reinstallLatest");
   if (state.status === "failed") return t("aiApps.retryInstall");
-  return t("aiApps.installLatest");
+  return t("aiApps.install");
 }
 
 function drawerNotice(state: AIAppRuntimeState): string {

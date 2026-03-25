@@ -23,7 +23,7 @@ const en: Record<string, string> = {
   "nav.marketplace": "Marketplace",
   "nav.library": "Models",
   "nav.chat": "Chat",
-  "nav.aiApps": "AI Apps",
+  "nav.aiApps": "应用",
 
   // Dashboard
   "dash.resource": "RESOURCE UTILIZATION",
@@ -83,7 +83,7 @@ const en: Record<string, string> = {
   "mp.viewer": "Viewer",
 
   // AI Apps
-  "aiApps.title": "AI Apps",
+  "aiApps.title": "应用",
   "aiApps.subtitle": "Discover and integrate powerful AI applications into your CSGHub-Lite environment.",
   "aiApps.search": "Search apps...",
   "aiApps.results": "{0} apps",
@@ -318,7 +318,7 @@ const zh: Record<string, string> = {
   "aiApps.disabled": "已禁用",
   "aiApps.installPreview": "安装预览",
   "aiApps.setupDetails": "安装详情",
-  "aiApps.loadFailed": "加载 AI Apps 状态失败。",
+  "aiApps.loadFailed": "加载应用状态失败。",
   "aiApps.openFailed": "打开应用失败。",
   "aiApps.installFailed": "安装失败",
   "aiApps.installRunning": "安装进行中",
@@ -326,7 +326,7 @@ const zh: Record<string, string> = {
   "aiApps.uninstallRunning": "卸载进行中",
   "aiApps.installedReady": "该应用已安装，你可以在这里继续更新到最新版本。",
   "aiApps.readyToInstall": "该应用已准备好安装。",
-  "aiApps.disabledDockerNotice": "依赖 Docker 的应用目前在 AI Apps 中暂时禁用，请先手动安装。",
+  "aiApps.disabledDockerNotice": "依赖 Docker 的应用目前在应用页暂不支持，请先手动安装。",
   "aiApps.installMode": "安装方式",
   "aiApps.progressMode": "进度展示",
   "aiApps.currentStatus": "当前状态",
@@ -376,7 +376,7 @@ const zh: Record<string, string> = {
   "aiApps.phase.failed": "安装失败",
   "aiApps.phase.uninstall_failed": "卸载失败",
   "aiApps.phase.complete": "完成",
-  "aiApps.phase.docker_disabled": "AI Apps 中已禁用",
+  "aiApps.phase.docker_disabled": "应用页暂不支持",
 
   // Settings
   "nav.settings": "设置",

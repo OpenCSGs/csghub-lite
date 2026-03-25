@@ -276,7 +276,7 @@ export const aiAppsCatalog: AIAppCatalogEntry[] = [
     status: "disabled",
     statusText: {
       en: "Disabled in AI Apps",
-      zh: "AI Apps 中暂不支持",
+      zh: "应用页暂不支持",
     },
   },
   {
@@ -325,7 +325,7 @@ export const aiAppsCatalog: AIAppCatalogEntry[] = [
     status: "disabled",
     statusText: {
       en: "Disabled in AI Apps",
-      zh: "AI Apps 中暂不支持",
+      zh: "应用页暂不支持",
     },
   },
 ];
