@@ -239,15 +239,18 @@ type AIAppOpenResponse struct {
 // -- OpenAI-compatible types --
 
 type OpenAIChatRequest struct {
-	Model       string    `json:"model"`
-	Messages    []Message `json:"messages"`
-	Stream      *bool     `json:"stream,omitempty"`
-	Temperature *float64  `json:"temperature,omitempty"`
-	TopP        *float64  `json:"top_p,omitempty"`
-	MaxTokens   *int      `json:"max_tokens,omitempty"`
-	NumCtx      *int      `json:"num_ctx,omitempty"`
-	Seed        *int      `json:"seed,omitempty"`
-	Stop        []string  `json:"stop,omitempty"`
+	Model             string      `json:"model"`
+	Messages          []Message   `json:"messages"`
+	Tools             []Tool      `json:"tools,omitempty"`
+	ToolChoice        interface{} `json:"tool_choice,omitempty"`
+	ParallelToolCalls *bool       `json:"parallel_tool_calls,omitempty"`
+	Stream            *bool       `json:"stream,omitempty"`
+	Temperature       *float64    `json:"temperature,omitempty"`
+	TopP              *float64    `json:"top_p,omitempty"`
+	MaxTokens         *int        `json:"max_tokens,omitempty"`
+	NumCtx            *int        `json:"num_ctx,omitempty"`
+	Seed              *int        `json:"seed,omitempty"`
+	Stop              []string    `json:"stop,omitempty"`
 }
 
 type OpenAIChatResponse struct {

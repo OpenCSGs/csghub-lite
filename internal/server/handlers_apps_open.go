@@ -20,7 +20,7 @@ import (
 
 const (
 	openClawWebProfile      = "csghub-lite"
-	openClawProviderID      = "csghub-lite"
+	openClawProviderID      = "csghub"
 	openClawOpenTimeout     = 2 * time.Minute
 	openClawGatewayWait     = 12 * time.Second
 	openClawGatewayLogName  = "openclaw-gateway.log"

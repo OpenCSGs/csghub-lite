@@ -108,7 +108,7 @@ func TestOpenClawProfileMatches(t *testing.T) {
 	configJSON := `{
   "models": {
     "providers": {
-      "csghub-lite": {
+      "csghub": {
         "baseUrl": "http://127.0.0.1:11435/v1"
       }
     }
@@ -116,7 +116,7 @@ func TestOpenClawProfileMatches(t *testing.T) {
   "agents": {
     "defaults": {
       "model": {
-        "primary": "csghub-lite/Qwen/Qwen3.5-2B"
+        "primary": "csghub/Qwen/Qwen3.5-2B"
       }
     }
   }

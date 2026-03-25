@@ -12,10 +12,14 @@ import (
 )
 
 func hasToolChatFeatures(req api.ChatRequest) bool {
-	if len(req.Tools) > 0 {
+	return hasChatToolFeatures(req.Messages, req.Tools)
+}
+
+func hasChatToolFeatures(messages []api.Message, tools []api.Tool) bool {
+	if len(tools) > 0 {
 		return true
 	}
-	for _, msg := range req.Messages {
+	for _, msg := range messages {
 		if len(msg.ToolCalls) > 0 || msg.Role == "tool" || msg.ToolName != "" || msg.ToolCallID != "" {
 			return true
 		}
@@ -48,6 +52,7 @@ func (s *Server) handleChatWithTools(w http.ResponseWriter, r *http.Request, req
 		s.writeToolChatError(w, req.Model, stream, requestWantsSSE(r), fmt.Errorf("decoding tool response: %w", err))
 		return
 	}
+	openAIResp = normalizeOpenAIToolResponse(openAIResp, req.Tools)
 
 	ollamaResp, err := openAIChatResponseToOllama(req.Model, openAIResp)
 	if err != nil {
@@ -347,4 +352,249 @@ func defaultToolType(toolType string) string {
 		return "function"
 	}
 	return toolType
+}
+
+func normalizeOpenAIToolResponse(resp api.OpenAIChatResponse, tools []api.Tool) api.OpenAIChatResponse {
+	if len(resp.Choices) == 0 || resp.Choices[0].Message == nil {
+		return resp
+	}
+
+	choice := &resp.Choices[0]
+	msg := choice.Message
+	if len(msg.ToolCalls) == 0 {
+		if calls, ok := synthesizeToolCallsFromContent(msg.Content, tools); ok {
+			msg.Content = nil
+			msg.ToolCalls = calls
+		}
+	}
+
+	if len(msg.ToolCalls) > 0 {
+		finishReason := "tool_calls"
+		choice.FinishReason = &finishReason
+	}
+	return resp
+}
+
+func synthesizeToolCallsFromContent(content interface{}, tools []api.Tool) ([]api.ToolCall, bool) {
+	if len(tools) == 0 {
+		return nil, false
+	}
+
+	text := strings.TrimSpace(contentAsString(content))
+	if text == "" {
+		return nil, false
+	}
+
+	if calls, ok := toolCallsFromJSONText(text, tools); ok {
+		return calls, true
+	}
+	if call, ok := toolCallFromBareName(text, tools, 0); ok {
+		return []api.ToolCall{call}, true
+	}
+	return nil, false
+}
+
+func toolCallsFromJSONText(text string, tools []api.Tool) ([]api.ToolCall, bool) {
+	candidates := []string{strings.TrimSpace(text)}
+	if fenced := stripMarkdownCodeFence(text); fenced != strings.TrimSpace(text) {
+		candidates = append(candidates, fenced)
+	}
+
+	for _, candidate := range candidates {
+		var value interface{}
+		if err := json.Unmarshal([]byte(candidate), &value); err != nil {
+			continue
+		}
+		if calls, ok := toolCallsFromStructuredValue(value, tools); ok {
+			return calls, true
+		}
+	}
+	return nil, false
+}
+
+func toolCallsFromStructuredValue(value interface{}, tools []api.Tool) ([]api.ToolCall, bool) {
+	switch v := value.(type) {
+	case string:
+		if call, ok := toolCallFromBareName(v, tools, 0); ok {
+			return []api.ToolCall{call}, true
+		}
+	case map[string]interface{}:
+		if nested, ok := v["tool_calls"]; ok {
+			return toolCallsFromStructuredValue(nested, tools)
+		}
+		if call, ok := structuredValueToToolCall(v, tools, 0); ok {
+			return []api.ToolCall{call}, true
+		}
+	case []interface{}:
+		calls := make([]api.ToolCall, 0, len(v))
+		for i, item := range v {
+			valueMap, ok := item.(map[string]interface{})
+			if !ok {
+				return nil, false
+			}
+			call, ok := structuredValueToToolCall(valueMap, tools, i)
+			if !ok {
+				return nil, false
+			}
+			calls = append(calls, call)
+		}
+		if len(calls) > 0 {
+			return calls, true
+		}
+	}
+	return nil, false
+}
+
+func structuredValueToToolCall(value map[string]interface{}, tools []api.Tool, index int) (api.ToolCall, bool) {
+	var (
+		callID   = stringValue(value["id"])
+		toolType = stringValue(value["type"])
+		name     string
+		args     interface{}
+	)
+
+	if function, ok := value["function"].(map[string]interface{}); ok {
+		name = stringValue(function["name"])
+		args = function["arguments"]
+	}
+	if name == "" {
+		name = stringValue(value["name"])
+	}
+	if name == "" {
+		name = stringValue(value["tool_name"])
+	}
+	if args == nil {
+		args = value["arguments"]
+	}
+	if args == nil {
+		args = value["params"]
+	}
+
+	tool, ok := lookupToolByName(tools, name)
+	if !ok {
+		return api.ToolCall{}, false
+	}
+	if args == nil {
+		if !toolAllowsEmptyArguments(tool) {
+			return api.ToolCall{}, false
+		}
+		args = map[string]interface{}{}
+	}
+
+	return api.ToolCall{
+		ID:   syntheticToolCallID(callID, index),
+		Type: defaultToolType(toolType),
+		Function: api.ToolFunction{
+			Name:      name,
+			Arguments: toolArgumentsJSONString(args),
+		},
+	}, true
+}
+
+func toolCallFromBareName(text string, tools []api.Tool, index int) (api.ToolCall, bool) {
+	trimmed := strings.TrimSpace(strings.Trim(text, "\"'`"))
+	if trimmed == "" {
+		return api.ToolCall{}, false
+	}
+
+	if tool, ok := lookupToolByName(tools, trimmed); ok && toolAllowsEmptyArguments(tool) {
+		return api.ToolCall{
+			ID:   syntheticToolCallID("", index),
+			Type: "function",
+			Function: api.ToolFunction{
+				Name:      trimmed,
+				Arguments: "{}",
+			},
+		}, true
+	}
+
+	if strings.HasSuffix(trimmed, "()") {
+		name := strings.TrimSpace(strings.TrimSuffix(trimmed, "()"))
+		if tool, ok := lookupToolByName(tools, name); ok && toolAllowsEmptyArguments(tool) {
+			return api.ToolCall{
+				ID:   syntheticToolCallID("", index),
+				Type: "function",
+				Function: api.ToolFunction{
+					Name:      name,
+					Arguments: "{}",
+				},
+			}, true
+		}
+	}
+
+	openIdx := strings.Index(trimmed, "(")
+	closeIdx := strings.LastIndex(trimmed, ")")
+	if openIdx <= 0 || closeIdx != len(trimmed)-1 {
+		return api.ToolCall{}, false
+	}
+
+	name := strings.TrimSpace(trimmed[:openIdx])
+	argText := strings.TrimSpace(trimmed[openIdx+1 : closeIdx])
+	tool, ok := lookupToolByName(tools, name)
+	if !ok {
+		return api.ToolCall{}, false
+	}
+	if argText == "" {
+		if !toolAllowsEmptyArguments(tool) {
+			return api.ToolCall{}, false
+		}
+		argText = "{}"
+	}
+
+	return api.ToolCall{
+		ID:   syntheticToolCallID("", index),
+		Type: "function",
+		Function: api.ToolFunction{
+			Name:      name,
+			Arguments: toolArgumentsJSONString(argText),
+		},
+	}, true
+}
+
+func lookupToolByName(tools []api.Tool, name string) (api.Tool, bool) {
+	for _, tool := range tools {
+		if tool.Function.Name == name {
+			return tool, true
+		}
+	}
+	return api.Tool{}, false
+}
+
+func toolAllowsEmptyArguments(tool api.Tool) bool {
+	params, ok := tool.Function.Parameters.(map[string]interface{})
+	if !ok || params == nil {
+		return true
+	}
+
+	required, ok := params["required"].([]interface{})
+	return !ok || len(required) == 0
+}
+
+func syntheticToolCallID(existing string, index int) string {
+	if strings.TrimSpace(existing) != "" {
+		return existing
+	}
+	return fmt.Sprintf("call_synth_%d", index)
+}
+
+func stringValue(value interface{}) string {
+	text, _ := value.(string)
+	return strings.TrimSpace(text)
+}
+
+func stripMarkdownCodeFence(text string) string {
+	trimmed := strings.TrimSpace(text)
+	if !strings.HasPrefix(trimmed, "```") {
+		return trimmed
+	}
+
+	lines := strings.Split(trimmed, "\n")
+	if len(lines) < 2 {
+		return trimmed
+	}
+	lines = lines[1:]
+	if len(lines) > 0 && strings.TrimSpace(lines[len(lines)-1]) == "```" {
+		lines = lines[:len(lines)-1]
+	}
+	return strings.TrimSpace(strings.Join(lines, "\n"))
 }

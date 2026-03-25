@@ -175,11 +175,17 @@ func (s *Server) getOrLoadEngineWithNumCtx(modelID string, numCtx int) (inferenc
 }
 
 func (s *Server) getOrLoadEngineWithProgressAndNumCtx(modelID string, progress inference.ConvertProgressFunc, numCtx int) (inference.Engine, error) {
+	modelDir, err := s.manager.ModelPath(modelID)
+	if err != nil {
+		return nil, fmt.Errorf("model %q not found locally; use 'csghub-lite pull %s' first", modelID, modelID)
+	}
+	effectiveNumCtx := inference.ResolveNumCtx(modelDir, numCtx)
+
 	s.mu.RLock()
 	me, ok := s.engines[modelID]
 	s.mu.RUnlock()
 	if ok {
-		if numCtx == 0 || me.numCtx == numCtx {
+		if me.numCtx == effectiveNumCtx {
 			return me.engine, nil
 		}
 		// fall through to replace engine with requested context window
@@ -189,17 +195,12 @@ func (s *Server) getOrLoadEngineWithProgressAndNumCtx(modelID string, progress i
 	defer s.mu.Unlock()
 
 	if me, ok := s.engines[modelID]; ok {
-		if numCtx == 0 || me.numCtx == numCtx {
+		if me.numCtx == effectiveNumCtx {
 			return me.engine, nil
 		}
-		log.Printf("reloading model %s due to num_ctx change (%d -> %d)", modelID, me.numCtx, numCtx)
+		log.Printf("reloading model %s due to num_ctx change (%d -> %d)", modelID, me.numCtx, effectiveNumCtx)
 		me.engine.Close()
 		delete(s.engines, modelID)
-	}
-
-	modelDir, err := s.manager.ModelPath(modelID)
-	if err != nil {
-		return nil, fmt.Errorf("model %q not found locally; use 'csghub-lite pull %s' first", modelID, modelID)
 	}
 
 	lm, err := s.manager.Get(modelID)
@@ -207,14 +208,14 @@ func (s *Server) getOrLoadEngineWithProgressAndNumCtx(modelID string, progress i
 		return nil, err
 	}
 
-	eng, err := inference.LoadEngineWithProgress(modelDir, lm, progress, false, numCtx)
+	eng, err := inference.LoadEngineWithProgress(modelDir, lm, progress, false, effectiveNumCtx)
 	if err != nil {
 		return nil, err
 	}
 
 	s.engines[modelID] = &managedEngine{
 		engine:    eng,
-		numCtx:    numCtx,
+		numCtx:    effectiveNumCtx,
 		lastUsed:  time.Now(),
 		keepAlive: DefaultKeepAlive,
 	}

@@ -20,7 +20,7 @@ import (
 const (
 	openCodeLaunchProviderID = "csghub-lite"
 	openClawLaunchProfile    = "csghub-lite"
-	openClawLaunchProviderID = "csghub-lite"
+	openClawLaunchProviderID = "csghub"
 	openClawConfigureTimeout = 2 * time.Minute
 )
 

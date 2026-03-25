@@ -21,6 +21,11 @@ import (
 	"time"
 )
 
+const (
+	defaultLlamaCtxSize      = 8192
+	autoExpandedLlamaCtxSize = 16384
+)
+
 // cappedWriter keeps only the last maxBytes of data written to it.
 // Safe for concurrent use.
 type cappedWriter struct {
@@ -137,20 +142,38 @@ func llamaReadyTimeout(modelPath string) time.Duration {
 	return time.Duration(sec) * time.Second
 }
 
-// llamaContextSize returns the llama-server context window (--ctx-size / -c).
-// Defaults to 8192 to better handle multimodal requests with image inputs.
-// Override via CSGHUB_LITE_LLAMA_NUM_CTX.
-func llamaContextSize(requested int) int {
+// ResolveNumCtx returns the effective llama-server context window (--ctx-size / -c).
+// Explicit requests win, then CSGHUB_LITE_LLAMA_NUM_CTX, then a model-aware fallback.
+func ResolveNumCtx(modelDir string, requested int) int {
 	if requested >= 1024 {
 		return requested
 	}
-	const defaultCtx = 8192
 	if v := strings.TrimSpace(os.Getenv("CSGHUB_LITE_LLAMA_NUM_CTX")); v != "" {
 		if n, err := strconv.Atoi(v); err == nil && n >= 1024 {
 			return n
 		}
 	}
-	return defaultCtx
+
+	if maxPos := modelMaxPositionEmbeddings(modelDir); maxPos >= autoExpandedLlamaCtxSize {
+		return min(maxPos, autoExpandedLlamaCtxSize)
+	}
+
+	return defaultLlamaCtxSize
+}
+
+func modelMaxPositionEmbeddings(modelDir string) int {
+	data, err := os.ReadFile(filepath.Join(modelDir, "config.json"))
+	if err != nil {
+		return 0
+	}
+
+	var cfg struct {
+		MaxPositionEmbeddings int `json:"max_position_embeddings"`
+	}
+	if err := json.Unmarshal(data, &cfg); err != nil {
+		return 0
+	}
+	return cfg.MaxPositionEmbeddings
 }
 
 func newLlamaEngine(modelPath, modelName string, verbose bool, progress ConvertProgressFunc, numCtx int, mmproj ...string) (*llamaEngine, error) {
@@ -174,12 +197,13 @@ func newLlamaEngine(modelPath, modelName string, verbose bool, progress ConvertP
 		modelName: modelName,
 		client:    &http.Client{Timeout: 0},
 	}
+	effectiveNumCtx := ResolveNumCtx(filepath.Dir(modelPath), numCtx)
 
 	args := []string{
 		"-m", modelPath,
 		"--host", "127.0.0.1",
 		"--port", fmt.Sprintf("%d", port),
-		"-c", strconv.Itoa(llamaContextSize(numCtx)),
+		"-c", strconv.Itoa(effectiveNumCtx),
 		"--reasoning", "off",
 	}
 	if len(mmproj) > 0 && mmproj[0] != "" {

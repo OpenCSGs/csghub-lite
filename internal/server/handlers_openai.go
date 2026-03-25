@@ -51,6 +51,12 @@ func (s *Server) handleOpenAIChatCompletions(w http.ResponseWriter, r *http.Requ
 	}
 	defer s.touchEngine(req.Model)
 
+	stream := req.Stream != nil && *req.Stream
+	if openAIChatRequestHasToolFeatures(req) {
+		s.handleOpenAIChatCompletionsWithTools(w, r, req, eng, opts, stream)
+		return
+	}
+
 	var messages []inference.Message
 	for _, m := range req.Messages {
 		messages = append(messages, inference.Message{Role: m.Role, Content: m.Content})
@@ -58,7 +64,6 @@ func (s *Server) handleOpenAIChatCompletions(w http.ResponseWriter, r *http.Requ
 
 	id := fmt.Sprintf("chatcmpl-%d", time.Now().UnixNano())
 	created := time.Now().Unix()
-	stream := req.Stream != nil && *req.Stream
 
 	if stream {
 		w.Header().Set("Content-Type", "text/event-stream")
@@ -123,6 +128,159 @@ func (s *Server) handleOpenAIChatCompletions(w http.ResponseWriter, r *http.Requ
 	}
 }
 
+func openAIChatRequestHasToolFeatures(req api.OpenAIChatRequest) bool {
+	return hasChatToolFeatures(req.Messages, req.Tools)
+}
+
+func (s *Server) handleOpenAIChatCompletionsWithTools(
+	w http.ResponseWriter,
+	r *http.Request,
+	req api.OpenAIChatRequest,
+	eng inference.Engine,
+	opts inference.Options,
+	stream bool,
+) {
+	proxy, ok := eng.(inference.ChatCompletionProxier)
+	if !ok {
+		writeOpenAIError(w, http.StatusBadRequest, "invalid_request_error", "selected model backend does not support tool calling")
+		return
+	}
+
+	reqBody, err := openAIChatRequestToProxyBody(req, opts, false)
+	if err != nil {
+		writeOpenAIError(w, http.StatusBadRequest, "invalid_request_error", err.Error())
+		return
+	}
+
+	resp, err := proxy.ChatCompletion(r.Context(), reqBody)
+	if err != nil {
+		if stream {
+			w.Header().Set("Content-Type", "text/event-stream")
+			w.Header().Set("Cache-Control", "no-cache")
+			w.Header().Set("Connection", "keep-alive")
+			writeSSE(w, map[string]string{"error": err.Error()})
+			return
+		}
+		writeOpenAIError(w, http.StatusInternalServerError, "server_error", err.Error())
+		return
+	}
+	defer resp.Body.Close()
+
+	var openAIResp api.OpenAIChatResponse
+	if err := json.NewDecoder(resp.Body).Decode(&openAIResp); err != nil {
+		if stream {
+			w.Header().Set("Content-Type", "text/event-stream")
+			w.Header().Set("Cache-Control", "no-cache")
+			w.Header().Set("Connection", "keep-alive")
+			writeSSE(w, map[string]string{"error": "decoding tool response: " + err.Error()})
+			return
+		}
+		writeOpenAIError(w, http.StatusInternalServerError, "server_error", "decoding tool response: "+err.Error())
+		return
+	}
+
+	openAIResp = normalizeOpenAIToolResponse(openAIResp, req.Tools)
+	if openAIResp.ID == "" {
+		openAIResp.ID = fmt.Sprintf("chatcmpl-%d", time.Now().UnixNano())
+	}
+	if openAIResp.Object == "" {
+		openAIResp.Object = "chat.completion"
+	}
+	if openAIResp.Created == 0 {
+		openAIResp.Created = time.Now().Unix()
+	}
+	if openAIResp.Model == "" {
+		openAIResp.Model = req.Model
+	}
+
+	if !stream {
+		writeJSON(w, http.StatusOK, openAIResp)
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+
+	if len(openAIResp.Choices) == 0 {
+		writeSSE(w, map[string]string{"error": "no choices in tool response"})
+		return
+	}
+
+	choice := openAIResp.Choices[0]
+	if choice.Message != nil && shouldEmitToolChunk(choice.Message) {
+		writeSSE(w, api.OpenAIChatResponse{
+			ID:      openAIResp.ID,
+			Object:  "chat.completion.chunk",
+			Created: openAIResp.Created,
+			Model:   openAIResp.Model,
+			Choices: []api.OpenAIChoice{{
+				Index: choice.Index,
+				Delta: choice.Message,
+			}},
+		})
+	}
+
+	finishReason := openAIChoiceFinishReason(choice)
+	writeSSE(w, api.OpenAIChatResponse{
+		ID:      openAIResp.ID,
+		Object:  "chat.completion.chunk",
+		Created: openAIResp.Created,
+		Model:   openAIResp.Model,
+		Choices: []api.OpenAIChoice{{
+			Index:        choice.Index,
+			Delta:        &api.Message{Role: "assistant", Content: ""},
+			FinishReason: &finishReason,
+		}},
+	})
+	fmt.Fprintf(w, "data: [DONE]\n\n")
+	if f, ok := w.(http.Flusher); ok {
+		f.Flush()
+	}
+}
+
+func openAIChatRequestToProxyBody(req api.OpenAIChatRequest, opts inference.Options, stream bool) (map[string]interface{}, error) {
+	messages, err := ollamaMessagesToOpenAI(req.Messages)
+	if err != nil {
+		return nil, err
+	}
+
+	body := map[string]interface{}{
+		"model":       req.Model,
+		"messages":    messages,
+		"temperature": opts.Temperature,
+		"top_p":       opts.TopP,
+		"max_tokens":  opts.MaxTokens,
+		"stream":      stream,
+	}
+	if opts.Seed >= 0 {
+		body["seed"] = opts.Seed
+	}
+	if len(opts.Stop) > 0 {
+		body["stop"] = opts.Stop
+	}
+	if len(req.Tools) > 0 {
+		body["tools"] = req.Tools
+	}
+	if req.ToolChoice != nil {
+		body["tool_choice"] = req.ToolChoice
+	}
+	if req.ParallelToolCalls != nil {
+		body["parallel_tool_calls"] = *req.ParallelToolCalls
+	}
+	return body, nil
+}
+
+func openAIChoiceFinishReason(choice api.OpenAIChoice) string {
+	if choice.FinishReason != nil && *choice.FinishReason != "" {
+		return *choice.FinishReason
+	}
+	if choice.Message != nil && len(choice.Message.ToolCalls) > 0 {
+		return "tool_calls"
+	}
+	return "stop"
+}
+
 // GET /v1/models -- OpenAI-compatible model listing
 func (s *Server) handleOpenAIModels(w http.ResponseWriter, r *http.Request) {
 	models, err := s.manager.List()
@@ -137,7 +295,7 @@ func (s *Server) handleOpenAIModels(w http.ResponseWriter, r *http.Request) {
 			ID:      m.FullName(),
 			Object:  "model",
 			Created: m.DownloadedAt.Unix(),
-			OwnedBy: "csghub-lite",
+			OwnedBy: "csghub",
 		})
 	}
 
