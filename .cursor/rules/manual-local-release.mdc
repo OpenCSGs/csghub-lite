@@ -1,0 +1,17 @@
+---
+description: Publish releases from local builds instead of GitHub Actions
+alwaysApply: true
+---
+
+# Manual Local Release
+
+- Do not rely on GitHub Actions tag workflows to publish releases for this repository.
+- Preferred release flow: push code and tag first, build release archives locally, then upload artifacts directly.
+- Build release packages from the target tag in a clean checkout or temporary worktree with `make package`.
+- Always build the web UI before packaging so release binaries embed `internal/server/static` instead of falling back to a missing local `web/dist`.
+- Publish GitHub releases manually with `gh release create` or `gh release upload` after local packaging.
+- Publish GitLab release assets manually or via `scripts/push.sh` with `--skip-build` after local packaging is complete.
+- Keep release notes concise: use 1-3 bullets that describe the actual user-visible fixes or changes in this version.
+- Follow repository network rules during release work:
+  - GitLab and other internal services: direct connection, no proxy
+  - GitHub and other external services: `source ~/.myshrc` before upload commands

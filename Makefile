@@ -15,19 +15,20 @@ build: build-web
 
 build-all: build-darwin-arm64 build-darwin-amd64 build-linux-amd64 build-linux-arm64 build-windows-amd64
 
-build-darwin-arm64:
+# Cross-platform binaries must embed the built web UI too.
+build-darwin-arm64: build-web
 	GOOS=darwin GOARCH=arm64 go build $(LDFLAGS) -o bin/$(BINARY_NAME)-$(VERSION)-darwin-arm64 ./cmd/csghub-lite
 
-build-darwin-amd64:
+build-darwin-amd64: build-web
 	GOOS=darwin GOARCH=amd64 go build $(LDFLAGS) -o bin/$(BINARY_NAME)-$(VERSION)-darwin-amd64 ./cmd/csghub-lite
 
-build-linux-amd64:
+build-linux-amd64: build-web
 	GOOS=linux GOARCH=amd64 go build $(LDFLAGS) -o bin/$(BINARY_NAME)-$(VERSION)-linux-amd64 ./cmd/csghub-lite
 
-build-linux-arm64:
+build-linux-arm64: build-web
 	GOOS=linux GOARCH=arm64 go build $(LDFLAGS) -o bin/$(BINARY_NAME)-$(VERSION)-linux-arm64 ./cmd/csghub-lite
 
-build-windows-amd64:
+build-windows-amd64: build-web
 	GOOS=windows GOARCH=amd64 go build $(LDFLAGS) -o bin/$(BINARY_NAME)-$(VERSION)-windows-amd64.exe ./cmd/csghub-lite
 
 clean-dist:
@@ -68,7 +69,7 @@ test-cover:
 lint:
 	golangci-lint run ./...
 
-release-snapshot:
+release-snapshot: build-web
 	goreleaser release --snapshot --clean
 
 clean:
