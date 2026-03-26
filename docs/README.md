@@ -6,7 +6,7 @@ csghub-lite 是一个轻量级的本地大语言模型运行工具，基于 [CSG
 
 ### 快速上手
 
-- [安装指南](getting-started/installation.md) — 多种安装方式：一键脚本、Homebrew、源码编译
+- [安装指南](getting-started/installation.md) — 多种安装方式：一键脚本、Homebrew（主要面向 macOS）、源码编译
 - [快速入门](getting-started/quickstart.md) — 5 分钟上手：搜索、下载、对话、启动 API
 
 ### CLI 命令参考
@@ -36,5 +36,5 @@ csghub-lite 是一个轻量级的本地大语言模型运行工具，基于 [CSG
 
 - [配置说明](guides/configuration.md) — 配置文件、私有化部署、环境变量
 - [模型格式](guides/model-formats.md) — GGUF / SafeTensors 格式说明与转换
-- [打包与发布](guides/packaging.md) — GoReleaser、Homebrew、安装脚本
+- [打包与发布](guides/packaging.md) — GoReleaser、Homebrew（主要面向 macOS）、安装脚本
 - [架构设计](guides/architecture.md) — 项目结构与模块设计

@@ -38,24 +38,6 @@ archives:
       - README.md
       - LICENSE*
 
-brews:
-  - name: csghub-lite
-    repository:
-      owner: opencsgs
-      name: homebrew-tap
-      token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
-    directory: Formula
-    homepage: "https://github.com/opencsgs/csghub-lite"
-    description: "Lightweight tool for running LLMs locally with CSGHub platform"
-    license: "Apache-2.0"
-    dependencies:
-      - name: llama.cpp
-        type: recommended
-    test: |
-      system "#{bin}/csghub-lite", "--version"
-    install: |
-      bin.install "csghub-lite"
-
 nfpms:
   - id: packages
     package_name: csghub-lite

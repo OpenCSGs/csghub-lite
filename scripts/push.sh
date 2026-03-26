@@ -90,6 +90,9 @@ done
 f="dist/${BINARY_NAME}_${VERSION}_windows-amd64.zip"
 [ -f "$f" ] || die "Asset not found: $f"
 ASSETS="$ASSETS $f"
+f="dist/checksums.txt"
+[ -f "$f" ] || die "Asset not found: $f"
+ASSETS="$ASSETS $f"
 
 info "Assets:${ASSETS}"
 

@@ -1,6 +1,6 @@
 #!/bin/sh
 # csghub-lite install script
-# Usage: curl -fsSL https://raw.githubusercontent.com/opencsgs/csghub-lite/main/scripts/install.sh | sh
+# Usage: curl -fsSL https://hub.opencsg.com/csghub-lite/install.sh | sh
 set -eu
 
 REPO="${REPO:-OpenCSGs/csghub-lite}"

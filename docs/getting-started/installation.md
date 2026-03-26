@@ -13,13 +13,13 @@
 适用于 Linux 和 macOS，自动检测系统架构，从 GitHub Releases 下载安装。
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/opencsgs/csghub-lite/main/scripts/install.sh | sh
+curl -fsSL https://hub.opencsg.com/csghub-lite/install.sh | sh
 ```
 
 指定版本安装：
 
 ```bash
-CSGHUB_LITE_VERSION=v0.1.0 curl -fsSL https://raw.githubusercontent.com/opencsgs/csghub-lite/main/scripts/install.sh | sh
+CSGHUB_LITE_VERSION=v0.1.0 curl -fsSL https://hub.opencsg.com/csghub-lite/install.sh | sh
 ```
 
 安装脚本环境变量（可选）：
@@ -31,13 +31,13 @@ CSGHUB_LITE_VERSION=v0.1.0 curl -fsSL https://raw.githubusercontent.com/opencsgs
 
 说明：若远程 llama.cpp 与本地 **build 号一致**，脚本会跳过重新下载；此前若因缺少 `libmtmd.so.0` 等导致 `llama-server --version` 失败，会被误判为需要升级——新版本已用 `LD_LIBRARY_PATH` 检测版本，并从压缩包 **递归** 安装所有 `.so`。
 
-### 方式二：Homebrew
+### 方式二：Homebrew（主要面向 macOS）
 
-适用于 macOS 和 Linux。
+可选额外入口，主安装入口仍然推荐使用上面的 `curl ... | sh`。Linux 仍建议优先使用安装脚本、release 压缩包或系统包管理器。
 
 ```bash
-brew tap opencsgs/tap
-brew install csghub-lite
+brew tap opencsgs/csghub-lite https://github.com/OpenCSGs/csghub-lite
+brew install opencsgs/csghub-lite/csghub-lite
 ```
 
 ### 方式三：GitHub Releases 手动下载

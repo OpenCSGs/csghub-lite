@@ -51,6 +51,8 @@ package: clean-dist build-all
 	cd $${TMPDIR} && zip -q -r $(CURDIR)/dist/$(BINARY_NAME)_$(VERSION)_windows-amd64.zip *; \
 	rm -rf $${TMPDIR}; \
 	echo "Created dist/$(BINARY_NAME)_$(VERSION)_windows-amd64.zip"
+	@./scripts/write-checksums.sh dist
+	@echo "Created dist/checksums.txt"
 
 release:
 	@scripts/push.sh

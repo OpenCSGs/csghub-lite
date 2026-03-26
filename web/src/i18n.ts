@@ -23,7 +23,7 @@ const en: Record<string, string> = {
   "nav.marketplace": "Marketplace",
   "nav.library": "Models",
   "nav.chat": "Chat",
-  "nav.aiApps": "应用",
+  "nav.aiApps": "AI Apps",
 
   // Dashboard
   "dash.resource": "RESOURCE UTILIZATION",
@@ -83,7 +83,7 @@ const en: Record<string, string> = {
   "mp.viewer": "Viewer",
 
   // AI Apps
-  "aiApps.title": "应用",
+  "aiApps.title": "AI Apps",
   "aiApps.subtitle": "Discover and integrate powerful AI applications into your CSGHub-Lite environment.",
   "aiApps.search": "Search apps...",
   "aiApps.results": "{0} apps",
@@ -240,7 +240,7 @@ const zh: Record<string, string> = {
   "nav.marketplace": "模型市场",
   "nav.library": "模型库",
   "nav.chat": "对话",
-  "nav.aiApps": "AI Apps",
+  "nav.aiApps": "应用",
 
   // Dashboard
   "dash.resource": "资源使用情况",
@@ -300,7 +300,7 @@ const zh: Record<string, string> = {
   "mp.viewer": "浏览",
 
   // AI Apps
-  "aiApps.title": "AI Apps",
+  "aiApps.title": "应用",
   "aiApps.subtitle": "在 CSGHub-Lite 环境中发现并集成强大的 AI 应用。",
   "aiApps.search": "搜索应用...",
   "aiApps.results": "{0} 个应用",
