@@ -85,6 +85,8 @@ curl -fsSL https://hub.opencsg.com/csghub-lite/install.sh | sh
 
 `scripts/install.sh` 会自动检测 OS 和 CPU 架构，优先从 GitHub/GitLab release 资产下载最新版本，并在需要时安装或升级 `llama-server`。
 
+macOS 上，安装脚本会优先选择当前 `PATH` 中可写的目录（例如 `/opt/homebrew/bin`）；如果没有合适的目录，则回退到 `~/bin`，并自动写入 shell 配置，尽量避免 `sudo`。
+
 指定版本安装：
 
 ```bash

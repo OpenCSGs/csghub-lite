@@ -16,6 +16,8 @@
 curl -fsSL https://hub.opencsg.com/csghub-lite/install.sh | sh
 ```
 
+macOS 上，安装脚本会优先选择当前已经在 `PATH` 且可写的目录（例如 `/opt/homebrew/bin`），找不到时再回退到 `~/bin`，尽量避免 `sudo`。如果回退到了 `~/bin`，脚本会自动写入 shell 配置，并提示当前终端立刻生效的命令。
+
 指定版本安装：
 
 ```bash
@@ -26,6 +28,8 @@ CSGHUB_LITE_VERSION=v0.1.0 curl -fsSL https://hub.opencsg.com/csghub-lite/instal
 
 | 变量 | 说明 |
 |------|------|
+| `INSTALL_DIR` | 指定 `csghub-lite` 安装目录。未设置时，macOS 会优先选择当前 `PATH` 中可写的目录，否则回退到 `~/bin`；Linux 仍默认使用已有安装目录或 `/usr/local/bin`。 |
+| `CSGHUB_LITE_LLAMA_SERVER_INSTALL_DIR` | 指定 `llama-server` 安装目录。未设置时，macOS 默认跟随 `csghub-lite` 的安装目录。 |
 | `CSGHUB_LITE_AUTO_INSTALL_LLAMA_SERVER` | 设为 `0` 可跳过自动安装/升级 `llama-server`。 |
 | `CSGHUB_LITE_AUTO_INSTALL_PATCHELF` | Linux 上设为 `0` 可禁止自动 `apt/dnf/yum install patchelf`（用于为 `llama-server` 设置 `$ORIGIN`，使同目录 `.so` 可被直接加载）。 |
 
@@ -52,11 +56,12 @@ brew install opencsgs/csghub-lite/csghub-lite
 | Linux ARM64 | `csghub-lite_*_linux_arm64.tar.gz` |
 | Windows x86_64 | `csghub-lite_*_windows_amd64.zip` |
 
-下载后解压并移动到 PATH 中：
+下载后解压并移动到一个已经在 `PATH` 中的目录，例如 `~/bin`、`/opt/homebrew/bin` 或 `/usr/local/bin`：
 
 ```bash
 tar xzf csghub-lite_*.tar.gz
-sudo mv csghub-lite /usr/local/bin/
+mkdir -p "$HOME/bin"
+mv csghub-lite "$HOME/bin/"
 ```
 
 ### 方式四：Linux 包管理器

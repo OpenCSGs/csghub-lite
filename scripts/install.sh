@@ -8,6 +8,8 @@ INSTALL_DIR="${INSTALL_DIR:-}"
 INSTALL_DIR_DEFAULT="/usr/local/bin"
 BINARY_NAME="${BINARY_NAME:-csghub-lite}"
 LLAMA_CPP_REPO="ggml-org/llama.cpp"
+INSTALL_PATH_PROFILE=""
+INSTALL_PATH_DIR=""
 
 GITHUB_API="https://api.github.com/repos"
 GITLAB_HOST="https://git-devops.opencsg.com"
@@ -122,6 +124,170 @@ region_download_text() {
     else
         try_download_text "$_rdt_github" "$_rdt_gitlab"
     fi
+}
+
+path_contains_dir() {
+    _target="$1"
+    _old_ifs="$IFS"
+    IFS=':'
+    for _entry in $PATH; do
+        if [ "$_entry" = "$_target" ]; then
+            IFS="$_old_ifs"
+            return 0
+        fi
+    done
+    IFS="$_old_ifs"
+    return 1
+}
+
+nearest_existing_parent_writable() {
+    _dir="$1"
+    while [ ! -e "$_dir" ]; do
+        _next="$(dirname "$_dir")"
+        if [ "$_next" = "$_dir" ]; then
+            return 1
+        fi
+        _dir="$_next"
+    done
+    [ -d "$_dir" ] && [ -w "$_dir" ]
+}
+
+dir_is_writable_or_creatable() {
+    _dir="$1"
+    if [ -d "$_dir" ]; then
+        [ -w "$_dir" ]
+        return
+    fi
+    nearest_existing_parent_writable "$_dir"
+}
+
+ensure_dir_exists() {
+    _dir="$1"
+    [ -d "$_dir" ] || mkdir -p "$_dir"
+}
+
+shell_profile_file() {
+    _home="${HOME:-}"
+    if [ -z "$_home" ]; then
+        return 1
+    fi
+    case "$(basename "${SHELL:-}")" in
+        zsh)  printf '%s\n' "${_home}/.zprofile" ;;
+        bash) printf '%s\n' "${_home}/.bash_profile" ;;
+        *)    printf '%s\n' "${_home}/.profile" ;;
+    esac
+}
+
+shell_path_expr() {
+    case "$1" in
+        "${HOME}/bin") printf '%s\n' '$HOME/bin' ;;
+        "${HOME}/.local/bin") printf '%s\n' '$HOME/.local/bin' ;;
+        *) printf '%s\n' "$1" ;;
+    esac
+}
+
+ensure_future_shell_path() {
+    _path_dir="$1"
+    if path_contains_dir "$_path_dir"; then
+        return 0
+    fi
+    _profile="$(shell_profile_file || true)"
+    if [ -z "$_profile" ]; then
+        return 1
+    fi
+    _expr="$(shell_path_expr "$_path_dir")"
+    _line="case \":\$PATH:\" in *\":${_expr}:\"*) ;; *) export PATH=\"${_expr}:\$PATH\" ;; esac"
+    ensure_dir_exists "$(dirname "$_profile")"
+    [ -f "$_profile" ] || : > "$_profile"
+    if ! grep -F "$_line" "$_profile" >/dev/null 2>&1; then
+        printf '\n%s\n' "$_line" >> "$_profile"
+    fi
+    INSTALL_PATH_PROFILE="$_profile"
+    INSTALL_PATH_DIR="$_path_dir"
+    return 0
+}
+
+resolve_darwin_install_dir() {
+    _existing_bin="$1"
+    _home_bin="${HOME}/bin"
+    _local_bin="${HOME}/.local/bin"
+    _brew_bin=""
+
+    if [ -n "$_existing_bin" ]; then
+        _existing_dir="$(dirname "$_existing_bin")"
+        if dir_is_writable_or_creatable "$_existing_dir"; then
+            ensure_dir_exists "$_existing_dir"
+            INSTALL_DIR="$_existing_dir"
+            return 0
+        fi
+    fi
+
+    if command -v brew >/dev/null 2>&1; then
+        _brew_bin="$(dirname "$(command -v brew)")"
+    fi
+
+    _old_ifs="$IFS"
+    IFS=':'
+    for _entry in $PATH; do
+        [ -n "$_entry" ] || continue
+        _supported=false
+        case "$_entry" in
+            "$_home_bin"|"$_local_bin"|"/opt/homebrew/bin"|"/usr/local/bin")
+                _supported=true
+                ;;
+        esac
+        if [ "$_supported" = false ] && [ -n "$_brew_bin" ] && [ "$_entry" = "$_brew_bin" ]; then
+            _supported=true
+        fi
+        if [ "$_supported" = true ] && dir_is_writable_or_creatable "$_entry"; then
+            ensure_dir_exists "$_entry"
+            IFS="$_old_ifs"
+            INSTALL_DIR="$_entry"
+            return 0
+        fi
+    done
+    IFS="$_old_ifs"
+
+    if dir_is_writable_or_creatable "$_home_bin"; then
+        ensure_dir_exists "$_home_bin"
+        ensure_future_shell_path "$_home_bin" || true
+        INSTALL_DIR="$_home_bin"
+        return 0
+    fi
+
+    error "Could not find a writable install directory on macOS. Set INSTALL_DIR manually."
+}
+
+resolve_install_dir() {
+    _existing_bin="$1"
+    if [ -n "$INSTALL_DIR" ]; then
+        ensure_dir_exists "$INSTALL_DIR"
+        return
+    fi
+    if [ "$OS" = "darwin" ]; then
+        resolve_darwin_install_dir "$_existing_bin"
+        return
+    fi
+    if [ -n "$_existing_bin" ]; then
+        INSTALL_DIR="$(dirname "$_existing_bin")"
+    else
+        INSTALL_DIR="${INSTALL_DIR_DEFAULT}"
+    fi
+}
+
+cleanup_previous_binary() {
+    _old_bin="$1"
+    _new_bin="$2"
+    if [ -z "$_old_bin" ] || [ "$_old_bin" = "$_new_bin" ] || [ ! -f "$_old_bin" ]; then
+        return 0
+    fi
+    if [ -w "$_old_bin" ] || [ -w "$(dirname "$_old_bin")" ]; then
+        rm -f "$_old_bin"
+        info "Removed previous installation at ${_old_bin}"
+        return 0
+    fi
+    warn "Previous installation remains at ${_old_bin}"
+    warn "Remove it later if you no longer need it: sudo rm -f ${_old_bin}"
 }
 
 get_latest_version() {
@@ -289,7 +455,9 @@ install_llama_server() {
 
     _llama_dir="${CSGHUB_LITE_LLAMA_SERVER_INSTALL_DIR:-}"
     if [ -z "$_llama_dir" ]; then
-        if [ -n "$_existing_llama" ]; then
+        if [ "$OS" = "darwin" ] && [ -n "${INSTALL_DIR:-}" ]; then
+            _llama_dir="${INSTALL_DIR}"
+        elif [ -n "$_existing_llama" ]; then
             _llama_dir="$(dirname "$_existing_llama")"
         elif command -v csghub-lite >/dev/null 2>&1; then
             _llama_dir="$(dirname "$(command -v csghub-lite)")"
@@ -469,7 +637,7 @@ start_csghub_lite_server() {
         info "Started csghub-lite server in background."
         SERVER_START_STATUS="started"
     else
-        warn "Could not verify background server startup. Try: ${BINARY_NAME} serve"
+        warn "Could not verify background server startup. Try: ${_server_bin} serve"
         SERVER_START_STATUS="failed"
     fi
 }
@@ -531,16 +699,14 @@ main() {
     fi
     chmod +x "$BINARY_PATH"
 
-    if [ -z "$INSTALL_DIR" ]; then
-        EXISTING_BIN="$(command -v "$BINARY_NAME" 2>/dev/null || true)"
-        if [ -n "$EXISTING_BIN" ]; then
-            INSTALL_DIR="$(dirname "$EXISTING_BIN")"
-        else
-            INSTALL_DIR="${INSTALL_DIR_DEFAULT}"
-        fi
-    fi
+    EXISTING_BIN="$(command -v "$BINARY_NAME" 2>/dev/null || true)"
+    resolve_install_dir "$EXISTING_BIN"
+    ensure_dir_exists "$INSTALL_DIR"
 
     TARGET="${INSTALL_DIR}/${BINARY_NAME}"
+    if [ "$OS" = "darwin" ] && [ -n "$EXISTING_BIN" ] && [ "$EXISTING_BIN" != "$TARGET" ]; then
+        info "Installing to ${TARGET} instead of ${EXISTING_BIN} to avoid sudo on macOS."
+    fi
     if [ -w "$INSTALL_DIR" ]; then
         mv "$BINARY_PATH" "$TARGET"
     else
@@ -548,6 +714,7 @@ main() {
         sudo mv "$BINARY_PATH" "$TARGET"
     fi
     rm -rf "$TMPDIR"
+    cleanup_previous_binary "$EXISTING_BIN" "$TARGET"
 
     ACTIVE_BIN="$(command -v "$BINARY_NAME" 2>/dev/null || true)"
     if [ -n "$ACTIVE_BIN" ] && [ "$ACTIVE_BIN" != "$TARGET" ]; then
@@ -564,18 +731,32 @@ main() {
     # Done
     printf "\n${GREEN}${BOLD}✔ ${BINARY_NAME} ${VERSION} installed successfully!${NC}\n\n"
 
+    QUICKSTART_BIN="${BINARY_NAME}"
+    if [ -n "$INSTALL_PATH_DIR" ]; then
+        QUICKSTART_BIN="${TARGET}"
+        warn "${INSTALL_DIR} is not on your current PATH yet."
+        info "Added ${INSTALL_DIR} to future shells via ${INSTALL_PATH_PROFILE}"
+        info "To use ${BINARY_NAME} in this shell now, run: export PATH=\"${INSTALL_PATH_DIR}:\$PATH\""
+        info "Then run: hash -r"
+        printf "\n"
+    elif [ "$OS" = "darwin" ] && [ -n "$EXISTING_BIN" ] && [ "$EXISTING_BIN" != "$TARGET" ]; then
+        QUICKSTART_BIN="${TARGET}"
+        info "If your current shell still resolves the previous copy, run: hash -r"
+        printf "\n"
+    fi
+
     printf "${BOLD}Quick start:${NC}\n"
     if [ "$SERVER_START_STATUS" = "started" ] || [ "$SERVER_START_STATUS" = "running" ]; then
-        printf "  ${BINARY_NAME} run Qwen/Qwen3-0.6B-GGUF    # Run a model\n"
-        printf "  ${BINARY_NAME} ps                          # List running models\n"
-        printf "  ${BINARY_NAME} stop-service                # Stop background server\n"
+        printf "  %s run Qwen/Qwen3-0.6B-GGUF    # Run a model\n" "$QUICKSTART_BIN"
+        printf "  %s ps                          # List running models\n" "$QUICKSTART_BIN"
+        printf "  %s stop-service                # Stop background server\n" "$QUICKSTART_BIN"
     else
-        printf "  ${BINARY_NAME} serve                       # Start server with Web UI\n"
-        printf "  ${BINARY_NAME} run Qwen/Qwen3-0.6B-GGUF    # Run a model\n"
-        printf "  ${BINARY_NAME} ps                          # List running models\n"
+        printf "  %s serve                       # Start server with Web UI\n" "$QUICKSTART_BIN"
+        printf "  %s run Qwen/Qwen3-0.6B-GGUF    # Run a model\n" "$QUICKSTART_BIN"
+        printf "  %s ps                          # List running models\n" "$QUICKSTART_BIN"
     fi
-    printf "  ${BINARY_NAME} login                       # Set CSGHub token\n"
-    printf "  ${BINARY_NAME} --help                      # Show all commands\n"
+    printf "  %s login                       # Set CSGHub token\n" "$QUICKSTART_BIN"
+    printf "  %s --help                      # Show all commands\n" "$QUICKSTART_BIN"
     printf "\n"
     printf "${BOLD}Web UI:${NC}\n"
     if [ "$SERVER_START_STATUS" = "started" ] || [ "$SERVER_START_STATUS" = "running" ]; then
