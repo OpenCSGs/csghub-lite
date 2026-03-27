@@ -708,7 +708,7 @@ func buildScriptCommand(scriptPath string, source *scriptSource) (*exec.Cmd, err
 
 	args := []string{
 		"-lc",
-		`if [ -f "$HOME/.myshrc" ]; then . "$HOME/.myshrc" >/dev/null 2>&1 || true; fi; exec "$@"`,
+		`exec "$@"`,
 		"csghub-app-installer",
 		bash,
 		scriptPath,
