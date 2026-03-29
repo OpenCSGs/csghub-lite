@@ -1,7 +1,7 @@
 import { useEffect, useRef } from "preact/hooks";
 import { signal, computed } from "@preact/signals";
-import { getTags, getPs, streamChat } from "../api/client";
-import type { ModelInfo, ChatMessage, ContentPart } from "../api/client";
+import { getTags, getPs, streamChat, getCloudAuthStatus, saveCloudToken } from "../api/client";
+import type { ModelInfo, ChatMessage, ContentPart, CloudAuthStatus } from "../api/client";
 import { t, locale } from "../i18n";
 
 interface Session {
@@ -12,12 +12,21 @@ interface Session {
 }
 
 const availableModels = signal<ModelInfo[]>([]);
-const selectedModel = signal("");
+const selectedModelKey = signal("");
 const sessions = signal<Session[]>(loadSessions());
 const activeSessionId = signal(sessions.value[0]?.id || "");
 const inputText = signal("");
 const isGenerating = signal(false);
 const showSettings = signal(false);
+const showCloudAuthDialog = signal(false);
+const cloudAuth = signal<CloudAuthStatus | null>(null);
+const cloudTokenInput = signal("");
+const cloudAuthError = signal("");
+const isSavingCloudToken = signal(false);
+
+function hasCloudAuth(status: CloudAuthStatus | null | undefined): boolean {
+  return status?.authenticated ?? status?.has_token ?? false;
+}
 
 const systemPrompt = signal("");
 const temperature = signal(0.95);
@@ -31,9 +40,25 @@ const contextStorageKey = "csghub.chat.num_ctx";
 const contextLengthSteps = [4096, 8192, 16384, 32768, 65536, 131072, 262144];
 const contextLengthLabels = ["4k", "8k", "16k", "32k", "64k", "128k", "256k"];
 
+function modelKey(model: Pick<ModelInfo, "model" | "name" | "source">): string {
+  return `${model.source || "local"}:${model.model || model.name}`;
+}
+
+function modelLabel(model: ModelInfo): string {
+  const label = model.display_name || model.name;
+  const tags: string[] = [];
+  if (model.source === "cloud") tags.push(t("chat.cloud"));
+  if (model.pipeline_tag === "image-text-to-text") tags.push("VL");
+  return tags.length > 0 ? `${label} [${tags.join("] [")}]` : label;
+}
+
+const selectedModelInfo = computed(() =>
+  availableModels.value.find((x) => modelKey(x) === selectedModelKey.value)
+);
+
 const isVisionModel = computed(() => {
-  const m = availableModels.value.find((x) => x.name === selectedModel.value);
-  return m?.pipeline_tag === "image-text-to-text" && m?.has_mmproj === true;
+  const m = selectedModelInfo.value;
+  return m?.pipeline_tag === "image-text-to-text" && (m?.source === "cloud" || m?.has_mmproj === true);
 });
 
 function normalizeImage(file: File): Promise<{ full: string; thumb: string }> {
@@ -134,18 +159,88 @@ export function Chat() {
   const abortRef = useRef<AbortController | null>(null);
   void locale.value;
 
+  const refreshCloudAuth = async (): Promise<CloudAuthStatus> => {
+    const status = await getCloudAuthStatus();
+    cloudAuth.value = status;
+    return status;
+  };
+
+  const openCloudAuthDialog = async (message = "") => {
+    cloudAuthError.value = message;
+    showCloudAuthDialog.value = true;
+    try {
+      await refreshCloudAuth();
+    } catch {
+      /* ignore */
+    }
+  };
+
+  const handleModelChange = (nextKey: string) => {
+    selectedModelKey.value = nextKey;
+    const model = availableModels.value.find((x) => modelKey(x) === nextKey);
+    if (model?.source === "cloud" && !hasCloudAuth(cloudAuth.value)) {
+      void openCloudAuthDialog(t("chat.cloudLoginRequired"));
+    }
+  };
+
+  const handleOpenCloudLogin = () => {
+    const url = cloudAuth.value?.login_url;
+    if (url) {
+      window.open(url, "_blank", "noopener,noreferrer");
+    }
+  };
+
+  const handleOpenCloudTokenPage = () => {
+    const url = cloudAuth.value?.access_token_url;
+    if (url) {
+      window.open(url, "_blank", "noopener,noreferrer");
+    }
+  };
+
+  const handleSaveCloudToken = async () => {
+    const token = cloudTokenInput.value.trim();
+    if (!token) {
+      cloudAuthError.value = t("chat.cloudTokenEmpty");
+      return;
+    }
+
+    isSavingCloudToken.value = true;
+    cloudAuthError.value = "";
+    try {
+      const status = await saveCloudToken(token);
+      cloudAuth.value = status;
+      if (!hasCloudAuth(status)) {
+        cloudAuthError.value = t("chat.cloudLoginExpired");
+        return;
+      }
+      cloudTokenInput.value = "";
+      showCloudAuthDialog.value = false;
+    } catch (e: any) {
+      cloudAuthError.value = e?.message || t("chat.failedResp");
+    } finally {
+      isSavingCloudToken.value = false;
+    }
+  };
+
   useEffect(() => {
     getTags().then((m) => {
       availableModels.value = m;
-      if (!selectedModel.value && m.length > 0) {
-        const gguf = m.filter((x) => x.format === "gguf");
-        selectedModel.value = gguf.length > 0 ? gguf[0].name : m[0].name;
+      if (!selectedModelKey.value && m.length > 0) {
+        const localModels = m.filter((x) => (x.source || "local") === "local");
+        const gguf = localModels.filter((x) => x.format === "gguf");
+        const fallback = gguf[0] || localModels[0] || m[0];
+        if (fallback) {
+          selectedModelKey.value = modelKey(fallback);
+        }
       }
     }).catch(() => {});
     getPs().then((running) => {
-      if (running.length > 0 && !selectedModel.value) {
-        selectedModel.value = running[0].name;
+      if (running.length > 0 && !selectedModelKey.value) {
+        selectedModelKey.value = `local:${running[0].model || running[0].name}`;
       }
+    }).catch(() => {});
+    getCloudAuthStatus().then((status) => {
+      cloudAuth.value = status;
     }).catch(() => {});
   }, []);
 
@@ -176,7 +271,21 @@ export function Chat() {
 
   const handleSend = async () => {
     const text = inputText.value.trim();
-    if (!text || !selectedModel.value || isGenerating.value) return;
+    const currentModel = selectedModelInfo.value;
+    if (!text || !currentModel || isGenerating.value) return;
+
+    if (currentModel.source === "cloud") {
+      try {
+        const status = cloudAuth.value || await refreshCloudAuth();
+        if (!hasCloudAuth(status)) {
+          await openCloudAuthDialog(t("chat.cloudLoginRequired"));
+          return;
+        }
+      } catch {
+        await openCloudAuthDialog(t("chat.cloudLoginRequired"));
+        return;
+      }
+    }
 
     const session = getActiveSession();
     if (!session) {
@@ -232,7 +341,7 @@ export function Chat() {
     chatError.value = "";
     try {
       await streamChat(
-        selectedModel.value,
+        currentModel.model || currentModel.name,
         apiMessages,
         {
           temperature: temperature.value,
@@ -240,6 +349,7 @@ export function Chat() {
           max_tokens: maxTokens.value,
           num_ctx: normalizeNumCtx(session.numCtx),
           system: systemPrompt.value || undefined,
+          source: currentModel.source,
         },
         (token, done) => {
           if (done) {
@@ -257,6 +367,7 @@ export function Chat() {
         ac.signal
       );
     } catch (e: any) {
+      const errMessage = e?.message || t("chat.failedResp");
       if (streamingContent.value) {
         session.messages.push({
           role: "assistant",
@@ -266,7 +377,11 @@ export function Chat() {
         streamingContent.value = "";
         saveSessions();
       } else if (!ac.signal.aborted) {
-        chatError.value = e?.message || t("chat.failedResp");
+        if (currentModel.source === "cloud" && /(AUTH-ERR-1|AUTH-ERR-5|login first|Error 401)/i.test(errMessage)) {
+          await openCloudAuthDialog(t("chat.cloudLoginExpired"));
+        } else {
+          chatError.value = errMessage;
+        }
       }
     }
 
@@ -385,12 +500,12 @@ export function Chat() {
             {/* Model selector */}
             <select
               class="border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-600 focus:outline-none focus:ring-2 focus:ring-indigo-500 max-w-[200px]"
-              value={selectedModel.value}
-              onChange={(e) => (selectedModel.value = (e.target as HTMLSelectElement).value)}
+              value={selectedModelKey.value}
+              onChange={(e) => handleModelChange((e.target as HTMLSelectElement).value)}
             >
               {availableModels.value.map((m) => (
-                <option key={m.name} value={m.name}>
-                  {m.name}{m.pipeline_tag === "image-text-to-text" ? " [VL]" : ""}
+                <option key={modelKey(m)} value={modelKey(m)}>
+                  {modelLabel(m)}
                 </option>
               ))}
             </select>
@@ -426,7 +541,7 @@ export function Chat() {
             ) : (
               <button
                 onClick={handleSend}
-                disabled={!inputText.value.trim() || !selectedModel.value}
+                disabled={!inputText.value.trim() || !selectedModelInfo.value}
                 class="p-2.5 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-40 transition-colors"
                 title={t("chat.send")}
               >
@@ -507,6 +622,83 @@ export function Chat() {
             </svg>
             {t("chat.resetDefaults")}
           </button>
+        </div>
+      )}
+      {showCloudAuthDialog.value && (
+        <div class="fixed inset-0 z-50 flex items-center justify-center bg-gray-900/40 px-4">
+          <div class="w-full max-w-lg rounded-2xl bg-white p-6 shadow-2xl">
+            <div class="flex items-start justify-between gap-4">
+              <div>
+                <h3 class="text-lg font-semibold text-gray-900">{t("chat.cloudLoginTitle")}</h3>
+                <p class="mt-2 text-sm leading-6 text-gray-500">{t("chat.cloudLoginDesc")}</p>
+              </div>
+              <button
+                onClick={() => {
+                  showCloudAuthDialog.value = false;
+                  cloudAuthError.value = "";
+                }}
+                class="rounded-lg p-1 text-gray-400 hover:text-gray-600"
+                aria-label={t("chat.cloudCancel")}
+              >
+                <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+
+            {cloudAuthError.value && (
+              <div class="mt-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                {cloudAuthError.value}
+              </div>
+            )}
+
+            <div class="mt-5 flex flex-wrap gap-2">
+              <button
+                onClick={handleOpenCloudLogin}
+                class="rounded-lg border border-gray-200 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
+              >
+                {t("chat.cloudOpenLogin")}
+              </button>
+              <button
+                onClick={handleOpenCloudTokenPage}
+                class="rounded-lg border border-gray-200 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
+              >
+                {t("chat.cloudOpenTokenPage")}
+              </button>
+            </div>
+
+            <div class="mt-5">
+              <label class="mb-2 block text-sm font-medium text-gray-700">{t("chat.cloudTokenLabel")}</label>
+              <input
+                type="password"
+                autoComplete="off"
+                spellcheck={false}
+                class="w-full rounded-lg border border-gray-200 px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                placeholder={t("chat.cloudTokenPlaceholder")}
+                value={cloudTokenInput.value}
+                onInput={(e) => (cloudTokenInput.value = (e.target as HTMLInputElement).value)}
+              />
+            </div>
+
+            <div class="mt-5 flex justify-end gap-2">
+              <button
+                onClick={() => {
+                  showCloudAuthDialog.value = false;
+                  cloudAuthError.value = "";
+                }}
+                class="rounded-lg border border-gray-200 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
+              >
+                {t("chat.cloudCancel")}
+              </button>
+              <button
+                onClick={handleSaveCloudToken}
+                disabled={isSavingCloudToken.value}
+                class="rounded-lg bg-indigo-600 px-4 py-2 text-sm text-white hover:bg-indigo-700 disabled:opacity-60 transition-colors"
+              >
+                {isSavingCloudToken.value ? t("chat.cloudSavingToken") : t("chat.cloudSaveToken")}
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

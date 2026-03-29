@@ -5,9 +5,77 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"
+$packageName = "@anthropic-ai/claude-code"
 
 function Emit-Progress([int]$Percent, [string]$Phase) {
     Write-Output "CSGHUB_PROGRESS|$Percent|$Phase"
+}
+
+function Choose-Registry() {
+    $registries = @()
+    if ($env:NPM_CONFIG_REGISTRY) {
+        $registries += $env:NPM_CONFIG_REGISTRY
+    }
+    $registries += @(
+        "https://registry.npmmirror.com",
+        "https://registry.npmjs.org"
+    )
+
+    $seen = @{}
+    foreach ($registry in $registries) {
+        if ([string]::IsNullOrWhiteSpace($registry) -or $seen.ContainsKey($registry)) {
+            continue
+        }
+        $seen[$registry] = $true
+        Write-Output "INFO: checking npm registry $registry"
+        & npm view $packageName version --registry $registry *> $null
+        if ($LASTEXITCODE -eq 0) {
+            return $registry
+        }
+    }
+
+    return ""
+}
+
+function Install-WithNpm() {
+    if (-not (Get-Command npm -ErrorAction SilentlyContinue)) {
+        Write-Output "INFO: npm not found; falling back to native Claude Code installer"
+        return $false
+    }
+
+    Emit-Progress 10 "preflight"
+    $registry = Choose-Registry
+    if ([string]::IsNullOrWhiteSpace($registry)) {
+        Write-Output "WARN: unable to reach a working npm registry for $packageName; falling back to native installer"
+        return $false
+    }
+
+    $packageSpec = $packageName
+    if ($Target -and $Target -ne "latest") {
+        $packageSpec = "$packageName@$Target"
+    }
+
+    Write-Output "INFO: using npm registry $registry"
+    Emit-Progress 25 "resolving_latest"
+    Emit-Progress 55 "installing"
+    & npm install -g $packageSpec --registry $registry
+    if ($LASTEXITCODE -ne 0) {
+        throw "npm install -g $packageSpec failed with exit code $LASTEXITCODE"
+    }
+
+    Emit-Progress 90 "verifying"
+    if (-not (Get-Command claude -ErrorAction SilentlyContinue)) {
+        throw "Claude Code command was not found on PATH after npm installation"
+    }
+
+    try { claude --version } catch {}
+    Emit-Progress 100 "complete"
+    Write-Output "INFO: Claude Code installation complete via npm"
+    return $true
+}
+
+if (Install-WithNpm) {
+    return
 }
 
 if (-not [Environment]::Is64BitProcess) {

@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/opencsgs/csghub-lite/internal/apps"
+	"github.com/opencsgs/csghub-lite/internal/cloud"
 	"github.com/opencsgs/csghub-lite/internal/config"
 	"github.com/opencsgs/csghub-lite/internal/dataset"
 	"github.com/opencsgs/csghub-lite/internal/inference"
@@ -42,6 +43,8 @@ type Server struct {
 	manager        *model.Manager
 	datasetManager *dataset.Manager
 	appManager     *apps.Manager
+	appShells      *aiAppShellManager
+	cloud          *cloud.Service
 	http           *http.Server
 	logBuf         *LogBuffer
 
@@ -61,9 +64,11 @@ func New(cfg *config.Config, version string) *Server {
 		manager:        mgr,
 		datasetManager: dsMgr,
 		appManager:     apps.NewManager(cfg),
+		cloud:          cloud.NewService(cloud.DefaultBaseURL),
 		engines:        make(map[string]*managedEngine),
 		logBuf:         logBuf,
 	}
+	s.appShells = newAIAppShellManager()
 
 	handler := s.routes()
 	s.http = &http.Server{

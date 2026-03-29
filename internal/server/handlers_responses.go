@@ -43,8 +43,12 @@ func (s *Server) handleOpenAIResponses(w http.ResponseWriter, r *http.Request) {
 		opts.MaxTokens = *req.MaxOutputTokens
 	}
 
-	eng, err := s.getOrLoadEngineWithNumCtx(req.Model, 0)
+	eng, err := s.getChatEngine(r.Context(), req.Model, "", 0)
 	if err != nil {
+		if inference.HTTPStatusCode(err) != 0 {
+			writeOpenAIInferenceError(w, err)
+			return
+		}
 		writeOpenAIError(w, http.StatusBadRequest, "model_not_found", err.Error())
 		return
 	}
@@ -143,7 +147,7 @@ func (s *Server) handleOpenAIResponses(w http.ResponseWriter, r *http.Request) {
 
 	text, err := eng.Chat(r.Context(), messages, opts, nil)
 	if err != nil {
-		writeOpenAIError(w, http.StatusInternalServerError, "server_error", err.Error())
+		writeOpenAIInferenceError(w, err)
 		return
 	}
 

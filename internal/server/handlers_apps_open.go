@@ -5,12 +5,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net"
 	neturl "net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"sort"
 	"strings"
 	"time"
 
@@ -27,7 +27,7 @@ const (
 	openClawDashboardPrefix = "Dashboard URL:"
 )
 
-func (s *Server) openAIAppURL(ctx context.Context, appID string) (string, error) {
+func (s *Server) openAIAppURL(ctx context.Context, appID, modelID, workDir string) (string, error) {
 	info, err := s.appManager.Get(ctx, appID)
 	if err != nil {
 		return "", err
@@ -41,19 +41,23 @@ func (s *Server) openAIAppURL(ctx context.Context, appID string) (string, error)
 
 	switch appID {
 	case "openclaw":
-		return s.openClawChatURL(ctx)
+		return s.openClawChatURL(ctx, modelID)
+	case "claude-code", "open-code", "codex":
+		return s.openAIAppShellURL(ctx, appID, modelID, workDir)
 	default:
 		return "", fmt.Errorf("%s does not provide a direct chat entry yet", appID)
 	}
 }
 
-func (s *Server) openClawChatURL(ctx context.Context) (string, error) {
+func (s *Server) openClawChatURL(ctx context.Context, modelID string) (string, error) {
 	binary, err := exec.LookPath("openclaw")
 	if err != nil {
 		return "", fmt.Errorf("OpenClaw is installed, but its launch command was not found on PATH")
 	}
 
-	if err := s.ensureOpenClawProfile(ctx, binary); err != nil {
+	s.refreshOpenClawModelCatalog(ctx)
+
+	if err := s.ensureOpenClawProfile(ctx, binary, modelID); err != nil {
 		return "", err
 	}
 
@@ -73,8 +77,19 @@ func (s *Server) openClawChatURL(ctx context.Context) (string, error) {
 	return openClawDirectChatURL(url, "main")
 }
 
-func (s *Server) ensureOpenClawProfile(ctx context.Context, binary string) error {
-	modelID, err := s.resolveOpenClawModel()
+func (s *Server) refreshOpenClawModelCatalog(ctx context.Context) {
+	if s.cloud == nil || strings.TrimSpace(s.cfg.Token) == "" {
+		return
+	}
+
+	s.cloud.InvalidateChatModels()
+	if _, err := s.cloud.RefreshChatModels(ctx); err != nil {
+		log.Printf("refreshing cloud models before opening OpenClaw failed: %v", err)
+	}
+}
+
+func (s *Server) ensureOpenClawProfile(ctx context.Context, binary, requestedModelID string) error {
+	modelID, _, err := s.resolveAIAppLaunchModels(ctx, requestedModelID)
 	if err != nil {
 		return err
 	}
@@ -119,27 +134,6 @@ func (s *Server) ensureOpenClawProfile(ctx context.Context, binary string) error
 		return fmt.Errorf("configuring OpenClaw: %s", msg)
 	}
 	return nil
-}
-
-func (s *Server) resolveOpenClawModel() (string, error) {
-	models, err := s.manager.List()
-	if err != nil {
-		return "", fmt.Errorf("listing local models: %w", err)
-	}
-	if len(models) == 0 {
-		return "", fmt.Errorf("no local models were found. Use 'csghub-lite pull MODEL' before opening OpenClaw")
-	}
-
-	sort.SliceStable(models, func(i, j int) bool {
-		left := scoreOpenClawModel(models[i])
-		right := scoreOpenClawModel(models[j])
-		if left != right {
-			return left > right
-		}
-		return models[i].DownloadedAt.After(models[j].DownloadedAt)
-	})
-
-	return models[0].FullName(), nil
 }
 
 func scoreOpenClawModel(m *model.LocalModel) int64 {

@@ -23,7 +23,7 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("DELETE /api/datasets/delete", s.handleDatasetDelete)
 
 	mux.HandleFunc("POST /v1/chat/completions", s.handleOpenAIChatCompletions)
-	mux.HandleFunc("GET /v1/models", s.handleOpenAIModels)
+	mux.HandleFunc("GET /v1/models", s.handleModels)
 	mux.HandleFunc("GET /v1/responses", s.handleOpenAIResponsesUnsupported)
 	mux.HandleFunc("POST /v1/responses", s.handleOpenAIResponses)
 	mux.HandleFunc("POST /v1/messages", s.handleAnthropicMessages)
@@ -34,6 +34,9 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("GET /api/marketplace/datasets", s.handleMarketplaceDatasets)
 	mux.HandleFunc("GET /api/system", s.handleSystem)
 	mux.HandleFunc("GET /api/settings", s.handleSettings)
+	mux.HandleFunc("GET /api/cloud/auth", s.handleCloudAuthStatus)
+	mux.HandleFunc("POST /api/cloud/auth/token", s.handleCloudAuthTokenSave)
+	mux.HandleFunc("DELETE /api/cloud/auth/token", s.handleCloudAuthTokenDelete)
 	mux.HandleFunc("POST /api/shutdown", s.handleShutdown)
 	mux.HandleFunc("GET /api/logs", s.handleLogs)
 	mux.HandleFunc("GET /api/apps", s.handleApps)
@@ -41,6 +44,8 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("POST /api/apps/uninstall", s.handleAppUninstall)
 	mux.HandleFunc("POST /api/apps/open", s.handleAppOpen)
 	mux.HandleFunc("GET /api/apps/logs", s.handleAppLogs)
+	mux.HandleFunc("GET /api/apps/shell/{id}/ws", s.handleAppShellWS)
+	mux.HandleFunc("POST /api/apps/shell/{id}/close", s.handleAppShellClose)
 
 	// Static files: serve embedded web UI or dev fallback
 	if hasEmbeddedStatic() {

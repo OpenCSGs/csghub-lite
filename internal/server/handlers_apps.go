@@ -85,7 +85,7 @@ func (s *Server) handleAppOpen(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	url, err := s.openAIAppURL(r.Context(), req.AppID)
+	url, err := s.openAIAppURL(r.Context(), req.AppID, req.ModelID, req.WorkDir)
 	if err != nil {
 		if strings.Contains(err.Error(), "unknown app") {
 			writeError(w, http.StatusNotFound, err.Error())

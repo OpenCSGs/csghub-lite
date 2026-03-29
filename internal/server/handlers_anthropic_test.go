@@ -1,0 +1,325 @@
+package server
+
+import (
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/opencsgs/csghub-lite/internal/config"
+	"github.com/opencsgs/csghub-lite/internal/inference"
+	"github.com/opencsgs/csghub-lite/internal/model"
+	"github.com/opencsgs/csghub-lite/pkg/api"
+)
+
+func newAnthropicProxyTestServer(t *testing.T, engine inference.Engine) *Server {
+	t.Helper()
+
+	cfg := &config.Config{ModelDir: t.TempDir()}
+	if err := model.SaveManifest(cfg.ModelDir, &model.LocalModel{
+		Namespace:    "test",
+		Name:         "model",
+		Format:       model.FormatGGUF,
+		Size:         1,
+		Files:        []string{"model.gguf", "config.json"},
+		DownloadedAt: time.Now(),
+	}); err != nil {
+		t.Fatalf("save model manifest: %v", err)
+	}
+	modelDir := filepath.Join(cfg.ModelDir, "test", "model")
+	if err := os.MkdirAll(modelDir, 0o755); err != nil {
+		t.Fatalf("mkdir model dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(modelDir, "config.json"), []byte(`{"max_position_embeddings":40960}`), 0o644); err != nil {
+		t.Fatalf("write config.json: %v", err)
+	}
+
+	s := New(cfg, "test")
+	s.engines["test/model"] = &managedEngine{engine: engine, numCtx: 16384}
+	return s
+}
+
+func TestAnthropicMessagesToOpenAI_ToolLoop(t *testing.T) {
+	req := api.AnthropicMessageRequest{
+		Model:  "test/model",
+		System: []interface{}{map[string]interface{}{"type": "text", "text": "You are helpful."}},
+		Messages: []api.AnthropicMessage{
+			{
+				Role: "user",
+				Content: []interface{}{
+					map[string]interface{}{"type": "text", "text": "run pwd"},
+				},
+			},
+			{
+				Role: "assistant",
+				Content: []interface{}{
+					map[string]interface{}{"type": "text", "text": "Let me check."},
+					map[string]interface{}{
+						"type":  "tool_use",
+						"id":    "toolu_123",
+						"name":  "exec",
+						"input": map[string]interface{}{"command": "pwd"},
+					},
+				},
+			},
+			{
+				Role: "user",
+				Content: []interface{}{
+					map[string]interface{}{
+						"type":        "tool_result",
+						"tool_use_id": "toolu_123",
+						"content": []interface{}{
+							map[string]interface{}{"type": "text", "text": "/tmp/project"},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	got, err := anthropicMessagesToOpenAI(req)
+	if err != nil {
+		t.Fatalf("anthropicMessagesToOpenAI returned error: %v", err)
+	}
+	if len(got) != 4 {
+		t.Fatalf("expected 4 messages, got %d: %#v", len(got), got)
+	}
+	if got[0]["role"] != "system" || got[0]["content"] != "You are helpful." {
+		t.Fatalf("unexpected system message: %#v", got[0])
+	}
+	if got[1]["role"] != "user" || got[1]["content"] != "run pwd" {
+		t.Fatalf("unexpected user message: %#v", got[1])
+	}
+	if got[2]["role"] != "assistant" || got[2]["content"] != "Let me check." {
+		t.Fatalf("unexpected assistant message: %#v", got[2])
+	}
+
+	assistantCalls, ok := got[2]["tool_calls"].([]map[string]interface{})
+	if !ok || len(assistantCalls) != 1 {
+		t.Fatalf("expected one assistant tool call, got %#v", got[2]["tool_calls"])
+	}
+	call := assistantCalls[0]
+	if call["id"] != "toolu_123" {
+		t.Fatalf("tool call id = %#v, want toolu_123", call["id"])
+	}
+	function, ok := call["function"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("expected function payload, got %#v", call["function"])
+	}
+	if function["name"] != "exec" {
+		t.Fatalf("tool name = %#v, want exec", function["name"])
+	}
+	if function["arguments"] != "{\"command\":\"pwd\"}" {
+		t.Fatalf("arguments = %#v, want JSON payload", function["arguments"])
+	}
+
+	if got[3]["role"] != "tool" {
+		t.Fatalf("unexpected tool message role: %#v", got[3])
+	}
+	if got[3]["tool_call_id"] != "toolu_123" {
+		t.Fatalf("tool_call_id = %#v, want toolu_123", got[3]["tool_call_id"])
+	}
+	if got[3]["name"] != "exec" {
+		t.Fatalf("tool name = %#v, want exec", got[3]["name"])
+	}
+	if got[3]["content"] != "/tmp/project" {
+		t.Fatalf("tool content = %#v, want /tmp/project", got[3]["content"])
+	}
+}
+
+func TestAnthropicMessageResponseFromOpenAI_ToolUse(t *testing.T) {
+	openAIResp := api.OpenAIChatResponse{
+		Model: "test/model",
+		Usage: api.OpenAIUsage{
+			PromptTokens:     42,
+			CompletionTokens: 7,
+		},
+		Choices: []api.OpenAIChoice{{
+			Index: 0,
+			Message: &api.Message{
+				Role:    "assistant",
+				Content: "Checking...",
+				ToolCalls: []api.ToolCall{{
+					ID:   "call_123",
+					Type: "function",
+					Function: api.ToolFunction{
+						Name:      "exec",
+						Arguments: "{\"command\":\"pwd\"}",
+					},
+				}},
+			},
+		}},
+	}
+
+	got, err := anthropicMessageResponseFromOpenAI("msg_test", "test/model", openAIResp, 5)
+	if err != nil {
+		t.Fatalf("anthropicMessageResponseFromOpenAI returned error: %v", err)
+	}
+	if got.StopReason != "tool_use" {
+		t.Fatalf("stop_reason = %q, want tool_use", got.StopReason)
+	}
+	if got.Usage.InputTokens != 42 || got.Usage.OutputTokens != 7 {
+		t.Fatalf("unexpected usage: %#v", got.Usage)
+	}
+	if len(got.Content) != 2 {
+		t.Fatalf("expected 2 content blocks, got %#v", got.Content)
+	}
+	if got.Content[0].Type != "text" || got.Content[0].Text != "Checking..." {
+		t.Fatalf("unexpected first block: %#v", got.Content[0])
+	}
+	if got.Content[1].Type != "tool_use" || got.Content[1].ID != "call_123" || got.Content[1].Name != "exec" {
+		t.Fatalf("unexpected tool block: %#v", got.Content[1])
+	}
+	input, ok := got.Content[1].Input.(map[string]interface{})
+	if !ok {
+		t.Fatalf("expected decoded tool input, got %#v", got.Content[1].Input)
+	}
+	if input["command"] != "pwd" {
+		t.Fatalf("tool input = %#v, want command=pwd", input)
+	}
+}
+
+func TestHandleAnthropicMessagesWithTools(t *testing.T) {
+	engine := &fakeChatCompletionEngine{
+		resp: api.OpenAIChatResponse{
+			ID:      "chatcmpl-test",
+			Object:  "chat.completion",
+			Created: 123,
+			Model:   "test/model",
+			Choices: []api.OpenAIChoice{{
+				Index: 0,
+				Message: &api.Message{
+					Role:    "assistant",
+					Content: nil,
+					ToolCalls: []api.ToolCall{{
+						ID:   "call_123",
+						Type: "function",
+						Function: api.ToolFunction{
+							Name:      "exec",
+							Arguments: "{\"command\":\"pwd\"}",
+						},
+					}},
+				},
+			}},
+		},
+	}
+	s := newAnthropicProxyTestServer(t, engine)
+
+	body := `{
+	  "model": "test/model",
+	  "messages": [{"role":"user","content":[{"type":"text","text":"run pwd"}]}],
+	  "tools": [{
+	    "name":"exec",
+	    "description":"Run a command",
+	    "input_schema":{"type":"object","properties":{"command":{"type":"string"}},"required":["command"]}
+	  }],
+	  "tool_choice":{"type":"any"},
+	  "stream": false
+	}`
+	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(body))
+	req.Header.Set("Anthropic-Version", "2023-06-01")
+	w := httptest.NewRecorder()
+
+	s.handleAnthropicMessages(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("unexpected status code: %d body=%s", w.Code, w.Body.String())
+	}
+
+	var resp api.AnthropicMessageResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if resp.StopReason != "tool_use" {
+		t.Fatalf("stop_reason = %q, want tool_use", resp.StopReason)
+	}
+	if len(resp.Content) != 1 || resp.Content[0].Type != "tool_use" {
+		t.Fatalf("unexpected content blocks: %#v", resp.Content)
+	}
+	if resp.Content[0].Name != "exec" || resp.Content[0].ID != "call_123" {
+		t.Fatalf("unexpected tool block: %#v", resp.Content[0])
+	}
+
+	if engine.lastReq["tool_choice"] != "required" {
+		t.Fatalf("tool_choice = %#v, want required", engine.lastReq["tool_choice"])
+	}
+	tools, ok := engine.lastReq["tools"].([]api.Tool)
+	if !ok || len(tools) != 1 {
+		t.Fatalf("expected forwarded tools, got %#v", engine.lastReq["tools"])
+	}
+	messages, ok := engine.lastReq["messages"].([]map[string]interface{})
+	if !ok || len(messages) != 1 {
+		t.Fatalf("expected one forwarded message, got %#v", engine.lastReq["messages"])
+	}
+	if messages[0]["role"] != "user" || messages[0]["content"] != "run pwd" {
+		t.Fatalf("unexpected forwarded message: %#v", messages[0])
+	}
+}
+
+func TestHandleAnthropicMessagesStreamWithTools(t *testing.T) {
+	engine := &fakeChatCompletionEngine{
+		resp: api.OpenAIChatResponse{
+			ID:      "chatcmpl-test",
+			Object:  "chat.completion",
+			Created: 123,
+			Model:   "test/model",
+			Choices: []api.OpenAIChoice{{
+				Index: 0,
+				Message: &api.Message{
+					Role:    "assistant",
+					Content: "Checking...",
+					ToolCalls: []api.ToolCall{{
+						ID:   "call_123",
+						Type: "function",
+						Function: api.ToolFunction{
+							Name:      "exec",
+							Arguments: "{\"command\":\"pwd\"}",
+						},
+					}},
+				},
+			}},
+		},
+	}
+	s := newAnthropicProxyTestServer(t, engine)
+
+	body := `{
+	  "model": "test/model",
+	  "messages": [{"role":"user","content":"run pwd"}],
+	  "tools": [{
+	    "name":"exec",
+	    "description":"Run a command",
+	    "input_schema":{"type":"object","properties":{"command":{"type":"string"}},"required":["command"]}
+	  }],
+	  "tool_choice":{"type":"auto"},
+	  "stream": true
+	}`
+	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(body))
+	req.Header.Set("Anthropic-Version", "2023-06-01")
+	w := httptest.NewRecorder()
+
+	s.handleAnthropicMessages(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("unexpected status code: %d body=%s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Header().Get("Content-Type"), "text/event-stream") {
+		t.Fatalf("content-type = %q, want text/event-stream", w.Header().Get("Content-Type"))
+	}
+	bodyText := w.Body.String()
+	if !strings.Contains(bodyText, `event: content_block_start`) {
+		t.Fatalf("expected content_block_start event, got %s", bodyText)
+	}
+	if !strings.Contains(bodyText, `"type":"tool_use"`) {
+		t.Fatalf("expected tool_use block in stream, got %s", bodyText)
+	}
+	if !strings.Contains(bodyText, `"type":"input_json_delta"`) {
+		t.Fatalf("expected input_json_delta in stream, got %s", bodyText)
+	}
+	if !strings.Contains(bodyText, `"stop_reason":"tool_use"`) {
+		t.Fatalf("expected tool_use stop reason in stream, got %s", bodyText)
+	}
+}

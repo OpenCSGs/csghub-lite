@@ -4,6 +4,8 @@ export interface ModelInfo {
   size: number;
   format: string;
   modified_at: string;
+  display_name?: string;
+  source?: string;
   pipeline_tag?: string;
   has_mmproj?: boolean;
 }
@@ -77,6 +79,23 @@ export interface AIAppOpenResponse {
   url: string;
 }
 
+export interface CloudAuthStatus {
+  auth_mode: string;
+  has_token: boolean;
+  authenticated: boolean;
+  login_url: string;
+  access_token_url: string;
+  user?: CloudAuthUser | null;
+}
+
+export interface CloudAuthUser {
+  username: string;
+  nickname?: string;
+  email?: string;
+  avatar?: string;
+  uuid?: string;
+}
+
 export type ChatContent = string | ContentPart[];
 
 export interface ContentPart {
@@ -119,25 +138,42 @@ function unexpectedJSONError(url: string, contentType: string, body: string): Er
   return new Error(`Expected JSON from ${url}, but received ${contentType || "non-JSON response"}.`);
 }
 
+function extractErrorMessage(body: string, contentType: string, fallback: string): string {
+  if (contentType.includes("application/json")) {
+    try {
+      const parsed = JSON.parse(body) as {
+        error?: string | { message?: string };
+        msg?: string;
+        message?: string;
+      };
+      if (typeof parsed.error === "string" && parsed.error.trim()) {
+        return parsed.error.trim();
+      }
+      if (parsed.error && typeof parsed.error === "object" && typeof parsed.error.message === "string" && parsed.error.message.trim()) {
+        return parsed.error.message.trim();
+      }
+      if (typeof parsed.msg === "string" && parsed.msg.trim()) {
+        return parsed.msg.trim();
+      }
+      if (typeof parsed.message === "string" && parsed.message.trim()) {
+        return parsed.message.trim();
+      }
+    } catch {
+      /* ignore */
+    }
+  }
+
+  const preview = previewResponseBody(body);
+  return preview || fallback;
+}
+
 async function fetchJSON<T>(url: string, init?: RequestInit): Promise<T> {
   const resp = await fetch(url, init);
   const contentType = resp.headers.get("content-type") || "";
   const body = await resp.text();
 
   if (!resp.ok) {
-    if (contentType.includes("application/json")) {
-      let errorMessage = resp.statusText;
-      try {
-        const err = JSON.parse(body) as { error?: string };
-        errorMessage = err.error || resp.statusText;
-      } catch {
-        /* keep status text */
-      }
-      throw new Error(errorMessage);
-    }
-
-    const preview = previewResponseBody(body);
-    throw new Error(preview || resp.statusText);
+    throw new Error(extractErrorMessage(body, contentType, resp.statusText));
   }
 
   if (!contentType.includes("application/json")) {
@@ -159,6 +195,24 @@ export async function getTags(): Promise<ModelInfo[]> {
 export async function getPs(): Promise<RunningModel[]> {
   const data = await fetchJSON<{ models: RunningModel[] }>("/api/ps");
   return data.models || [];
+}
+
+export async function getCloudAuthStatus(): Promise<CloudAuthStatus> {
+  return fetchJSON<CloudAuthStatus>("/api/cloud/auth");
+}
+
+export async function saveCloudToken(token: string): Promise<CloudAuthStatus> {
+  return fetchJSON<CloudAuthStatus>("/api/cloud/auth/token", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ token }),
+  });
+}
+
+export async function clearCloudToken(): Promise<CloudAuthStatus> {
+  return fetchJSON<CloudAuthStatus>("/api/cloud/auth/token", {
+    method: "DELETE",
+  });
 }
 
 export async function stopModel(model: string): Promise<void> {
@@ -306,7 +360,7 @@ function stripImagesFromOldMessages(msgs: ChatMessage[]): ChatMessage[] {
 export function streamChat(
   model: string,
   messages: ChatMessage[],
-  options: { temperature?: number; top_p?: number; max_tokens?: number; num_ctx?: number; system?: string },
+  options: { temperature?: number; top_p?: number; max_tokens?: number; num_ctx?: number; system?: string; source?: string },
   onToken: (token: string, done: boolean) => void,
   signal?: AbortSignal
 ): Promise<void> {
@@ -325,6 +379,7 @@ export function streamChat(
       },
       body: JSON.stringify({
         model,
+        source: options.source,
         messages: msgs,
         stream: true,
         options: {
@@ -338,8 +393,9 @@ export function streamChat(
     })
       .then(async (resp) => {
         if (!resp.ok) {
+          const contentType = resp.headers.get("content-type") || "";
           const errText = await resp.text().catch(() => resp.statusText);
-          reject(new Error(`Error ${resp.status}: ${errText}`));
+          reject(new Error(`Error ${resp.status}: ${extractErrorMessage(errText, contentType, resp.statusText)}`));
           return;
         }
         if (!resp.body) {
@@ -643,11 +699,15 @@ export async function uninstallAIApp(appId: string): Promise<AIAppInfo> {
   });
 }
 
-export async function openAIApp(appId: string): Promise<AIAppOpenResponse> {
+export async function openAIApp(appId: string, modelId?: string, workDir?: string): Promise<AIAppOpenResponse> {
   return fetchJSON<AIAppOpenResponse>("/api/apps/open", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ app_id: appId }),
+    body: JSON.stringify({
+      app_id: appId,
+      model_id: modelId || undefined,
+      work_dir: workDir || undefined,
+    }),
   });
 }
 

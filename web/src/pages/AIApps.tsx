@@ -1,3 +1,4 @@
+import type { ComponentChildren } from "preact";
 import { computed, signal } from "@preact/signals";
 import { useEffect, useRef } from "preact/hooks";
 import {
@@ -147,7 +148,7 @@ export function AIApps() {
     }
   };
 
-  const handleOpenChat = async (appId: string) => {
+  const handleOpenApp = async (appId: string) => {
     pendingOpenId.value = appId;
     apiError.value = "";
     const popup = openAppPopup();
@@ -238,7 +239,7 @@ export function AIApps() {
               apps={grouped.installed}
               onOpenDetails={(appId) => openDrawer(appId, "details")}
               onInstall={handleInstall}
-              onOpenChat={handleOpenChat}
+              onOpenChat={handleOpenApp}
             />
           </section>
 
@@ -249,7 +250,7 @@ export function AIApps() {
                 apps={grouped.others}
                 onOpenDetails={(appId) => openDrawer(appId, "details")}
                 onInstall={handleInstall}
-                onOpenChat={handleOpenChat}
+                onOpenChat={handleOpenApp}
               />
             </>
           )}
@@ -259,7 +260,7 @@ export function AIApps() {
           apps={filteredApps.value}
           onOpenDetails={(appId) => openDrawer(appId, "details")}
           onInstall={handleInstall}
-          onOpenChat={handleOpenChat}
+          onOpenChat={handleOpenApp}
         />
       )}
 
@@ -274,7 +275,7 @@ export function AIApps() {
           pendingInstall={pendingInstallId.value === selectedApp.value.id}
           pendingUninstall={pendingUninstallId.value === selectedApp.value.id}
           pendingOpen={pendingOpenId.value === selectedApp.value.id}
-          onOpenChat={() => handleOpenChat(selectedApp.value!.id)}
+          onOpenChat={() => handleOpenApp(selectedApp.value!.id)}
         />
       )}
     </div>
@@ -332,7 +333,7 @@ function AIAppCard({
   const isInstalling = state.status === "installing";
   const isUninstalling = state.status === "uninstalling";
   const isWorking = isInstalling || isUninstalling;
-  const canOpenChat = canOpenAIAppChat(app, state);
+  const canOpenChat = canOpenAIApp(app, state);
 
   return (
     <div class={`relative border rounded-xl bg-white p-5 flex flex-col justify-between min-h-[236px] overflow-hidden ${
@@ -419,8 +420,8 @@ function AIAppCard({
                       : "text-indigo-600 hover:text-indigo-700"
                   }`}
                 >
-                  <ChatIcon className="w-3.5 h-3.5" />
-                  {pendingOpen ? t("aiApps.opening") : t("aiApps.chat")}
+                  <OpenIcon className="w-3.5 h-3.5" />
+                  {pendingOpen ? t("aiApps.opening") : t("aiApps.open")}
                 </button>
               )}
               {!isInstalled && (
@@ -476,7 +477,7 @@ function LiveLogsDrawer({
   const isWorking = isInstalling || isUninstalling;
   const showTaskLogs = state.liveLogsReady && (mode === "install" || isWorking);
   const requestPending = pendingInstall || pendingUninstall;
-  const canOpenChat = canOpenAIAppChat(app, state);
+  const canOpenChat = canOpenAIApp(app, state);
 
   useEffect(() => {
     if (!showTaskLogs) {
@@ -550,7 +551,7 @@ function LiveLogsDrawer({
 
           <div class="grid grid-cols-1 sm:grid-cols-4 gap-3">
             <SummaryTile label={t("aiApps.installMode")} value={installModeLabel(app.installMode)} />
-            <SummaryTile label={t("aiApps.progressMode")} value={renderProgressLabel(state.progressMode, state.progress)} />
+            <SummaryTile label={t("aiApps.progressMode")} value={renderProgressValue(state.progressMode, state.progress)} />
             <SummaryTile label={t("aiApps.currentStatus")} value={statusLabel(state)} />
             <SummaryTile label={t("aiApps.version")} value={state.version || "—"} />
           </div>
@@ -662,7 +663,7 @@ function LiveLogsDrawer({
                     : "border-indigo-200 text-indigo-600 hover:bg-indigo-50"
                 }`}
               >
-                {pendingOpen ? t("aiApps.opening") : t("aiApps.chat")}
+                {pendingOpen ? t("aiApps.opening") : t("aiApps.open")}
               </button>
             )}
             {!state.disabled && !isWorking && state.status === "installed" && (
@@ -727,7 +728,7 @@ function SpinnerProgress({ label }: { label: string }) {
   );
 }
 
-function SummaryTile({ label, value }: { label: string; value: string }) {
+function SummaryTile({ label, value }: { label: string; value: ComponentChildren }) {
   return (
     <div class="rounded-xl border border-gray-200 bg-gray-50 px-4 py-3">
       <div class="text-[11px] uppercase tracking-wide text-gray-400 font-medium">{label}</div>
@@ -793,11 +794,17 @@ function categoryClassName(category: AIAppCategory): string {
   return "bg-violet-50 text-violet-700";
 }
 
-function renderProgressLabel(progressMode: AIAppProgressMode, progress: number | undefined): string {
+function renderProgressValue(progressMode: AIAppProgressMode, progress: number | undefined): ComponentChildren {
   if (progressMode === "percent" && typeof progress === "number") {
     return `${progress}%`;
   }
-  return t("aiApps.indeterminate");
+  const label = t("aiApps.indeterminate");
+  return (
+    <span class="inline-flex h-5 items-center" title={label} aria-label={label}>
+      <span class="inline-block w-4 h-4 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin" />
+      <span class="sr-only">{label}</span>
+    </span>
+  );
 }
 
 function installModeLabel(mode: AIAppInstallMode): string {
@@ -859,8 +866,10 @@ function drawerNotice(state: AIAppRuntimeState): string {
   return t("aiApps.readyToInstall");
 }
 
-function canOpenAIAppChat(app: AIAppCatalogEntry, state: AIAppRuntimeState): boolean {
-  return app.id === "openclaw" && state.status === "installed" && !state.disabled;
+function canOpenAIApp(app: AIAppCatalogEntry, state: AIAppRuntimeState): boolean {
+  return ["openclaw", "claude-code", "open-code", "codex"].includes(app.id) &&
+    state.status === "installed" &&
+    !state.disabled;
 }
 
 function CheckIcon({ className }: { className: string }) {
@@ -887,10 +896,11 @@ function CloseIcon({ className }: { className: string }) {
   );
 }
 
-function ChatIcon({ className }: { className: string }) {
+function OpenIcon({ className }: { className: string }) {
   return (
     <svg class={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-      <path stroke-linecap="round" stroke-linejoin="round" d="M8 10h.01M12 10h.01M16 10h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.488C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+      <path stroke-linecap="round" stroke-linejoin="round" d="M13 7h4m0 0v4m0-4l-7 7" />
+      <path stroke-linecap="round" stroke-linejoin="round" d="M7 7h2a2 2 0 012 2v8a2 2 0 01-2 2H7a2 2 0 01-2-2V9a2 2 0 012-2z" />
     </svg>
   );
 }

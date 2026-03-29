@@ -10,6 +10,8 @@
   },
   "dependencies": {
     "@preact/signals": "^2.0.2",
+    "@xterm/addon-fit": "^0.11.0",
+    "@xterm/xterm": "^6.0.0",
     "preact": "^10.25.4",
     "preact-iso": "^2.11.1"
   },

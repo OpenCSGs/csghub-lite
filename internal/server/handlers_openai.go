@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/opencsgs/csghub-lite/internal/inference"
@@ -44,8 +45,12 @@ func (s *Server) handleOpenAIChatCompletions(w http.ResponseWriter, r *http.Requ
 		opts.Stop = req.Stop
 	}
 
-	eng, err := s.getOrLoadEngineWithNumCtx(req.Model, requestedNumCtx)
+	eng, err := s.getChatEngine(r.Context(), req.Model, "", requestedNumCtx)
 	if err != nil {
+		if inference.HTTPStatusCode(err) != 0 {
+			writeOpenAIInferenceError(w, err)
+			return
+		}
 		writeOpenAIError(w, http.StatusBadRequest, "model_not_found", err.Error())
 		return
 	}
@@ -109,7 +114,7 @@ func (s *Server) handleOpenAIChatCompletions(w http.ResponseWriter, r *http.Requ
 	} else {
 		response, err := eng.Chat(r.Context(), messages, opts, nil)
 		if err != nil {
-			writeOpenAIError(w, http.StatusInternalServerError, "server_error", err.Error())
+			writeOpenAIInferenceError(w, err)
 			return
 		}
 
@@ -161,7 +166,7 @@ func (s *Server) handleOpenAIChatCompletionsWithTools(
 			writeSSE(w, map[string]string{"error": err.Error()})
 			return
 		}
-		writeOpenAIError(w, http.StatusInternalServerError, "server_error", err.Error())
+		writeOpenAIInferenceError(w, err)
 		return
 	}
 	defer resp.Body.Close()
@@ -283,26 +288,43 @@ func openAIChoiceFinishReason(choice api.OpenAIChoice) string {
 
 // GET /v1/models -- OpenAI-compatible model listing
 func (s *Server) handleOpenAIModels(w http.ResponseWriter, r *http.Request) {
-	models, err := s.manager.List()
+	models, err := s.listAvailableModels(r.Context())
 	if err != nil {
 		writeOpenAIError(w, http.StatusInternalServerError, "server_error", err.Error())
 		return
 	}
 
-	var data []api.OpenAIModel
-	for _, m := range models {
-		data = append(data, api.OpenAIModel{
-			ID:      m.FullName(),
-			Object:  "model",
-			Created: m.DownloadedAt.Unix(),
-			OwnedBy: "csghub",
-		})
+	seen := make(map[string]struct{}, len(models))
+	data := make([]api.OpenAIModel, 0, len(models)+4)
+	for _, item := range models {
+		data = appendOpenAIModel(data, seen, item.Model, item.ModifiedAt)
 	}
 
 	writeJSON(w, http.StatusOK, api.OpenAIModelList{
 		Object: "list",
 		Data:   data,
 	})
+}
+
+func writeOpenAIInferenceError(w http.ResponseWriter, err error) {
+	status := inference.HTTPStatusCode(err)
+	if status == 0 {
+		status = http.StatusInternalServerError
+	}
+
+	errType := "server_error"
+	switch status {
+	case http.StatusBadRequest:
+		errType = "invalid_request_error"
+	case http.StatusUnauthorized, http.StatusForbidden:
+		errType = "authentication_error"
+	case http.StatusNotFound:
+		errType = "model_not_found"
+	case http.StatusTooManyRequests:
+		errType = "rate_limit_error"
+	}
+
+	writeOpenAIError(w, status, errType, inference.HTTPErrorMessage(err))
 }
 
 func writeOpenAIError(w http.ResponseWriter, status int, errType, msg string) {
@@ -313,5 +335,28 @@ func writeOpenAIError(w http.ResponseWriter, status int, errType, msg string) {
 			"message": msg,
 			"type":    errType,
 		},
+	})
+}
+
+func appendOpenAIModel(data []api.OpenAIModel, seen map[string]struct{}, modelID string, createdAt time.Time) []api.OpenAIModel {
+	modelID = strings.TrimSpace(modelID)
+	if modelID == "" {
+		return data
+	}
+	if _, ok := seen[modelID]; ok {
+		return data
+	}
+	seen[modelID] = struct{}{}
+
+	created := int64(0)
+	if !createdAt.IsZero() {
+		created = createdAt.Unix()
+	}
+
+	return append(data, api.OpenAIModel{
+		ID:      modelID,
+		Object:  "model",
+		Created: created,
+		OwnedBy: "csghub",
 	})
 }

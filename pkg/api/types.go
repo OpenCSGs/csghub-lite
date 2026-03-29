@@ -13,6 +13,7 @@ type GenerateRequest struct {
 
 type ChatRequest struct {
 	Model    string        `json:"model"`
+	Source   string        `json:"source,omitempty"`
 	Messages []Message     `json:"messages"`
 	Tools    []Tool        `json:"tools,omitempty"`
 	Stream   *bool         `json:"stream,omitempty"`
@@ -128,6 +129,8 @@ type ModelInfo struct {
 	Size        int64     `json:"size"`
 	Format      string    `json:"format"`
 	ModifiedAt  time.Time `json:"modified_at"`
+	DisplayName string    `json:"display_name,omitempty"`
+	Source      string    `json:"source,omitempty"`
 	PipelineTag string    `json:"pipeline_tag,omitempty"`
 	HasMMProj   bool      `json:"has_mmproj,omitempty"`
 }
@@ -202,7 +205,9 @@ type DatasetPullResponse struct {
 // -- AI Apps request/response types --
 
 type AIAppActionRequest struct {
-	AppID string `json:"app_id"`
+	AppID   string `json:"app_id"`
+	ModelID string `json:"model_id,omitempty"`
+	WorkDir string `json:"work_dir,omitempty"`
 }
 
 type AIAppInstallRequest = AIAppActionRequest

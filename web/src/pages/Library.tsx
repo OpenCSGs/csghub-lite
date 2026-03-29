@@ -31,8 +31,12 @@ const filtered = computed(() => {
   });
 });
 
+function isCloudModel(model: Pick<ModelInfo, "source">): boolean {
+  return model.source === "cloud";
+}
+
 function loadModels() {
-  getTags().then((m) => (allModels.value = m)).catch(() => {});
+  getTags().then((m) => (allModels.value = m.filter((model) => !isCloudModel(model)))).catch(() => {});
   getPs().then((m) => (runningModels.value = m)).catch(() => {});
 }
 

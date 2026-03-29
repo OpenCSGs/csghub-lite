@@ -1,4 +1,4 @@
-import { LocationProvider, Router, Route } from "preact-iso";
+import { LocationProvider, Router, Route, useLocation } from "preact-iso";
 import { Layout } from "./components/Layout";
 import { Dashboard } from "./pages/Dashboard";
 import { Marketplace } from "./pages/Marketplace";
@@ -7,21 +7,34 @@ import { Datasets } from "./pages/Datasets";
 import { Chat } from "./pages/Chat";
 import { Settings } from "./pages/Settings";
 import { AIApps } from "./pages/AIApps";
+import { AIAppShell } from "./pages/AIAppShell";
 
 export function App() {
   return (
     <LocationProvider>
-      <Layout>
-        <Router>
-          <Route path="/" component={Dashboard} />
-          <Route path="/marketplace" component={Marketplace} />
-          <Route path="/library" component={Library} />
-          <Route path="/datasets" component={Datasets} />
-          <Route path="/chat" component={Chat} />
-          <Route path="/ai-apps" component={AIApps} />
-          <Route path="/settings" component={Settings} />
-        </Router>
-      </Layout>
+      <AppRoutes />
     </LocationProvider>
+  );
+}
+
+function AppRoutes() {
+  const { path } = useLocation();
+
+  if (path === "/ai-apps/shell") {
+    return <AIAppShell />;
+  }
+
+  return (
+    <Layout>
+      <Router>
+        <Route path="/" component={Dashboard} />
+        <Route path="/marketplace" component={Marketplace} />
+        <Route path="/library" component={Library} />
+        <Route path="/datasets" component={Datasets} />
+        <Route path="/chat" component={Chat} />
+        <Route path="/ai-apps" component={AIApps} />
+        <Route path="/settings" component={Settings} />
+      </Router>
+    </Layout>
   );
 }

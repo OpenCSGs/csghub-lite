@@ -456,7 +456,7 @@ func (m *Manager) runAction(ctx context.Context, spec appSpec, action string) {
 			m.failAction(spec, action, fmt.Sprintf("%s timed out after %s", runnerName, installTimeout))
 			return
 		}
-		m.failAction(spec, action, err.Error())
+		m.failAction(spec, action, m.actionErrorMessage(spec.id, err.Error()))
 		return
 	}
 
@@ -620,6 +620,70 @@ func (m *Manager) failAction(spec appSpec, action, errMsg string) {
 	st.info.UpdatedAt = time.Now()
 }
 
+func (m *Manager) actionErrorMessage(appID, fallback string) string {
+	m.mu.RLock()
+	st := m.states[appID]
+	m.mu.RUnlock()
+	if st == nil {
+		return fallback
+	}
+	if msg := summarizeFailureLogs(st.logBuf.Recent(50)); msg != "" {
+		return msg
+	}
+	return fallback
+}
+
+func summarizeFailureLogs(lines []string) string {
+	for i := len(lines) - 1; i >= 0; i-- {
+		line := stripLogTimestamp(lines[i])
+		if strings.HasPrefix(line, "ERROR:") {
+			return strings.TrimSpace(strings.TrimPrefix(line, "ERROR:"))
+		}
+	}
+	for i := len(lines) - 1; i >= 0; i-- {
+		line := stripLogTimestamp(lines[i])
+		if actionableNPMError(line) {
+			return line
+		}
+	}
+	return ""
+}
+
+func actionableNPMError(line string) bool {
+	prefixes := []string{"npm error ", "npm ERR! "}
+	for _, prefix := range prefixes {
+		if !strings.HasPrefix(line, prefix) {
+			continue
+		}
+		skipPrefixes := []string{
+			prefix + "code ",
+			prefix + "syscall ",
+			prefix + "path ",
+			prefix + "dest ",
+			prefix + "errno ",
+			prefix + "A complete log ",
+		}
+		for _, skip := range skipPrefixes {
+			if strings.HasPrefix(line, skip) {
+				return false
+			}
+		}
+		return true
+	}
+	return false
+}
+
+func stripLogTimestamp(line string) string {
+	line = strings.TrimSpace(line)
+	if len(line) <= 20 || line[19] != ' ' {
+		return line
+	}
+	if _, err := time.Parse("2006-01-02 15:04:05", line[:19]); err == nil {
+		return strings.TrimSpace(line[20:])
+	}
+	return line
+}
+
 func (m *Manager) appendLog(appID string, logFile *os.File, line string) {
 	m.mu.RLock()
 	st := m.states[appID]
@@ -638,27 +702,28 @@ func (m *Manager) resolveScript(appID string, source *scriptSource) ([]byte, str
 	if source == nil {
 		return nil, "", fmt.Errorf("no script configured for %s on %s", appID, runtime.GOOS)
 	}
+	data, err := embeddedScripts.ReadFile(source.embeddedPath)
+	if err == nil {
+		return data, "embedded:" + source.embeddedPath, nil
+	}
+
 	if source.mirrorURL != "" {
-		req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, source.mirrorURL, nil)
-		if err == nil {
-			resp, err := m.httpClient.Do(req)
-			if err == nil {
+		req, reqErr := http.NewRequestWithContext(context.Background(), http.MethodGet, source.mirrorURL, nil)
+		if reqErr == nil {
+			resp, httpErr := m.httpClient.Do(req)
+			if httpErr == nil {
 				defer resp.Body.Close()
 				if resp.StatusCode >= 200 && resp.StatusCode < 300 {
-					data, err := io.ReadAll(resp.Body)
-					if err == nil {
-						return data, source.mirrorURL, nil
+					remoteData, readErr := io.ReadAll(resp.Body)
+					if readErr == nil {
+						return remoteData, source.mirrorURL, nil
 					}
 				}
 			}
 		}
 	}
 
-	data, err := embeddedScripts.ReadFile(source.embeddedPath)
-	if err != nil {
-		return nil, "", fmt.Errorf("read embedded script: %w", err)
-	}
-	return data, "embedded:" + source.embeddedPath, nil
+	return nil, "", fmt.Errorf("read embedded script: %w", err)
 }
 
 func (m *Manager) writeTempScript(appID string, source *scriptSource, content []byte) (string, error) {

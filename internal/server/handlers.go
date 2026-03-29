@@ -25,6 +25,14 @@ func writeError(w http.ResponseWriter, status int, msg string) {
 	writeJSON(w, status, map[string]string{"error": msg})
 }
 
+func writeInferenceError(w http.ResponseWriter, err error) {
+	status := inference.HTTPStatusCode(err)
+	if status == 0 {
+		status = http.StatusInternalServerError
+	}
+	writeError(w, status, inference.HTTPErrorMessage(err))
+}
+
 func writeSSE(w http.ResponseWriter, v interface{}) {
 	data, _ := json.Marshal(v)
 	fmt.Fprintf(w, "data: %s\n\n", data)
@@ -77,9 +85,18 @@ func (s *Server) handleTags(w http.ResponseWriter, r *http.Request) {
 			Size:        m.Size,
 			Format:      string(m.Format),
 			ModifiedAt:  m.DownloadedAt,
+			Source:      "local",
 			PipelineTag: tag,
 			HasMMProj:   hasMMProj,
 		})
+	}
+	if s.cloud != nil {
+		cloudModels, err := s.cloud.ListChatModels(r.Context())
+		if err != nil {
+			log.Printf("cloud models unavailable: %v", err)
+		} else {
+			infos = append(infos, cloudModels...)
+		}
 	}
 
 	writeJSON(w, http.StatusOK, api.TagsResponse{Models: infos})
@@ -386,9 +403,9 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	eng, err := s.getOrLoadEngineWithNumCtx(req.Model, requestedNumCtx)
+	eng, err := s.getChatEngine(r.Context(), req.Model, req.Source, requestedNumCtx)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		writeInferenceError(w, err)
 		return
 	}
 	defer s.touchEngine(req.Model)
@@ -410,7 +427,9 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("Cache-Control", "no-cache")
 			w.Header().Set("Connection", "keep-alive")
 
+			wroteChunk := false
 			onToken := func(token string) {
+				wroteChunk = true
 				writeSSE(w, api.ChatResponse{
 					Model: req.Model,
 					Message: &api.Message{
@@ -424,6 +443,10 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 
 			fullResp, err := eng.Chat(r.Context(), messages, opts, onToken)
 			if err != nil {
+				if !wroteChunk {
+					writeInferenceError(w, err)
+					return
+				}
 				writeSSE(w, api.ChatResponse{
 					Model: req.Model,
 					Message: &api.Message{
@@ -448,7 +471,9 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "no-cache")
 		w.Header().Set("Connection", "keep-alive")
 
+		wroteChunk := false
 		onToken := func(token string) {
+			wroteChunk = true
 			writeNDJSON(w, api.ChatResponse{
 				Model: req.Model,
 				Message: &api.Message{
@@ -462,6 +487,10 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 
 		_, err := eng.Chat(r.Context(), messages, opts, onToken)
 		if err != nil {
+			if !wroteChunk {
+				writeInferenceError(w, err)
+				return
+			}
 			writeNDJSON(w, api.ChatResponse{
 				Model: req.Model,
 				Message: &api.Message{
@@ -485,7 +514,7 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 	} else {
 		response, err := eng.Chat(r.Context(), messages, opts, nil)
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, err.Error())
+			writeInferenceError(w, err)
 			return
 		}
 		writeJSON(w, http.StatusOK, api.ChatResponse{

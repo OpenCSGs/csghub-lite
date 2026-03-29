@@ -15,27 +15,50 @@ type ListResponse[T any] struct {
 	Total int    `json:"total"`
 }
 
+// TokenDetail describes an access token and its owner.
+type TokenDetail struct {
+	Token       string    `json:"token"`
+	TokenName   string    `json:"token_name"`
+	Application string    `json:"application"`
+	UserName    string    `json:"user_name"`
+	UserUUID    string    `json:"user_uuid"`
+	ExpireAt    time.Time `json:"expire_at"`
+}
+
+// User represents a user returned by the CSGHub API.
+type User struct {
+	ID        int      `json:"id"`
+	Username  string   `json:"username"`
+	Nickname  string   `json:"nickname"`
+	Email     string   `json:"email"`
+	UUID      string   `json:"uuid"`
+	Avatar    string   `json:"avatar"`
+	Roles     []string `json:"roles"`
+	Phone     string   `json:"phone"`
+	PhoneArea string   `json:"phone_area"`
+}
+
 // Model represents a model returned by the CSGHub API.
 type Model struct {
-	ID           int           `json:"id"`
-	Name         string        `json:"name"`
-	Nickname     string        `json:"nickname"`
-	Description  string        `json:"description"`
-	Likes        int           `json:"likes"`
-	Downloads    int           `json:"downloads"`
-	Path         string        `json:"path"`
-	RepositoryID int           `json:"repository_id"`
-	Private      bool          `json:"private"`
-	Tags         []Tag         `json:"tags"`
-	Repository   Repository    `json:"repository"`
-	DefaultBranch string       `json:"default_branch"`
-	CreatedAt    time.Time     `json:"created_at"`
-	UpdatedAt    time.Time     `json:"updated_at"`
-	License      string        `json:"license"`
-	Source       string        `json:"source"`
-	SyncStatus   string        `json:"sync_status"`
-	Metadata     ModelMetadata `json:"metadata"`
-	HFPath       string        `json:"hf_path"`
+	ID            int           `json:"id"`
+	Name          string        `json:"name"`
+	Nickname      string        `json:"nickname"`
+	Description   string        `json:"description"`
+	Likes         int           `json:"likes"`
+	Downloads     int           `json:"downloads"`
+	Path          string        `json:"path"`
+	RepositoryID  int           `json:"repository_id"`
+	Private       bool          `json:"private"`
+	Tags          []Tag         `json:"tags"`
+	Repository    Repository    `json:"repository"`
+	DefaultBranch string        `json:"default_branch"`
+	CreatedAt     time.Time     `json:"created_at"`
+	UpdatedAt     time.Time     `json:"updated_at"`
+	License       string        `json:"license"`
+	Source        string        `json:"source"`
+	SyncStatus    string        `json:"sync_status"`
+	Metadata      ModelMetadata `json:"metadata"`
+	HFPath        string        `json:"hf_path"`
 }
 
 type Tag struct {

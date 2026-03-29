@@ -100,15 +100,24 @@ func (s *Server) handleChatWithTools(w http.ResponseWriter, r *http.Request, req
 }
 
 func (s *Server) writeToolChatError(w http.ResponseWriter, model string, stream, sse bool, err error) {
+	status := inference.HTTPStatusCode(err)
+	message := inference.HTTPErrorMessage(err)
 	if !stream {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		if status == 0 {
+			status = http.StatusInternalServerError
+		}
+		writeError(w, status, message)
+		return
+	}
+	if status != 0 {
+		writeError(w, status, message)
 		return
 	}
 	resp := api.ChatResponse{
 		Model: model,
 		Message: &api.Message{
 			Role:    "assistant",
-			Content: "Error: " + err.Error(),
+			Content: "Error: " + message,
 		},
 		Done:      true,
 		CreatedAt: time.Now(),
@@ -148,6 +157,7 @@ func ollamaChatRequestToOpenAI(req api.ChatRequest, opts inference.Options) (map
 		return nil, err
 	}
 	body := map[string]interface{}{
+		"model":       req.Model,
 		"messages":    messages,
 		"temperature": opts.Temperature,
 		"top_p":       opts.TopP,

@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/opencsgs/csghub-lite/internal/cloud"
 	"github.com/opencsgs/csghub-lite/internal/config"
 	"github.com/opencsgs/csghub-lite/internal/model"
 	"github.com/opencsgs/csghub-lite/pkg/api"
@@ -21,7 +22,9 @@ func newTestServer(t *testing.T) *Server {
 		ListenAddr: ":0",
 		ModelDir:   dir,
 	}
-	return New(cfg, "test")
+	s := New(cfg, "test")
+	s.cloud = cloud.NewService("")
+	return s
 }
 
 func TestHandleHealth(t *testing.T) {
@@ -203,6 +206,28 @@ func TestHandleChat_InvalidBody(t *testing.T) {
 
 	if w.Code != http.StatusBadRequest {
 		t.Errorf("status = %d, want %d", w.Code, http.StatusBadRequest)
+	}
+}
+
+func TestHandleChat_CloudWithoutTokenReturnsUnauthorized(t *testing.T) {
+	s := newTestServer(t)
+
+	body := `{"model":"Qwen/Qwen3.5-35B-A3B-FP8:s-qwen-qwen3-5-35b-a3b-fp8-6dp9","source":"cloud","messages":[{"role":"user","content":"hi"}],"stream":false}`
+	req := httptest.NewRequest(http.MethodPost, "/api/chat", strings.NewReader(body))
+	w := httptest.NewRecorder()
+
+	s.handleChat(w, req)
+
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want %d", w.Code, http.StatusUnauthorized)
+	}
+
+	var resp map[string]string
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode error: %v", err)
+	}
+	if !strings.Contains(resp["error"], "Cloud login required") {
+		t.Fatalf("error = %q, want Cloud login required", resp["error"])
 	}
 }
 

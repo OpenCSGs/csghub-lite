@@ -2,6 +2,8 @@ import { signal } from "@preact/signals";
 import { useEffect } from "preact/hooks";
 import { t, locale, setLocale } from "../i18n";
 import type { Locale } from "../i18n";
+import { clearCloudToken, getCloudAuthStatus } from "../api/client";
+import type { CloudAuthStatus } from "../api/client";
 
 const contextLengthSteps = [4096, 8192, 16384, 32768, 65536, 131072, 262144];
 const contextLengthLabels = ["4k", "8k", "16k", "32k", "64k", "128k", "256k"];
@@ -10,6 +12,9 @@ const contextStorageKey = "csghub.chat.num_ctx";
 const modelLocation = signal("");
 const appVersion = signal("");
 const contextIndex = signal(1);
+const cloudAuth = signal<CloudAuthStatus | null>(null);
+const cloudAuthError = signal("");
+const isClearingCloudToken = signal(false);
 
 function loadContextIndex(): number {
   try {
@@ -48,13 +53,63 @@ function fetchSettings() {
     .catch(() => {});
 }
 
+function fetchCloudAuth() {
+  getCloudAuthStatus()
+    .then((status) => {
+      cloudAuth.value = status;
+      cloudAuthError.value = "";
+    })
+    .catch((err: any) => {
+      cloudAuth.value = null;
+      cloudAuthError.value = err?.message || "";
+    });
+}
+
+function openExternal(url?: string) {
+  if (url) {
+    window.open(url, "_blank", "noopener,noreferrer");
+  }
+}
+
+function cloudUserLabel(status: CloudAuthStatus | null): string {
+  const user = status?.user;
+  return (user?.nickname || user?.username || "").trim();
+}
+
+function cloudUserInitial(status: CloudAuthStatus | null): string {
+  const label = cloudUserLabel(status);
+  return label ? label[0].toUpperCase() : "?";
+}
+
 export function Settings() {
   void locale.value;
 
   useEffect(() => {
     fetchSettings();
+    fetchCloudAuth();
     contextIndex.value = loadContextIndex();
   }, []);
+
+  const handleOpenCloudLogin = () => {
+    openExternal(cloudAuth.value?.login_url);
+  };
+
+  const handleOpenCloudTokenPage = () => {
+    openExternal(cloudAuth.value?.access_token_url);
+  };
+
+  const handleLogout = async () => {
+    if (isClearingCloudToken.value) return;
+    isClearingCloudToken.value = true;
+    cloudAuthError.value = "";
+    try {
+      cloudAuth.value = await clearCloudToken();
+    } catch (err: any) {
+      cloudAuthError.value = err?.message || t("chat.failedResp");
+    } finally {
+      isClearingCloudToken.value = false;
+    }
+  };
 
   return (
     <div class="p-8 max-w-3xl mx-auto">
@@ -120,6 +175,106 @@ export function Settings() {
         <div class="flex gap-2 ml-7">
           <LangBtn code="en" label="EN" />
           <LangBtn code="zh" label="中文" />
+        </div>
+      </div>
+
+      {/* Account */}
+      <div class="mb-10">
+        <div class="flex items-center gap-2 mb-1">
+          <svg class="w-5 h-5 text-gray-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M5.121 17.804A9 9 0 1118.88 17.8M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+          </svg>
+          <span class="font-semibold text-gray-900">{t("settings.account")}</span>
+        </div>
+        <p class="text-sm text-gray-500 mb-3 ml-7">{t("settings.accountDesc")}</p>
+        <div class="ml-7 rounded-xl border border-gray-200 bg-white p-4">
+          {cloudAuth.value === null ? (
+            <p class="text-sm text-gray-500">...</p>
+          ) : cloudAuth.value.authenticated && cloudAuth.value.user ? (
+            <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+              <div class="flex items-center gap-4 min-w-0">
+                {cloudAuth.value.user.avatar ? (
+                  <img
+                    src={cloudAuth.value.user.avatar}
+                    alt={cloudUserLabel(cloudAuth.value)}
+                    class="w-12 h-12 rounded-full border border-gray-200 object-cover bg-gray-50"
+                  />
+                ) : (
+                  <div class="w-12 h-12 rounded-full bg-indigo-50 text-indigo-700 flex items-center justify-center text-lg font-semibold">
+                    {cloudUserInitial(cloudAuth.value)}
+                  </div>
+                )}
+                <div class="min-w-0">
+                  <p class="text-sm font-semibold text-gray-900 truncate">{cloudUserLabel(cloudAuth.value)}</p>
+                  <p class="text-sm text-gray-500 truncate">@{cloudAuth.value.user.username}</p>
+                  {cloudAuth.value.user.email && (
+                    <p class="text-sm text-gray-500 truncate">{cloudAuth.value.user.email}</p>
+                  )}
+                </div>
+              </div>
+              <div class="flex gap-2">
+                <button
+                  onClick={handleOpenCloudTokenPage}
+                  class="px-4 py-2 border border-gray-200 rounded-lg text-sm text-gray-700 hover:bg-gray-50 transition-colors"
+                >
+                  {t("settings.openTokenPage")}
+                </button>
+                <button
+                  onClick={handleLogout}
+                  disabled={isClearingCloudToken.value}
+                  class="px-4 py-2 border border-red-200 rounded-lg text-sm text-red-600 hover:bg-red-50 disabled:opacity-60 disabled:cursor-not-allowed transition-colors"
+                >
+                  {isClearingCloudToken.value ? t("settings.loggingOut") : t("settings.logout")}
+                </button>
+              </div>
+            </div>
+          ) : cloudAuth.value.has_token ? (
+            <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <p class="text-sm font-semibold text-gray-900">{t("settings.tokenSaved")}</p>
+                <p class="text-sm text-gray-500">{t("settings.tokenSavedDesc")}</p>
+              </div>
+              <div class="flex gap-2">
+                <button
+                  onClick={handleOpenCloudLogin}
+                  class="px-4 py-2 border border-gray-200 rounded-lg text-sm text-gray-700 hover:bg-gray-50 transition-colors"
+                >
+                  {t("settings.login")}
+                </button>
+                <button
+                  onClick={handleLogout}
+                  disabled={isClearingCloudToken.value}
+                  class="px-4 py-2 border border-red-200 rounded-lg text-sm text-red-600 hover:bg-red-50 disabled:opacity-60 disabled:cursor-not-allowed transition-colors"
+                >
+                  {isClearingCloudToken.value ? t("settings.loggingOut") : t("settings.logout")}
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <p class="text-sm font-semibold text-gray-900">{t("settings.loggedOut")}</p>
+                <p class="text-sm text-gray-500">{t("settings.loggedOutDesc")}</p>
+              </div>
+              <div class="flex gap-2">
+                <button
+                  onClick={handleOpenCloudLogin}
+                  class="px-4 py-2 border border-gray-200 rounded-lg text-sm text-gray-700 hover:bg-gray-50 transition-colors"
+                >
+                  {t("settings.login")}
+                </button>
+                <button
+                  onClick={handleOpenCloudTokenPage}
+                  class="px-4 py-2 border border-gray-200 rounded-lg text-sm text-gray-700 hover:bg-gray-50 transition-colors"
+                >
+                  {t("settings.openTokenPage")}
+                </button>
+              </div>
+            </div>
+          )}
+          {cloudAuthError.value && (
+            <p class="mt-3 text-sm text-red-600">{cloudAuthError.value}</p>
+          )}
         </div>
       </div>
 
