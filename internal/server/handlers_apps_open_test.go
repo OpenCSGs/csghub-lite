@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -601,6 +602,88 @@ func TestPrepareAIAppShellLaunchSetsTerminalEnvForClaudeCode(t *testing.T) {
 	}
 }
 
+func TestPrepareAIAppShellLaunchUsesCustomProviderForCodex(t *testing.T) {
+	binDir := t.TempDir()
+	commandPath := filepath.Join(binDir, "codex")
+	content := "#!/bin/sh\nexit 0\n"
+	if runtime.GOOS == "windows" {
+		commandPath = filepath.Join(binDir, "codex.cmd")
+		content = "@echo off\r\nexit /b 0\r\n"
+	}
+	if err := os.WriteFile(commandPath, []byte(content), 0o755); err != nil {
+		t.Fatalf("write fake binary: %v", err)
+	}
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	s := New(&config.Config{ListenAddr: ":11435"}, "test")
+	workDir := t.TempDir()
+	modelIDs := []string{
+		"Qwen/Qwen3.5-2B",
+		"afrideva/Qwen2-0.5B-Instruct-GGUF:fh23aijhzx8g",
+	}
+	prepared, err := s.prepareAIAppShellLaunch(aiAppOpenTarget{
+		AppID:       "codex",
+		DisplayName: "Codex",
+		Binaries:    []string{"codex"},
+	}, "Qwen/Qwen3.5-2B", modelIDs, workDir)
+	if err != nil {
+		t.Fatalf("prepareAIAppShellLaunch returned error: %v", err)
+	}
+
+	for _, want := range []string{
+		`model_provider="csghub_lite"`,
+		`model_providers.csghub_lite.name="CSGHub Lite"`,
+		`model_providers.csghub_lite.base_url="http://127.0.0.1:11435/v1"`,
+		`model_providers.csghub_lite.supports_websockets=false`,
+	} {
+		if !hasConfigOverride(prepared.Args, want) {
+			t.Fatalf("missing Codex config override %q in args %#v", want, prepared.Args)
+		}
+	}
+	if hasConfigPrefix(prepared.Args, "openai_base_url=") {
+		t.Fatalf("args = %#v, want custom provider config instead of openai_base_url", prepared.Args)
+	}
+	catalogValue := configValue(prepared.Args, "model_catalog_json=")
+	if catalogValue == "" {
+		t.Fatalf("missing model_catalog_json config in args %#v", prepared.Args)
+	}
+	catalogPath, err := strconv.Unquote(catalogValue)
+	if err != nil {
+		t.Fatalf("unquote model_catalog_json %q: %v", catalogValue, err)
+	}
+	data, err := os.ReadFile(catalogPath)
+	if err != nil {
+		t.Fatalf("read model catalog: %v", err)
+	}
+	var payload struct {
+		Models []struct {
+			Slug       string `json:"slug"`
+			Visibility string `json:"visibility"`
+			ShellType  string `json:"shell_type"`
+		} `json:"models"`
+	}
+	if err := json.Unmarshal(data, &payload); err != nil {
+		t.Fatalf("decode model catalog: %v", err)
+	}
+	if len(payload.Models) != len(modelIDs) {
+		t.Fatalf("model catalog count = %d, want %d", len(payload.Models), len(modelIDs))
+	}
+	for i, want := range modelIDs {
+		if payload.Models[i].Slug != want {
+			t.Fatalf("catalog model %d slug = %q, want %q", i, payload.Models[i].Slug, want)
+		}
+		if payload.Models[i].Visibility != "list" {
+			t.Fatalf("catalog model %d visibility = %q, want list", i, payload.Models[i].Visibility)
+		}
+		if payload.Models[i].ShellType != "shell_command" {
+			t.Fatalf("catalog model %d shell_type = %q, want shell_command", i, payload.Models[i].ShellType)
+		}
+	}
+	if envHasKey(prepared.Env, "OPENAI_API_KEY") {
+		t.Fatalf("OPENAI_API_KEY should not be set for Codex custom provider: %#v", prepared.Env)
+	}
+}
+
 func TestWriteOpenCodeWebLaunchConfigIncludesAllModels(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
@@ -707,6 +790,33 @@ func argValue(args []string, name string) string {
 	for i := 0; i+1 < len(args); i++ {
 		if args[i] == name {
 			return args[i+1]
+		}
+	}
+	return ""
+}
+
+func hasConfigOverride(args []string, want string) bool {
+	for i := 0; i+1 < len(args); i++ {
+		if (args[i] == "-c" || args[i] == "--config") && args[i+1] == want {
+			return true
+		}
+	}
+	return false
+}
+
+func hasConfigPrefix(args []string, prefix string) bool {
+	for i := 0; i+1 < len(args); i++ {
+		if (args[i] == "-c" || args[i] == "--config") && strings.HasPrefix(args[i+1], prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+func configValue(args []string, prefix string) string {
+	for i := 0; i+1 < len(args); i++ {
+		if (args[i] == "-c" || args[i] == "--config") && strings.HasPrefix(args[i+1], prefix) {
+			return strings.TrimPrefix(args[i+1], prefix)
 		}
 	}
 	return ""

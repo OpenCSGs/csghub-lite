@@ -6,6 +6,8 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -108,6 +110,110 @@ func TestWriteOpenCodeLaunchConfig(t *testing.T) {
 	options, ok := provider["options"].(map[string]interface{})
 	if !ok || options["baseURL"] != "http://127.0.0.1:11435/v1" {
 		t.Fatalf("unexpected provider options: %#v", provider["options"])
+	}
+}
+
+func TestPrependDefaultCodexProviderConfig(t *testing.T) {
+	args := prependDefaultCodexProviderConfig([]string{"--model", "Qwen/Qwen3.5-2B"}, "http://127.0.0.1:11435")
+
+	for _, want := range []string{
+		`model_provider="csghub_lite"`,
+		`model_providers.csghub_lite.name="CSGHub Lite"`,
+		`model_providers.csghub_lite.base_url="http://127.0.0.1:11435/v1"`,
+		`model_providers.csghub_lite.supports_websockets=false`,
+	} {
+		if !hasConfigOverride(args, want) {
+			t.Fatalf("missing Codex config override %q in args %#v", want, args)
+		}
+	}
+	if hasConfigPrefix(args, "openai_base_url=") {
+		t.Fatalf("args = %#v, want custom provider config instead of openai_base_url", args)
+	}
+}
+
+func TestPrepareCodexLaunchIncludesModelCatalog(t *testing.T) {
+	server := launchModelTestServer([]api.ModelInfo{
+		{Model: "Qwen/Qwen3.5-2B", DisplayName: "Qwen 3.5 2B", Source: "local"},
+		{Model: "afrideva/Qwen2-0.5B-Instruct-GGUF:fh23aijhzx8g", DisplayName: "Qwen2-0.5B-Instruct-GGUF", Source: "cloud"},
+	})
+	defer server.Close()
+
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	binDir := t.TempDir()
+	commandPath := filepath.Join(binDir, "codex")
+	content := "#!/bin/sh\nexit 0\n"
+	if runtime.GOOS == "windows" {
+		commandPath = filepath.Join(binDir, "codex.cmd")
+		content = "@echo off\r\nexit /b 0\r\n"
+	}
+	if err := os.WriteFile(commandPath, []byte(content), 0o755); err != nil {
+		t.Fatalf("write fake binary: %v", err)
+	}
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	prepared, err := prepareCodexLaunch(launchTarget{
+		AppID:       "codex",
+		DisplayName: "Codex",
+		Binaries:    []string{"codex"},
+	}, server.URL, "Qwen/Qwen3.5-2B", nil)
+	if err != nil {
+		t.Fatalf("prepareCodexLaunch returned error: %v", err)
+	}
+
+	for _, want := range []string{
+		`model_provider="csghub_lite"`,
+		`model_providers.csghub_lite.name="CSGHub Lite"`,
+		`model_providers.csghub_lite.base_url=` + strconv.Quote(server.URL+"/v1"),
+		`model_providers.csghub_lite.supports_websockets=false`,
+	} {
+		if !hasConfigOverride(prepared.Args, want) {
+			t.Fatalf("missing Codex config override %q in args %#v", want, prepared.Args)
+		}
+	}
+	catalogValue := configValue(prepared.Args, "model_catalog_json=")
+	if catalogValue == "" {
+		t.Fatalf("missing model_catalog_json config in args %#v", prepared.Args)
+	}
+	catalogPath, err := strconv.Unquote(catalogValue)
+	if err != nil {
+		t.Fatalf("unquote model_catalog_json %q: %v", catalogValue, err)
+	}
+	data, err := os.ReadFile(catalogPath)
+	if err != nil {
+		t.Fatalf("read model catalog: %v", err)
+	}
+	var payload struct {
+		Models []struct {
+			Slug        string   `json:"slug"`
+			DisplayName string   `json:"display_name"`
+			Description string   `json:"description"`
+			Visibility  string   `json:"visibility"`
+			ShellType   string   `json:"shell_type"`
+			InputModes  []string `json:"input_modalities"`
+		} `json:"models"`
+	}
+	if err := json.Unmarshal(data, &payload); err != nil {
+		t.Fatalf("decode model catalog: %v", err)
+	}
+	if len(payload.Models) != 2 {
+		t.Fatalf("model catalog count = %d, want 2", len(payload.Models))
+	}
+	if payload.Models[0].Slug != "Qwen/Qwen3.5-2B" || payload.Models[0].DisplayName != "Qwen 3.5 2B" {
+		t.Fatalf("unexpected first model entry: %#v", payload.Models[0])
+	}
+	if payload.Models[1].Slug != "afrideva/Qwen2-0.5B-Instruct-GGUF:fh23aijhzx8g" || payload.Models[1].DisplayName != "Qwen2-0.5B-Instruct-GGUF" {
+		t.Fatalf("unexpected second model entry: %#v", payload.Models[1])
+	}
+	if payload.Models[0].Visibility != "list" || payload.Models[1].Visibility != "list" {
+		t.Fatalf("unexpected model visibility: %#v", payload.Models)
+	}
+	if payload.Models[0].ShellType != "shell_command" || payload.Models[1].ShellType != "shell_command" {
+		t.Fatalf("unexpected model shell type: %#v", payload.Models)
+	}
+	if !containsAll(payload.Models[0].InputModes, []string{"text"}) || !containsAll(payload.Models[1].InputModes, []string{"text"}) {
+		t.Fatalf("unexpected input modalities: %#v", payload.Models)
 	}
 }
 
@@ -347,6 +453,46 @@ func sameStrings(got, want []string) bool {
 	}
 	for _, count := range seen {
 		if count != 0 {
+			return false
+		}
+	}
+	return true
+}
+
+func hasConfigOverride(args []string, want string) bool {
+	for i := 0; i+1 < len(args); i++ {
+		if (args[i] == "-c" || args[i] == "--config") && args[i+1] == want {
+			return true
+		}
+	}
+	return false
+}
+
+func hasConfigPrefix(args []string, prefix string) bool {
+	for i := 0; i+1 < len(args); i++ {
+		if (args[i] == "-c" || args[i] == "--config") && strings.HasPrefix(args[i+1], prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+func configValue(args []string, prefix string) string {
+	for i := 0; i+1 < len(args); i++ {
+		if (args[i] == "-c" || args[i] == "--config") && strings.HasPrefix(args[i+1], prefix) {
+			return strings.TrimPrefix(args[i+1], prefix)
+		}
+	}
+	return ""
+}
+
+func containsAll(items, want []string) bool {
+	seen := make(map[string]struct{}, len(items))
+	for _, item := range items {
+		seen[item] = struct{}{}
+	}
+	for _, item := range want {
+		if _, ok := seen[item]; !ok {
 			return false
 		}
 	}

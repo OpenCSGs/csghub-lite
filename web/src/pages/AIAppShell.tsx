@@ -19,6 +19,50 @@ interface ShellControlMessage {
   error?: string;
 }
 
+function encodeTerminalBinary(data: string): Uint8Array {
+  return Uint8Array.from(data, (char) => char.charCodeAt(0) & 0xff);
+}
+
+function decrqmStatus(mode: number): number {
+  switch (mode) {
+    case 1:
+    case 1000:
+    case 1002:
+    case 1003:
+    case 1004:
+    case 1006:
+    case 1016:
+    case 2004:
+    case 2026:
+      return 2;
+    case 7:
+    case 25:
+    case 1048:
+      return 1;
+    case 8:
+      return 3;
+    case 47:
+    case 1047:
+    case 1049:
+      return 2;
+    default:
+      return 0;
+  }
+}
+
+function registerOpenCodeXtermCompat(terminal: Terminal, sendInput: (payload: Uint8Array) => void) {
+  return terminal.parser.registerCsiHandler({ prefix: "?", intermediates: "$", final: "p" }, (params) => {
+    const first = params[0];
+    const mode = typeof first === "number" ? first : Array.isArray(first) ? first[0] : 0;
+    if (!mode) {
+      return false;
+    }
+    const reply = `\u001b[?${mode};${decrqmStatus(mode)}$y`;
+    sendInput(new TextEncoder().encode(reply));
+    return true;
+  });
+}
+
 function shellWebSocketURL(sessionId: string): string {
   const protocol = location.protocol === "https:" ? "wss:" : "ws:";
   return `${protocol}//${location.host}/api/apps/shell/${encodeURIComponent(sessionId)}/ws`;
@@ -90,7 +134,8 @@ export function AIAppShell() {
       setState("disconnected");
       return;
     }
-    if (!containerRef.current) {
+    const terminalContainer = containerRef.current;
+    if (!terminalContainer) {
       return;
     }
 
@@ -108,16 +153,43 @@ export function AIAppShell() {
       convertEol: false,
       allowProposedApi: false,
       scrollback: 5000,
+      // Full-screen TUIs like OpenCode query terminal/window dimensions on startup.
+      windowOptions: {
+        getWinSizePixels: true,
+        getCellSizePixels: true,
+        getWinSizeChars: true,
+      },
     });
     const fitAddon = new FitAddon();
     terminal.loadAddon(fitAddon);
-    terminal.open(containerRef.current);
-    fitAddon.fit();
+    terminal.open(terminalContainer);
     terminal.focus();
 
     const ws = new WebSocket(shellWebSocketURL(sessionId));
     ws.binaryType = "arraybuffer";
     const encoder = new TextEncoder();
+    const sendInput = (payload: Uint8Array) => {
+      if (ws.readyState === WebSocket.OPEN) {
+        ws.send(payload);
+      }
+    };
+    const xtermCompatDisposable = appId === "open-code"
+      ? registerOpenCodeXtermCompat(terminal, sendInput)
+      : null;
+
+    let resizeFrame: number | null = null;
+    const resizeTimers: number[] = [];
+    let resizeObserver: ResizeObserver | null = null;
+
+    const scheduleResize = () => {
+      if (resizeFrame !== null) {
+        return;
+      }
+      resizeFrame = window.requestAnimationFrame(() => {
+        resizeFrame = null;
+        sendResize();
+      });
+    };
 
     const sendResize = () => {
       fitAddon.fit();
@@ -132,19 +204,42 @@ export function AIAppShell() {
     };
 
     const resizeHandler = () => {
-      sendResize();
+      scheduleResize();
     };
 
     const inputDisposable = terminal.onData((data) => {
-      if (ws.readyState === WebSocket.OPEN) {
-        ws.send(encoder.encode(data));
-      }
+      sendInput(encoder.encode(data));
     });
+    const binaryDisposable = terminal.onBinary((data) => {
+      sendInput(encodeTerminalBinary(data));
+    });
+
+    const pointerFocusHandler = () => {
+      terminal.focus();
+    };
+    const visibilityHandler = () => {
+      if (document.visibilityState === "visible") {
+        scheduleResize();
+        terminal.focus();
+      }
+    };
+
+    terminalContainer.addEventListener("mousedown", pointerFocusHandler);
+    document.addEventListener("visibilitychange", visibilityHandler);
+
+    if (typeof ResizeObserver !== "undefined") {
+      resizeObserver = new ResizeObserver(() => {
+        scheduleResize();
+      });
+      resizeObserver.observe(terminalContainer);
+    }
 
     ws.onopen = () => {
       setState("connected");
       setError("");
-      sendResize();
+      scheduleResize();
+      resizeTimers.push(window.setTimeout(scheduleResize, 80));
+      resizeTimers.push(window.setTimeout(scheduleResize, 250));
     };
 
     ws.onmessage = (event) => {
@@ -205,9 +300,21 @@ export function AIAppShell() {
     };
 
     window.addEventListener("resize", resizeHandler);
+    scheduleResize();
 
     return () => {
       window.removeEventListener("resize", resizeHandler);
+      document.removeEventListener("visibilitychange", visibilityHandler);
+      terminalContainer.removeEventListener("mousedown", pointerFocusHandler);
+      resizeObserver?.disconnect();
+      if (resizeFrame !== null) {
+        window.cancelAnimationFrame(resizeFrame);
+      }
+      for (const timer of resizeTimers) {
+        window.clearTimeout(timer);
+      }
+      xtermCompatDisposable?.dispose();
+      binaryDisposable.dispose();
       inputDisposable.dispose();
       ws.close();
       terminal.dispose();
@@ -275,25 +382,31 @@ export function AIAppShell() {
       ? "bg-slate-500/15 text-slate-300 border-slate-500/30"
       : "bg-amber-500/15 text-amber-200 border-amber-500/30";
 
+  const isOpenCodeShell = appId === "open-code";
   const canConfigureClaudeShell = appId === claudeCodeAppId;
+  const canSwitchShellWorkDir = canConfigureClaudeShell || isOpenCodeShell;
   const trimmedWorkDir = workDirInput.trim();
-  const launchConfigChanged = selectedModel !== modelId || trimmedWorkDir !== workDir;
-  const applyLaunchConfigDisabled = !canConfigureClaudeShell ||
-    modelsLoading ||
+  const modelChanged = canConfigureClaudeShell && selectedModel !== modelId;
+  const workDirChanged = trimmedWorkDir !== workDir;
+  const launchConfigChanged = modelChanged || workDirChanged;
+  const applyLaunchConfigDisabled = !canSwitchShellWorkDir ||
     applyingLaunchConfig ||
-    !selectedModel ||
     !trimmedWorkDir ||
+    (canConfigureClaudeShell && (modelsLoading || !selectedModel)) ||
     !launchConfigChanged;
 
   const handleApplyLaunchConfig = async () => {
-    if (!canConfigureClaudeShell || applyLaunchConfigDisabled) {
+    if (!canSwitchShellWorkDir || applyLaunchConfigDisabled) {
       return;
     }
 
     setApplyingLaunchConfig(true);
     setError("");
     try {
-      const { url } = await openAIApp(claudeCodeAppId, selectedModel, trimmedWorkDir);
+      const requestedModel = canConfigureClaudeShell
+        ? selectedModel
+        : modelId || undefined;
+      const { url } = await openAIApp(appId || claudeCodeAppId, requestedModel, trimmedWorkDir);
       await closeShellSession(sessionId);
       location.replace(url);
       return;
@@ -334,7 +447,7 @@ export function AIAppShell() {
   };
 
   return (
-    <div class="min-h-screen bg-slate-950 text-slate-100 flex flex-col">
+    <div class="h-screen overflow-hidden bg-slate-950 text-slate-100 flex flex-col">
       <div class="border-b border-slate-800 px-5 py-4 flex items-center justify-between gap-4">
         <div class="min-w-0">
           <div class="flex items-center gap-3 flex-wrap">
@@ -345,42 +458,44 @@ export function AIAppShell() {
           </div>
           <div class="mt-1 flex items-center gap-3 flex-wrap text-xs text-slate-400">
             {appId && <span>{appId}</span>}
-            {modelId && <span>{t("aiApps.shellModel")}: {modelId}</span>}
+            {!isOpenCodeShell && modelId && <span>{t("aiApps.shellModel")}: {modelId}</span>}
             {workDir && <span>{t("aiApps.shellDirectory")}: {workDir}</span>}
             {state === "exited" && exitCode !== null && <span>{t("aiApps.shellExitCode", String(exitCode))}</span>}
           </div>
         </div>
         <div class="flex items-center gap-2 flex-wrap justify-end">
-          {canConfigureClaudeShell && (
+          {canSwitchShellWorkDir && (
             <>
-              <div class="relative min-w-[260px] max-w-[340px]">
-                <select
-                  value={selectedModel}
-                  onChange={(e) => setSelectedModel((e.currentTarget as HTMLSelectElement).value)}
-                  disabled={modelsLoading || applyingLaunchConfig || models.length === 0}
-                  class={`appearance-none w-full rounded-lg border bg-slate-900 pl-3 pr-9 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent ${
-                    modelsLoading || applyingLaunchConfig || models.length === 0
-                      ? "border-slate-700 text-slate-500"
-                      : "border-slate-700 text-slate-100"
-                  }`}
-                  aria-label={t("aiApps.model")}
-                >
-                  {modelsLoading ? (
-                    <option value="">{t("aiApps.modelLoading")}</option>
-                  ) : models.length === 0 ? (
-                    <option value="">{t("aiApps.modelDefault")}</option>
-                  ) : (
-                    models.map((model) => (
-                      <option key={model.model} value={model.model}>
-                        {formatShellModelLabel(model)}
-                      </option>
-                    ))
-                  )}
-                </select>
-                <svg class="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                  <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
-                </svg>
-              </div>
+              {canConfigureClaudeShell && (
+                <div class="relative min-w-[260px] max-w-[340px]">
+                  <select
+                    value={selectedModel}
+                    onChange={(e) => setSelectedModel((e.currentTarget as HTMLSelectElement).value)}
+                    disabled={modelsLoading || applyingLaunchConfig || models.length === 0}
+                    class={`appearance-none w-full rounded-lg border bg-slate-900 pl-3 pr-9 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent ${
+                      modelsLoading || applyingLaunchConfig || models.length === 0
+                        ? "border-slate-700 text-slate-500"
+                        : "border-slate-700 text-slate-100"
+                    }`}
+                    aria-label={t("aiApps.model")}
+                  >
+                    {modelsLoading ? (
+                      <option value="">{t("aiApps.modelLoading")}</option>
+                    ) : models.length === 0 ? (
+                      <option value="">{t("aiApps.modelDefault")}</option>
+                    ) : (
+                      models.map((model) => (
+                        <option key={model.model} value={model.model}>
+                          {formatShellModelLabel(model)}
+                        </option>
+                      ))
+                    )}
+                  </select>
+                  <svg class="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
+                  </svg>
+                </div>
+              )}
               <input
                 type="text"
                 value={workDirInput}
@@ -407,18 +522,22 @@ export function AIAppShell() {
               </button>
             </>
           )}
-          <button
-            onClick={() => location.reload()}
-            class="rounded-lg border border-slate-700 px-3 py-2 text-sm text-slate-200 hover:bg-slate-900 transition-colors"
-          >
-            {t("aiApps.shellReconnect")}
-          </button>
-          <button
-            onClick={handleCloseWindow}
-            class="rounded-lg bg-indigo-600 px-3 py-2 text-sm font-medium text-white hover:bg-indigo-500 transition-colors"
-          >
-            {t("aiApps.close")}
-          </button>
+          {!isOpenCodeShell && (
+            <>
+              <button
+                onClick={() => location.reload()}
+                class="rounded-lg border border-slate-700 px-3 py-2 text-sm text-slate-200 hover:bg-slate-900 transition-colors"
+              >
+                {t("aiApps.shellReconnect")}
+              </button>
+              <button
+                onClick={handleCloseWindow}
+                class="rounded-lg bg-indigo-600 px-3 py-2 text-sm font-medium text-white hover:bg-indigo-500 transition-colors"
+              >
+                {t("aiApps.close")}
+              </button>
+            </>
+          )}
         </div>
       </div>
 
@@ -464,8 +583,8 @@ export function AIAppShell() {
           {t("aiApps.shellSessionMissing")}
         </div>
       ) : (
-        <div class="flex-1 min-h-0">
-          <div ref={containerRef} class="h-full w-full p-3" />
+        <div class="flex-1 min-h-0 overflow-hidden p-3">
+          <div ref={containerRef} class="h-full w-full overflow-hidden" />
         </div>
       )}
     </div>

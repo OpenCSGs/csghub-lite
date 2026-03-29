@@ -25,12 +25,47 @@ const (
 	openClawConfigureTimeout  = 2 * time.Minute
 	openClawContextWindow     = 16000
 	openClawMaxTokens         = 4096
+	codexContextWindow        = 272000
+	codexBaseInstructions     = "You are Codex, a coding agent. You and the user share the same workspace and collaborate to achieve the user's goals. Focus on practical, safe, concise help for software tasks."
 )
 
 type preparedLaunch struct {
 	Binary string
 	Args   []string
 	Env    []string
+}
+
+type codexModelCatalog struct {
+	Models []codexModelCatalogEntry `json:"models"`
+}
+
+type codexModelCatalogEntry struct {
+	Slug                       string                       `json:"slug"`
+	DisplayName                string                       `json:"display_name"`
+	Description                string                       `json:"description"`
+	SupportedReasoningLevels   []codexReasoningEffortPreset `json:"supported_reasoning_levels"`
+	ShellType                  string                       `json:"shell_type"`
+	Visibility                 string                       `json:"visibility"`
+	SupportedInAPI             bool                         `json:"supported_in_api"`
+	Priority                   int                          `json:"priority"`
+	BaseInstructions           string                       `json:"base_instructions"`
+	SupportsReasoningSummaries bool                         `json:"supports_reasoning_summaries"`
+	SupportVerbosity           bool                         `json:"support_verbosity"`
+	TruncationPolicy           codexTruncationPolicy        `json:"truncation_policy"`
+	SupportsParallelToolCalls  bool                         `json:"supports_parallel_tool_calls"`
+	ExperimentalSupportedTools []string                     `json:"experimental_supported_tools"`
+	InputModalities            []string                     `json:"input_modalities,omitempty"`
+	ContextWindow              int64                        `json:"context_window,omitempty"`
+}
+
+type codexReasoningEffortPreset struct {
+	Effort      string `json:"effort"`
+	Description string `json:"description"`
+}
+
+type codexTruncationPolicy struct {
+	Mode  string `json:"mode"`
+	Limit int64  `json:"limit"`
 }
 
 func resolveLaunchModel(serverURL, defaultModel, requested string, skipPrompt, hasCloudToken bool) (string, error) {
@@ -214,14 +249,20 @@ func prepareCodexLaunch(target launchTarget, serverURL, modelID string, userArgs
 	if err != nil {
 		return preparedLaunch{}, fmt.Errorf("%s is installed, but the launch command was not found on PATH", target.DisplayName)
 	}
+	models, err := getLaunchModels(serverURL)
+	if err != nil {
+		return preparedLaunch{}, err
+	}
 
 	args := append([]string{}, userArgs...)
 	args = prependArgsIfMissing(args, []string{"--model", modelID}, "--model", "-m")
-	args = prependCodexConfigIfMissing(args, "openai_base_url", strings.TrimRight(serverURL, "/")+"/v1")
+	args = prependDefaultCodexProviderConfig(args, serverURL)
+	args, err = prependCodexModelCatalogConfig(args, models)
+	if err != nil {
+		return preparedLaunch{}, err
+	}
 
-	env := envWithOverrides(map[string]string{
-		"OPENAI_API_KEY": "csghub-lite",
-	})
+	env := envWithOverrides(nil)
 	return preparedLaunch{Binary: binary, Args: args, Env: env}, nil
 }
 
@@ -272,11 +313,35 @@ func prependCodexConfigIfMissing(args []string, key, value string) []string {
 		}
 	}
 
-	defaults := []string{"-c", fmt.Sprintf("%s=%q", key, value)}
+	defaults := []string{"-c", fmt.Sprintf("%s=%s", key, value)}
 	merged := make([]string, 0, len(defaults)+len(args))
 	merged = append(merged, defaults...)
 	merged = append(merged, args...)
 	return merged
+}
+
+const codexLaunchProviderID = "csghub_lite"
+
+func prependDefaultCodexProviderConfig(args []string, serverURL string) []string {
+	baseURL := strings.TrimRight(serverURL, "/") + "/v1"
+	defaults := [][2]string{
+		{"model_provider", fmt.Sprintf("%q", codexLaunchProviderID)},
+		{fmt.Sprintf("model_providers.%s.name", codexLaunchProviderID), `"CSGHub Lite"`},
+		{fmt.Sprintf("model_providers.%s.base_url", codexLaunchProviderID), fmt.Sprintf("%q", baseURL)},
+		{fmt.Sprintf("model_providers.%s.supports_websockets", codexLaunchProviderID), "false"},
+	}
+	for i := len(defaults) - 1; i >= 0; i-- {
+		args = prependCodexConfigIfMissing(args, defaults[i][0], defaults[i][1])
+	}
+	return args
+}
+
+func prependCodexModelCatalogConfig(args []string, models []api.ModelInfo) ([]string, error) {
+	path, err := writeCodexLaunchModelCatalog(models)
+	if err != nil {
+		return nil, err
+	}
+	return prependCodexConfigIfMissing(args, "model_catalog_json", fmt.Sprintf("%q", path)), nil
 }
 
 func envWithOverrides(overrides map[string]string) []string {
@@ -358,6 +423,89 @@ func writeOpenCodeLaunchConfig(serverURL, modelID string) (string, error) {
 		return "", fmt.Errorf("writing OpenCode launch config: %w", err)
 	}
 	return path, nil
+}
+
+func writeCodexLaunchModelCatalog(models []api.ModelInfo) (string, error) {
+	dir, err := launchDataDir()
+	if err != nil {
+		return "", err
+	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return "", fmt.Errorf("creating Codex launch config dir: %w", err)
+	}
+
+	catalog := codexModelCatalog{
+		Models: codexModelCatalogEntries(models),
+	}
+	if len(catalog.Models) == 0 {
+		return "", fmt.Errorf("building Codex model catalog: no models available")
+	}
+
+	data, err := json.MarshalIndent(catalog, "", "  ")
+	if err != nil {
+		return "", fmt.Errorf("encoding Codex model catalog: %w", err)
+	}
+
+	path := filepath.Join(dir, "codex-models.json")
+	if err := os.WriteFile(path, data, 0o644); err != nil {
+		return "", fmt.Errorf("writing Codex model catalog: %w", err)
+	}
+	return path, nil
+}
+
+func codexModelCatalogEntries(models []api.ModelInfo) []codexModelCatalogEntry {
+	entries := make([]codexModelCatalogEntry, 0, len(models))
+	seen := make(map[string]struct{}, len(models))
+	for _, item := range models {
+		modelID := strings.TrimSpace(item.Model)
+		if modelID == "" {
+			continue
+		}
+		if _, ok := seen[modelID]; ok {
+			continue
+		}
+		seen[modelID] = struct{}{}
+
+		displayName := strings.TrimSpace(item.DisplayName)
+		if displayName == "" {
+			displayName = modelID
+		}
+		description := "Model served by CSGHub Lite."
+		switch strings.TrimSpace(item.Source) {
+		case "local":
+			description = "Local model served by CSGHub Lite."
+		case "cloud":
+			description = "OpenCSG model served by CSGHub Lite."
+		}
+
+		inputModalities := []string{"text"}
+		if item.HasMMProj || strings.EqualFold(strings.TrimSpace(item.PipelineTag), "image-text-to-text") {
+			inputModalities = append(inputModalities, "image")
+		}
+
+		entries = append(entries, codexModelCatalogEntry{
+			Slug:                       modelID,
+			DisplayName:                displayName,
+			Description:                description,
+			SupportedReasoningLevels:   []codexReasoningEffortPreset{},
+			ShellType:                  "shell_command",
+			Visibility:                 "list",
+			SupportedInAPI:             true,
+			Priority:                   len(entries),
+			BaseInstructions:           codexBaseInstructions,
+			SupportsReasoningSummaries: false,
+			SupportVerbosity:           false,
+			TruncationPolicy: codexTruncationPolicy{
+				Mode:  "bytes",
+				Limit: 10_000,
+			},
+			SupportsParallelToolCalls:  false,
+			ExperimentalSupportedTools: []string{},
+			InputModalities:            inputModalities,
+			ContextWindow:              codexContextWindow,
+		})
+	}
+	return entries
 }
 
 func launchDataDir() (string, error) {

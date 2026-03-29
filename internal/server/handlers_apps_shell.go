@@ -29,6 +29,9 @@ const (
 	aiAppShellDefaultRows = 36
 	aiAppShellReplayLimit = 256 * 1024
 	openCodeWebProviderID = "csghub-lite"
+	codexWebProviderID    = "csghub_lite"
+	codexContextWindow    = 272000
+	codexBaseInstructions = "You are Codex, a coding agent. You and the user share the same workspace and collaborate to achieve the user's goals. Focus on practical, safe, concise help for software tasks."
 )
 
 var (
@@ -53,6 +56,39 @@ type aiAppPreparedLaunch struct {
 	Args   []string
 	Env    []string
 	Dir    string
+}
+
+type codexModelCatalog struct {
+	Models []codexModelCatalogEntry `json:"models"`
+}
+
+type codexModelCatalogEntry struct {
+	Slug                       string                       `json:"slug"`
+	DisplayName                string                       `json:"display_name"`
+	Description                string                       `json:"description"`
+	SupportedReasoningLevels   []codexReasoningEffortPreset `json:"supported_reasoning_levels"`
+	ShellType                  string                       `json:"shell_type"`
+	Visibility                 string                       `json:"visibility"`
+	SupportedInAPI             bool                         `json:"supported_in_api"`
+	Priority                   int                          `json:"priority"`
+	BaseInstructions           string                       `json:"base_instructions"`
+	SupportsReasoningSummaries bool                         `json:"supports_reasoning_summaries"`
+	SupportVerbosity           bool                         `json:"support_verbosity"`
+	TruncationPolicy           codexTruncationPolicy        `json:"truncation_policy"`
+	SupportsParallelToolCalls  bool                         `json:"supports_parallel_tool_calls"`
+	ExperimentalSupportedTools []string                     `json:"experimental_supported_tools"`
+	InputModalities            []string                     `json:"input_modalities,omitempty"`
+	ContextWindow              int64                        `json:"context_window,omitempty"`
+}
+
+type codexReasoningEffortPreset struct {
+	Effort      string `json:"effort"`
+	Description string `json:"description"`
+}
+
+type codexTruncationPolicy struct {
+	Mode  string `json:"mode"`
+	Limit int64  `json:"limit"`
 }
 
 type aiAppShellClientMessage struct {
@@ -658,16 +694,15 @@ func (s *Server) prepareAIAppShellLaunch(target aiAppOpenTarget, modelID string,
 			Dir: workingDir,
 		}, nil
 	case "codex":
+		configArgs, err := codexShellConfigArgs(serverURL, modelIDs)
+		if err != nil {
+			return aiAppPreparedLaunch{}, err
+		}
 		return aiAppPreparedLaunch{
 			Binary: binary,
-			Args: []string{
-				"-c", fmt.Sprintf(`openai_base_url=%q`, strings.TrimRight(serverURL, "/")+"/v1"),
-				"--model", modelID,
-			},
-			Env: envWithOverridesAndUnset(aiAppShellEnvOverrides(map[string]string{
-				"OPENAI_API_KEY": "csghub-lite",
-			}), "NO_COLOR"),
-			Dir: workingDir,
+			Args:   append(configArgs, "--model", modelID),
+			Env:    envWithOverridesAndUnset(aiAppShellEnvOverrides(nil), "NO_COLOR"),
+			Dir:    workingDir,
 		}, nil
 	default:
 		return aiAppPreparedLaunch{}, fmt.Errorf("%s does not support web shell launch yet", target.DisplayName)
@@ -735,7 +770,7 @@ func claudeLaunchSettingsJSON(serverURL string) string {
 }
 
 func writeOpenCodeWebLaunchConfig(serverURL, defaultModel string, modelIDs []string) (string, error) {
-	dir, err := openCodeLaunchDir()
+	dir, err := aiAppLaunchDir()
 	if err != nil {
 		return "", err
 	}
@@ -779,7 +814,87 @@ func writeOpenCodeWebLaunchConfig(serverURL, defaultModel string, modelIDs []str
 	return path, nil
 }
 
-func openCodeLaunchDir() (string, error) {
+func writeCodexWebModelCatalog(modelIDs []string) (string, error) {
+	dir, err := aiAppLaunchDir()
+	if err != nil {
+		return "", err
+	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return "", fmt.Errorf("creating Codex model catalog dir: %w", err)
+	}
+
+	catalog := codexModelCatalog{
+		Models: codexModelCatalogEntries(modelIDs),
+	}
+	if len(catalog.Models) == 0 {
+		return "", fmt.Errorf("building Codex model catalog: no models available")
+	}
+
+	data, err := json.MarshalIndent(catalog, "", "  ")
+	if err != nil {
+		return "", fmt.Errorf("encoding Codex model catalog: %w", err)
+	}
+
+	path := filepath.Join(dir, "codex-web-models.json")
+	if err := os.WriteFile(path, data, 0o644); err != nil {
+		return "", fmt.Errorf("writing Codex model catalog: %w", err)
+	}
+	return path, nil
+}
+
+func codexModelCatalogEntries(modelIDs []string) []codexModelCatalogEntry {
+	entries := make([]codexModelCatalogEntry, 0, len(modelIDs))
+	seen := make(map[string]struct{}, len(modelIDs))
+	for _, modelID := range modelIDs {
+		modelID = strings.TrimSpace(modelID)
+		if modelID == "" {
+			continue
+		}
+		if _, ok := seen[modelID]; ok {
+			continue
+		}
+		seen[modelID] = struct{}{}
+		entries = append(entries, codexModelCatalogEntry{
+			Slug:                       modelID,
+			DisplayName:                modelID,
+			Description:                "Model served by CSGHub Lite.",
+			SupportedReasoningLevels:   []codexReasoningEffortPreset{},
+			ShellType:                  "shell_command",
+			Visibility:                 "list",
+			SupportedInAPI:             true,
+			Priority:                   len(entries),
+			BaseInstructions:           codexBaseInstructions,
+			SupportsReasoningSummaries: false,
+			SupportVerbosity:           false,
+			TruncationPolicy: codexTruncationPolicy{
+				Mode:  "bytes",
+				Limit: 10_000,
+			},
+			SupportsParallelToolCalls:  false,
+			ExperimentalSupportedTools: []string{},
+			InputModalities:            []string{"text"},
+			ContextWindow:              codexContextWindow,
+		})
+	}
+	return entries
+}
+
+func codexShellConfigArgs(serverURL string, modelIDs []string) ([]string, error) {
+	baseURL := strings.TrimRight(serverURL, "/") + "/v1"
+	modelCatalogPath, err := writeCodexWebModelCatalog(modelIDs)
+	if err != nil {
+		return nil, err
+	}
+	return []string{
+		"-c", fmt.Sprintf(`model_provider=%q`, codexWebProviderID),
+		"-c", fmt.Sprintf(`model_providers.%s.name=%q`, codexWebProviderID, "CSGHub Lite"),
+		"-c", fmt.Sprintf(`model_providers.%s.base_url=%q`, codexWebProviderID, baseURL),
+		"-c", fmt.Sprintf(`model_providers.%s.supports_websockets=false`, codexWebProviderID),
+		"-c", fmt.Sprintf(`model_catalog_json=%q`, modelCatalogPath),
+	}, nil
+}
+
+func aiAppLaunchDir() (string, error) {
 	appHome, err := config.AppHome()
 	if err != nil {
 		return "", err
