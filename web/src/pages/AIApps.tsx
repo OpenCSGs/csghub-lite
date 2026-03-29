@@ -1,13 +1,15 @@
 import type { ComponentChildren } from "preact";
 import { computed, signal } from "@preact/signals";
-import { useEffect, useRef } from "preact/hooks";
+import { useEffect, useRef, useState } from "preact/hooks";
 import {
   getAIApps,
+  getTags,
   installAIApp,
   openAIApp,
   streamAIAppLogs,
   uninstallAIApp,
   type AIAppInfo as RemoteAIAppInfo,
+  type ModelInfo,
 } from "../api/client";
 import {
   aiAppCategoryOptions,
@@ -148,12 +150,12 @@ export function AIApps() {
     }
   };
 
-  const handleOpenApp = async (appId: string) => {
+  const handleOpenApp = async (appId: string, modelId?: string) => {
     pendingOpenId.value = appId;
     apiError.value = "";
     const popup = openAppPopup();
     try {
-      const { url } = await openAIApp(appId);
+      const { url } = await openAIApp(appId, modelId);
       if (popup) {
         popup.location.replace(url);
       } else {
@@ -275,7 +277,7 @@ export function AIApps() {
           pendingInstall={pendingInstallId.value === selectedApp.value.id}
           pendingUninstall={pendingUninstallId.value === selectedApp.value.id}
           pendingOpen={pendingOpenId.value === selectedApp.value.id}
-          onOpenChat={() => handleOpenApp(selectedApp.value!.id)}
+          onOpenChat={(modelId?: string) => handleOpenApp(selectedApp.value!.id, modelId)}
         />
       )}
     </div>
@@ -467,17 +469,26 @@ function LiveLogsDrawer({
   pendingInstall: boolean;
   pendingUninstall: boolean;
   pendingOpen: boolean;
-  onOpenChat: () => void;
+  onOpenChat: (modelId?: string) => void;
 }) {
   void locale.value;
 
   const logRef = useRef<HTMLDivElement>(null);
+  const copyResetRef = useRef<number | null>(null);
   const isInstalling = state.status === "installing";
   const isUninstalling = state.status === "uninstalling";
   const isWorking = isInstalling || isUninstalling;
   const showTaskLogs = state.liveLogsReady && (mode === "install" || isWorking);
   const requestPending = pendingInstall || pendingUninstall;
   const canOpenChat = canOpenAIApp(app, state);
+  const canSelectModel = canSelectAIAppModel(app);
+  const showProgressSummary = !state.disabled && state.status !== "installed";
+  const [models, setModels] = useState<ModelInfo[]>([]);
+  const [modelsLoading, setModelsLoading] = useState(false);
+  const [selectedModel, setSelectedModel] = useState("");
+  const [copiedModel, setCopiedModel] = useState(false);
+  const currentModelID = selectedModel || state.modelID?.trim() || "";
+  const launchPreview = cliLaunchPreview(app, currentModelID);
 
   useEffect(() => {
     if (!showTaskLogs) {
@@ -515,6 +526,92 @@ function LiveLogsDrawer({
     };
   }, [app.id, showTaskLogs]);
 
+  useEffect(() => {
+    if (!canSelectModel) {
+      setModels([]);
+      setModelsLoading(false);
+      return;
+    }
+
+    let disposed = false;
+    setModelsLoading(true);
+
+    getTags()
+      .then((items) => {
+        if (disposed) return;
+        setModels(normalizeAIAppModels(items));
+      })
+      .catch(() => {
+        if (disposed) return;
+        setModels([]);
+      })
+      .finally(() => {
+        if (!disposed) {
+          setModelsLoading(false);
+        }
+      });
+
+    return () => {
+      disposed = true;
+    };
+  }, [app.id, canSelectModel]);
+
+  useEffect(() => {
+    if (!canSelectModel) {
+      setSelectedModel("");
+      return;
+    }
+
+    setSelectedModel((current) => {
+      if (current && models.some((item) => item.model === current)) {
+        return current;
+      }
+      if (state.modelID && models.some((item) => item.model === state.modelID)) {
+        return state.modelID;
+      }
+      if (state.modelID) {
+        return state.modelID;
+      }
+      return models[0]?.model || "";
+    });
+  }, [app.id, canSelectModel, state.modelID, models]);
+
+  useEffect(() => {
+    return () => {
+      if (copyResetRef.current !== null) {
+        window.clearTimeout(copyResetRef.current);
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    setSelectedModel("");
+    setCopiedModel(false);
+    if (copyResetRef.current !== null) {
+      window.clearTimeout(copyResetRef.current);
+      copyResetRef.current = null;
+    }
+  }, [app.id]);
+
+  const handleCopyModel = async () => {
+    if (!currentModelID) {
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(currentModelID);
+      setCopiedModel(true);
+      if (copyResetRef.current !== null) {
+        window.clearTimeout(copyResetRef.current);
+      }
+      copyResetRef.current = window.setTimeout(() => {
+        setCopiedModel(false);
+        copyResetRef.current = null;
+      }, 1500);
+    } catch {
+      // Ignore clipboard failures so the drawer keeps working.
+    }
+  };
+
   return (
     <div class="fixed inset-0 z-50 bg-black/35 backdrop-blur-[1px] flex justify-end" onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
       <div class="w-full max-w-2xl h-full bg-white shadow-2xl flex flex-col" onClick={(e) => e.stopPropagation()}>
@@ -549,9 +646,11 @@ function LiveLogsDrawer({
             {drawerNotice(state)}
           </div>
 
-          <div class="grid grid-cols-1 sm:grid-cols-4 gap-3">
+          <div class={`grid grid-cols-1 ${showProgressSummary ? "sm:grid-cols-4" : "sm:grid-cols-3"} gap-3`}>
             <SummaryTile label={t("aiApps.installMode")} value={installModeLabel(app.installMode)} />
-            <SummaryTile label={t("aiApps.progressMode")} value={renderProgressValue(state.progressMode, state.progress)} />
+            {showProgressSummary && (
+              <SummaryTile label={t("aiApps.progressMode")} value={renderProgressValue(state.progressMode, state.progress)} />
+            )}
             <SummaryTile label={t("aiApps.currentStatus")} value={statusLabel(state)} />
             <SummaryTile label={t("aiApps.version")} value={state.version || "—"} />
           </div>
@@ -583,9 +682,83 @@ function LiveLogsDrawer({
             </section>
           )}
 
+          {(canSelectModel || currentModelID) && (
+            <section class="space-y-2">
+              <h3 class="text-sm font-semibold text-gray-900">{t("aiApps.currentModelId")}</h3>
+              <div class="flex items-center gap-3 flex-wrap">
+                <div class="min-w-0 flex-1">
+                  {canSelectModel ? (
+                    <div class="relative">
+                      <select
+                        value={currentModelID}
+                        onChange={(e) => setSelectedModel((e.currentTarget as HTMLSelectElement).value)}
+                        disabled={modelsLoading || models.length === 0}
+                        class={`appearance-none w-full rounded-xl border bg-white pl-3 pr-9 py-3 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent ${
+                          modelsLoading || models.length === 0
+                            ? "border-gray-200 text-gray-400"
+                            : "border-gray-200 text-gray-700"
+                        }`}
+                        aria-label={t("aiApps.currentModelId")}
+                      >
+                        {modelsLoading ? (
+                          <option value="">{t("aiApps.modelLoading")}</option>
+                        ) : models.length === 0 ? (
+                          <option value={currentModelID}>{currentModelID || t("aiApps.modelDefault")}</option>
+                        ) : (
+                          <>
+                            {currentModelID && !models.some((item) => item.model === currentModelID) && (
+                              <option value={currentModelID}>{currentModelID}</option>
+                            )}
+                            {models.map((model) => (
+                              <option key={model.model} value={model.model}>
+                                {formatAIAppModelLabel(model)}
+                              </option>
+                            ))}
+                          </>
+                        )}
+                      </select>
+                      <svg class="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
+                      </svg>
+                    </div>
+                  ) : (
+                    <div class="rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 text-sm text-gray-700 font-mono break-all">
+                      {currentModelID}
+                    </div>
+                  )}
+                </div>
+                <button
+                  onClick={() => void handleCopyModel()}
+                  disabled={!currentModelID}
+                  class={`rounded-lg border px-3 py-2 text-sm transition-colors ${
+                    !currentModelID
+                      ? "border-gray-200 text-gray-300 cursor-not-allowed"
+                      : copiedModel
+                        ? "border-emerald-200 text-emerald-600"
+                        : "border-gray-200 text-gray-600 hover:bg-gray-50"
+                  }`}
+                  title={t("chat.copyModel")}
+                >
+                  {copiedModel ? t("dash.copied") : t("chat.copyModel")}
+                </button>
+              </div>
+              <p class="text-sm text-gray-500">{t("aiApps.currentModelHint")}</p>
+            </section>
+          )}
+
+          {launchPreview && (
+            <section class="space-y-2">
+              <h3 class="text-sm font-semibold text-gray-900">{t("aiApps.cliLaunch")}</h3>
+              <pre class="rounded-xl bg-gray-900 text-gray-100 p-4 text-xs leading-5 overflow-x-auto whitespace-pre-wrap break-all font-mono">
+                {launchPreview}
+              </pre>
+              <p class="text-sm text-gray-500">{t("aiApps.cliLaunchHint")}</p>
+            </section>
+          )}
+
           <section class="space-y-2">
             <div class="flex items-center justify-between gap-3">
-              <h3 class="text-sm font-semibold text-gray-900">{t("aiApps.commandPreview")}</h3>
+              <h3 class="text-sm font-semibold text-gray-900">{t("aiApps.installCommand")}</h3>
               <a
                 href={app.detailsUrl}
                 target="_blank"
@@ -655,7 +828,7 @@ function LiveLogsDrawer({
           <div class="flex items-center gap-3">
             {canOpenChat && (
               <button
-                onClick={onOpenChat}
+                onClick={() => onOpenChat(currentModelID || undefined)}
                 disabled={pendingOpen}
                 class={`inline-flex items-center justify-center rounded-lg border px-4 py-2 text-sm font-medium transition-colors ${
                   pendingOpen
@@ -771,6 +944,7 @@ function mergeAppStates(remoteApps: RemoteAIAppInfo[]) {
       disabled: remote.disabled,
       installPath: remote.install_path,
       version: remote.version,
+      modelID: remote.model_id || "",
       logPath: remote.log_path,
       lastError: remote.last_error,
     };
@@ -870,6 +1044,60 @@ function canOpenAIApp(app: AIAppCatalogEntry, state: AIAppRuntimeState): boolean
   return ["openclaw", "claude-code", "open-code", "codex"].includes(app.id) &&
     state.status === "installed" &&
     !state.disabled;
+}
+
+function cliLaunchPreview(app: AIAppCatalogEntry, modelID: string): string {
+  const launchName = cliLaunchAppName(app.id);
+  if (!launchName) {
+    return "";
+  }
+  const launchWithModel = modelID
+    ? `csghub-lite launch ${launchName} --model "${modelID}"`
+    : `csghub-lite launch ${launchName} --model "<model-id>"`;
+  return [
+    `csghub-lite launch ${launchName}`,
+    launchWithModel,
+    `${launchWithModel} -- --help`,
+  ].join("\n");
+}
+
+function cliLaunchAppName(appID: string): string {
+  switch (appID) {
+    case "claude-code":
+      return "claude";
+    case "open-code":
+      return "opencode";
+    case "codex":
+      return "codex";
+    case "openclaw":
+      return "openclaw";
+    default:
+      return "";
+  }
+}
+
+function canSelectAIAppModel(app: AIAppCatalogEntry): boolean {
+  return ["claude-code", "open-code", "codex", "openclaw"].includes(app.id);
+}
+
+function normalizeAIAppModels(models: ModelInfo[]): ModelInfo[] {
+  const seen = new Set<string>();
+  const out: ModelInfo[] = [];
+  for (const model of models) {
+    const modelId = model.model?.trim();
+    if (!modelId || seen.has(modelId)) {
+      continue;
+    }
+    seen.add(modelId);
+    out.push(model);
+  }
+  return out;
+}
+
+function formatAIAppModelLabel(model: ModelInfo): string {
+  const name = model.display_name || model.model;
+  const source = model.source === "cloud" ? t("aiApps.modelSourceCloud") : t("aiApps.modelSourceLocal");
+  return `${name} (${source})`;
 }
 
 function CheckIcon({ className }: { className: string }) {

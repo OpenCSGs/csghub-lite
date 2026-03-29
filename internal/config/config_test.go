@@ -25,6 +25,9 @@ func TestDefaultValues(t *testing.T) {
 	if cfg.ListenAddr != DefaultListenAddr {
 		t.Errorf("ListenAddr = %q, want %q", cfg.ListenAddr, DefaultListenAddr)
 	}
+	if cfg.AIAppPreferredModels == nil {
+		t.Fatal("AIAppPreferredModels = nil, want initialized map")
+	}
 }
 
 func TestSaveAndLoad(t *testing.T) {
@@ -36,6 +39,9 @@ func TestSaveAndLoad(t *testing.T) {
 		Token:      "test-token-123",
 		ListenAddr: ":8080",
 		ModelDir:   filepath.Join(dir, "models"),
+		AIAppPreferredModels: map[string]string{
+			"claude-code": "Qwen/Qwen2.5-Coder-1.5B",
+		},
 	}
 
 	data, err := json.MarshalIndent(cfg, "", "  ")
@@ -68,6 +74,9 @@ func TestSaveAndLoad(t *testing.T) {
 	}
 	if loaded.ModelDir != cfg.ModelDir {
 		t.Errorf("ModelDir = %q, want %q", loaded.ModelDir, cfg.ModelDir)
+	}
+	if got := loaded.AIAppPreferredModels["claude-code"]; got != "Qwen/Qwen2.5-Coder-1.5B" {
+		t.Errorf("AIAppPreferredModels[claude-code] = %q, want coder model", got)
 	}
 }
 

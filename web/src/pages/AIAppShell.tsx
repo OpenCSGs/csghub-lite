@@ -58,6 +58,7 @@ export function AIAppShell() {
   void locale.value;
 
   const containerRef = useRef<HTMLDivElement>(null);
+  const copyResetRef = useRef<number | null>(null);
   const sessionId = useMemo(() => new URLSearchParams(location.search).get("session_id")?.trim() || "", []);
   const queryAppId = useMemo(() => new URLSearchParams(location.search).get("app_id")?.trim() || "", []);
   const [title, setTitle] = useState("");
@@ -72,7 +73,16 @@ export function AIAppShell() {
   const [modelsLoading, setModelsLoading] = useState(false);
   const [selectedModel, setSelectedModel] = useState("");
   const [applyingLaunchConfig, setApplyingLaunchConfig] = useState(false);
+  const [copiedModel, setCopiedModel] = useState(false);
   const exitSeenRef = useRef(false);
+
+  useEffect(() => {
+    return () => {
+      if (copyResetRef.current !== null) {
+        window.clearTimeout(copyResetRef.current);
+      }
+    };
+  }, []);
 
   useEffect(() => {
     if (!sessionId) {
@@ -304,6 +314,25 @@ export function AIAppShell() {
     }, 50);
   };
 
+  const handleCopyModel = async () => {
+    if (!modelId) {
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(modelId);
+      setCopiedModel(true);
+      if (copyResetRef.current !== null) {
+        window.clearTimeout(copyResetRef.current);
+      }
+      copyResetRef.current = window.setTimeout(() => {
+        setCopiedModel(false);
+        copyResetRef.current = null;
+      }, 1500);
+    } catch {
+      // Ignore clipboard failures so the shell UI keeps working.
+    }
+  };
+
   return (
     <div class="min-h-screen bg-slate-950 text-slate-100 flex flex-col">
       <div class="border-b border-slate-800 px-5 py-4 flex items-center justify-between gap-4">
@@ -396,6 +425,37 @@ export function AIAppShell() {
       {error && (
         <div class="px-5 py-3 border-b border-red-900/40 bg-red-950/40 text-sm text-red-200">
           {error}
+        </div>
+      )}
+
+      {canConfigureClaudeShell && modelId && (
+        <div class="border-b border-slate-800 bg-slate-950/80 px-5 py-3">
+          <div class="flex items-center justify-between gap-3 flex-wrap">
+            <div class="min-w-0 flex-1">
+              <div class="text-[11px] font-medium uppercase tracking-wide text-slate-400">
+                {t("aiApps.shellModel")}
+              </div>
+              <input
+                type="text"
+                readOnly
+                value={modelId}
+                onFocus={(e) => (e.currentTarget as HTMLInputElement).select()}
+                class="mt-1 w-full rounded-lg border border-slate-800 bg-slate-900 px-3 py-2 font-mono text-sm text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                aria-label={t("aiApps.shellModel")}
+              />
+            </div>
+            <button
+              onClick={() => void handleCopyModel()}
+              class={`rounded-lg border px-3 py-2 text-sm transition-colors ${
+                copiedModel
+                  ? "border-emerald-500/40 text-emerald-200"
+                  : "border-slate-700 text-slate-200 hover:bg-slate-900"
+              }`}
+              title={t("chat.copyModel")}
+            >
+              {copiedModel ? t("dash.copied") : t("chat.copyModel")}
+            </button>
+          </div>
         </div>
       )}
 

@@ -16,15 +16,19 @@ import (
 
 	"github.com/opencsgs/csghub-lite/internal/config"
 	"github.com/opencsgs/csghub-lite/internal/model"
+	"github.com/opencsgs/csghub-lite/pkg/api"
 )
 
 const (
 	openClawWebProfile      = "csghub-lite"
-	openClawProviderID      = "csghub"
+	openClawProviderID      = "opencsg"
+	openClawProviderAPI     = "openai-completions"
 	openClawOpenTimeout     = 2 * time.Minute
 	openClawGatewayWait     = 12 * time.Second
 	openClawGatewayLogName  = "openclaw-gateway.log"
 	openClawDashboardPrefix = "Dashboard URL:"
+	openClawContextWindow   = 16000
+	openClawMaxTokens       = 4096
 )
 
 func (s *Server) openAIAppURL(ctx context.Context, appID, modelID, workDir string) (string, error) {
@@ -65,9 +69,6 @@ func (s *Server) openClawChatURL(ctx context.Context, modelID string) (string, e
 	if err != nil {
 		return "", err
 	}
-	if dashboardReachable(url) {
-		return openClawDirectChatURL(url, "main")
-	}
 	if err := s.startOpenClawGateway(binary); err != nil {
 		return "", err
 	}
@@ -89,49 +90,55 @@ func (s *Server) refreshOpenClawModelCatalog(ctx context.Context) {
 }
 
 func (s *Server) ensureOpenClawProfile(ctx context.Context, binary, requestedModelID string) error {
-	modelID, _, err := s.resolveAIAppLaunchModels(ctx, requestedModelID)
+	modelID, modelIDs, err := s.resolveAIAppLaunchModels(ctx, requestedModelID)
 	if err != nil {
 		return err
 	}
 	serverURL := s.localBaseURL()
 
 	ok, err := openClawProfileMatches(serverURL, modelID)
-	if err == nil && ok {
-		return nil
-	}
+	if err != nil || !ok {
+		configureCtx, cancel := context.WithTimeout(ctx, openClawOpenTimeout)
+		defer cancel()
 
-	configureCtx, cancel := context.WithTimeout(ctx, openClawOpenTimeout)
-	defer cancel()
-
-	args := []string{
-		"--profile", openClawWebProfile,
-		"onboard",
-		"--non-interactive",
-		"--auth-choice", "custom-api-key",
-		"--custom-provider-id", openClawProviderID,
-		"--custom-compatibility", "openai",
-		"--custom-base-url", openClawProviderBaseURL(serverURL),
-		"--custom-model-id", modelID,
-		"--custom-api-key", "csghub-lite",
-		"--accept-risk",
-		"--skip-channels",
-		"--skip-search",
-		"--skip-ui",
-		"--skip-skills",
-		"--skip-daemon",
-		"--skip-health",
-	}
-	cmd := exec.CommandContext(configureCtx, binary, args...)
-	output, err := cmd.CombinedOutput()
-	if configureCtx.Err() == context.DeadlineExceeded {
-		return fmt.Errorf("configuring OpenClaw timed out after %s", openClawOpenTimeout)
-	}
-	if err != nil {
-		msg := strings.TrimSpace(string(output))
-		if msg == "" {
-			msg = err.Error()
+		args := []string{
+			"--profile", openClawWebProfile,
+			"onboard",
+			"--non-interactive",
+			"--auth-choice", "custom-api-key",
+			"--custom-provider-id", openClawProviderID,
+			"--custom-compatibility", "openai",
+			"--custom-base-url", openClawProviderBaseURL(serverURL),
+			"--custom-model-id", modelID,
+			"--custom-api-key", openClawProviderAPIKey(s.cfg.Token),
+			"--accept-risk",
+			"--skip-channels",
+			"--skip-search",
+			"--skip-ui",
+			"--skip-skills",
+			"--skip-daemon",
+			"--skip-health",
 		}
-		return fmt.Errorf("configuring OpenClaw: %s", msg)
+		cmd := exec.CommandContext(configureCtx, binary, args...)
+		output, err := cmd.CombinedOutput()
+		if configureCtx.Err() == context.DeadlineExceeded {
+			return fmt.Errorf("configuring OpenClaw timed out after %s", openClawOpenTimeout)
+		}
+		if err != nil {
+			msg := strings.TrimSpace(string(output))
+			if msg == "" {
+				msg = err.Error()
+			}
+			return fmt.Errorf("configuring OpenClaw: %s", msg)
+		}
+	}
+
+	models := buildOpenClawProfileModels(modelIDs, nil)
+	if availableModels, err := s.listAvailableModels(ctx); err == nil {
+		models = buildOpenClawProfileModels(modelIDs, availableModels)
+	}
+	if err := syncOpenClawProfile(serverURL, openClawProviderAPIKey(s.cfg.Token), modelID, models); err != nil {
+		return fmt.Errorf("syncing OpenClaw profile models: %w", err)
 	}
 	return nil
 }
@@ -283,7 +290,7 @@ func (s *Server) startOpenClawGateway(binary string) error {
 		return fmt.Errorf("opening OpenClaw gateway log: %w", err)
 	}
 
-	cmd := exec.Command(binary, "--profile", openClawWebProfile, "gateway", "run")
+	cmd := exec.Command(binary, "--profile", openClawWebProfile, "gateway", "run", "--force")
 	cmd.Stdout = logFile
 	cmd.Stderr = logFile
 	if err := cmd.Start(); err != nil {
@@ -345,8 +352,221 @@ func openClawProfileConfigPath() (string, error) {
 	return filepath.Join(home, base, "openclaw.json"), nil
 }
 
+func openClawAgentModelsPath() (string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	base := ".openclaw-" + openClawWebProfile
+	if openClawWebProfile == "" {
+		base = ".openclaw"
+	}
+	return filepath.Join(home, base, "agents", "main", "agent", "models.json"), nil
+}
+
+func buildOpenClawProfileModels(modelIDs []string, available []api.ModelInfo) []api.ModelInfo {
+	byID := make(map[string]api.ModelInfo, len(available))
+	for _, item := range available {
+		modelID := strings.TrimSpace(item.Model)
+		if modelID == "" {
+			continue
+		}
+		byID[modelID] = item
+	}
+
+	models := make([]api.ModelInfo, 0, len(modelIDs))
+	seen := make(map[string]struct{}, len(modelIDs))
+	for _, modelID := range modelIDs {
+		modelID = strings.TrimSpace(modelID)
+		if modelID == "" {
+			continue
+		}
+		if _, ok := seen[modelID]; ok {
+			continue
+		}
+		seen[modelID] = struct{}{}
+		if item, ok := byID[modelID]; ok {
+			models = append(models, item)
+			continue
+		}
+		models = append(models, api.ModelInfo{
+			Name:        modelID,
+			Model:       modelID,
+			DisplayName: modelID,
+		})
+	}
+	return models
+}
+
+func syncOpenClawProfile(serverURL, apiKey, selectedModelID string, models []api.ModelInfo) error {
+	provider := openClawProviderConfig(serverURL, apiKey, models)
+	primaryModel := openClawProviderID + "/" + strings.TrimSpace(selectedModelID)
+	agentModels := openClawAgentModelEntries(models)
+
+	profilePath, err := openClawProfileConfigPath()
+	if err != nil {
+		return err
+	}
+	if err := syncOpenClawJSONFile(profilePath, func(doc map[string]interface{}) {
+		modelsSection := ensureOpenClawObject(doc, "models")
+		if strings.TrimSpace(fmt.Sprint(modelsSection["mode"])) == "" {
+			modelsSection["mode"] = "merge"
+		}
+		modelsSection["providers"] = map[string]interface{}{
+			openClawProviderID: provider,
+		}
+
+		agentsSection := ensureOpenClawObject(doc, "agents")
+		defaultsSection := ensureOpenClawObject(agentsSection, "defaults")
+		modelSection := ensureOpenClawObject(defaultsSection, "model")
+		modelSection["primary"] = primaryModel
+		defaultsSection["models"] = agentModels
+	}); err != nil {
+		return err
+	}
+
+	modelsPath, err := openClawAgentModelsPath()
+	if err != nil {
+		return err
+	}
+	return syncOpenClawJSONFile(modelsPath, func(doc map[string]interface{}) {
+		doc["providers"] = map[string]interface{}{
+			openClawProviderID: provider,
+		}
+	})
+}
+
+func syncOpenClawJSONFile(path string, mutate func(map[string]interface{})) error {
+	doc := map[string]interface{}{}
+	if data, err := os.ReadFile(path); err == nil {
+		if len(bytes.TrimSpace(data)) > 0 {
+			if err := json.Unmarshal(data, &doc); err != nil {
+				return err
+			}
+		}
+	} else if !os.IsNotExist(err) {
+		return err
+	}
+
+	mutate(doc)
+
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	data, err := json.MarshalIndent(doc, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, data, 0o644)
+}
+
+func ensureOpenClawObject(parent map[string]interface{}, key string) map[string]interface{} {
+	if existing, ok := parent[key].(map[string]interface{}); ok {
+		return existing
+	}
+	child := map[string]interface{}{}
+	parent[key] = child
+	return child
+}
+
+func openClawProviderConfig(serverURL, apiKey string, models []api.ModelInfo) map[string]interface{} {
+	return map[string]interface{}{
+		"baseUrl": openClawProviderBaseURL(serverURL),
+		"apiKey":  openClawProviderAPIKey(apiKey),
+		"api":     openClawProviderAPI,
+		"models":  openClawProviderModels(models),
+	}
+}
+
+func openClawProviderAPIKey(token string) string {
+	token = strings.TrimSpace(token)
+	if token == "" {
+		return "csghub-lite"
+	}
+	return token
+}
+
+func openClawProviderModels(models []api.ModelInfo) []map[string]interface{} {
+	items := make([]map[string]interface{}, 0, len(models))
+	for _, item := range models {
+		modelID := strings.TrimSpace(item.Model)
+		if modelID == "" {
+			continue
+		}
+
+		displayName := strings.TrimSpace(item.DisplayName)
+		if displayName == "" {
+			displayName = modelID
+		}
+		source := strings.TrimSpace(item.Source)
+		if source == "cloud" {
+			displayName += " (OpenCSG)"
+		} else if source == "local" {
+			displayName += " (Local)"
+		}
+
+		items = append(items, map[string]interface{}{
+			"id":            modelID,
+			"name":          displayName,
+			"api":           openClawProviderAPI,
+			"reasoning":     false,
+			"input":         []string{"text"},
+			"cost":          openClawZeroCost(),
+			"contextWindow": openClawContextWindow,
+			"maxTokens":     openClawMaxTokens,
+		})
+	}
+	return items
+}
+
+func openClawAgentModelEntries(models []api.ModelInfo) map[string]interface{} {
+	entries := make(map[string]interface{}, len(models))
+	for _, item := range models {
+		modelID := strings.TrimSpace(item.Model)
+		if modelID == "" {
+			continue
+		}
+		entries[openClawProviderID+"/"+modelID] = map[string]interface{}{}
+	}
+	return entries
+}
+
+func openClawZeroCost() map[string]float64 {
+	return map[string]float64{
+		"input":      0,
+		"output":     0,
+		"cacheRead":  0,
+		"cacheWrite": 0,
+	}
+}
+
 func envWithOverrides(overrides map[string]string) []string {
-	env := append([]string{}, os.Environ()...)
+	return envWithOverridesAndUnset(overrides)
+}
+
+func envWithOverridesAndUnset(overrides map[string]string, unsetKeys ...string) []string {
+	skip := make(map[string]struct{}, len(unsetKeys))
+	for _, key := range unsetKeys {
+		key = strings.TrimSpace(key)
+		if key == "" {
+			continue
+		}
+		skip[key] = struct{}{}
+	}
+
+	base := os.Environ()
+	env := make([]string, 0, len(base)+len(overrides))
+	for _, item := range base {
+		name := item
+		if idx := strings.IndexByte(item, '='); idx >= 0 {
+			name = item[:idx]
+		}
+		if _, ok := skip[name]; ok {
+			continue
+		}
+		env = append(env, item)
+	}
+
 	for key, value := range overrides {
 		prefix := key + "="
 		replaced := false

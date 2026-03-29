@@ -41,6 +41,7 @@ export interface AIAppRuntimeState {
   liveLogsReady: boolean;
   installPath?: string;
   version?: string;
+  modelID?: string;
   logPath?: string;
   lastError?: string;
   logLines: string[];

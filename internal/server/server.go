@@ -50,6 +50,7 @@ type Server struct {
 
 	mu      sync.RWMutex
 	engines map[string]*managedEngine
+	prefsMu sync.Mutex
 }
 
 func New(cfg *config.Config, version string) *Server {

@@ -98,7 +98,7 @@ func runLaunch(cmd *cobra.Command, args []string, opts launchOptions) error {
 		}
 	}
 
-	modelID, err := resolveLaunchModel(cfg, opts.Model, opts.SkipConfirm)
+	modelID, err := resolveLaunchModel(serverURL, app.ModelID, opts.Model, opts.SkipConfirm, strings.TrimSpace(cfg.Token) != "")
 	if err != nil {
 		return err
 	}
@@ -249,6 +249,26 @@ func getAIAppInfo(serverURL, appID string) (api.AIAppInfo, error) {
 		}
 	}
 	return api.AIAppInfo{}, fmt.Errorf("AI app %q was not found", appID)
+}
+
+func getLaunchModels(serverURL string) ([]api.ModelInfo, error) {
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Get(serverURL + "/api/tags")
+	if err != nil {
+		return nil, fmt.Errorf("querying AI app models: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		return nil, fmt.Errorf("querying AI app models: HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+
+	var payload api.TagsResponse
+	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+		return nil, fmt.Errorf("decoding AI app models response: %w", err)
+	}
+	return payload.Models, nil
 }
 
 func requestAIAppInstall(serverURL, appID string) (api.AIAppInfo, error) {

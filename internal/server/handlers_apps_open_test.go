@@ -9,12 +9,14 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/opencsgs/csghub-lite/internal/cloud"
 	"github.com/opencsgs/csghub-lite/internal/config"
 	"github.com/opencsgs/csghub-lite/internal/model"
+	"github.com/opencsgs/csghub-lite/pkg/api"
 )
 
 func TestExtractDashboardURL(t *testing.T) {
@@ -61,7 +63,7 @@ func TestOpenClawProfileMatches(t *testing.T) {
 	configJSON := `{
   "models": {
     "providers": {
-      "csghub": {
+      "opencsg": {
         "baseUrl": "http://127.0.0.1:11435/v1"
       }
     }
@@ -69,7 +71,7 @@ func TestOpenClawProfileMatches(t *testing.T) {
   "agents": {
     "defaults": {
       "model": {
-        "primary": "csghub/Qwen/Qwen3.5-2B"
+        "primary": "opencsg/Qwen/Qwen3.5-2B"
       }
     }
   }
@@ -84,6 +86,139 @@ func TestOpenClawProfileMatches(t *testing.T) {
 	}
 	if !ok {
 		t.Fatal("openClawProfileMatches returned false, want true")
+	}
+}
+
+func TestSyncOpenClawProfileRewritesStaleModelCatalog(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	profileDir := filepath.Join(home, ".openclaw-"+openClawWebProfile)
+	agentDir := filepath.Join(profileDir, "agents", "main", "agent")
+	if err := os.MkdirAll(agentDir, 0o755); err != nil {
+		t.Fatalf("mkdir agent dir: %v", err)
+	}
+
+	staleProfile := `{
+  "models": {
+    "mode": "merge",
+    "providers": {
+      "ollama": {
+        "baseUrl": "http://127.0.0.1:11436",
+        "models": [{"id": "old-local"}]
+      },
+      "csghub-lite-2": {
+        "baseUrl": "http://127.0.0.1:11435/v1",
+        "models": [{"id": "old-provider"}]
+      },
+      "csghub": {
+        "baseUrl": "http://127.0.0.1:11435/v1",
+        "models": [{"id": "old-cloud"}]
+      }
+    }
+  },
+  "agents": {
+    "defaults": {
+      "model": {
+        "primary": "csghub/old-cloud"
+      },
+      "models": {
+        "csghub/old-cloud": {}
+      },
+      "workspace": "/tmp/openclaw-workspace"
+    }
+  }
+}`
+	if err := os.WriteFile(filepath.Join(profileDir, "openclaw.json"), []byte(staleProfile), 0o644); err != nil {
+		t.Fatalf("write stale profile: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(agentDir, "models.json"), []byte(`{"providers":{"csghub":{"models":[{"id":"old-cloud"}]}}}`), 0o644); err != nil {
+		t.Fatalf("write stale agent models: %v", err)
+	}
+
+	models := []api.ModelInfo{
+		{Model: "minimax-m2.5", DisplayName: "MiniMax M2.5", Source: "cloud"},
+		{Model: "Qwen/Qwen3.5-2B", DisplayName: "Qwen/Qwen3.5-2B", Source: "local"},
+	}
+	if err := syncOpenClawProfile("http://127.0.0.1:11435", "user-token", "minimax-m2.5", models); err != nil {
+		t.Fatalf("syncOpenClawProfile returned error: %v", err)
+	}
+
+	var profile struct {
+		Models struct {
+			Providers map[string]struct {
+				BaseURL string `json:"baseUrl"`
+				APIKey  string `json:"apiKey"`
+				Models  []struct {
+					ID string `json:"id"`
+				} `json:"models"`
+			} `json:"providers"`
+		} `json:"models"`
+		Agents struct {
+			Defaults struct {
+				Model struct {
+					Primary string `json:"primary"`
+				} `json:"model"`
+				Models map[string]map[string]interface{} `json:"models"`
+			} `json:"defaults"`
+		} `json:"agents"`
+	}
+	data, err := os.ReadFile(filepath.Join(profileDir, "openclaw.json"))
+	if err != nil {
+		t.Fatalf("read synced profile: %v", err)
+	}
+	if err := json.Unmarshal(data, &profile); err != nil {
+		t.Fatalf("decode synced profile: %v", err)
+	}
+	if len(profile.Models.Providers) != 1 {
+		t.Fatalf("providers len = %d, want 1", len(profile.Models.Providers))
+	}
+	provider, ok := profile.Models.Providers[openClawProviderID]
+	if !ok {
+		t.Fatalf("provider %q missing after sync: %#v", openClawProviderID, profile.Models.Providers)
+	}
+	if provider.BaseURL != "http://127.0.0.1:11435/v1" {
+		t.Fatalf("provider baseUrl = %q, want local v1 URL", provider.BaseURL)
+	}
+	if provider.APIKey != "user-token" {
+		t.Fatalf("provider apiKey = %q, want saved user token", provider.APIKey)
+	}
+	if got := collectOpenClawModelIDs(provider.Models); !sameStrings(got, []string{"minimax-m2.5", "Qwen/Qwen3.5-2B"}) {
+		t.Fatalf("provider model ids = %#v, want refreshed model ids", got)
+	}
+	if profile.Agents.Defaults.Model.Primary != "opencsg/minimax-m2.5" {
+		t.Fatalf("primary model = %q, want refreshed cloud model", profile.Agents.Defaults.Model.Primary)
+	}
+	if got := mapKeys(profile.Agents.Defaults.Models); !sameStrings(got, []string{
+		"opencsg/minimax-m2.5",
+		"opencsg/Qwen/Qwen3.5-2B",
+	}) {
+		t.Fatalf("defaults.models = %#v, want refreshed managed models", got)
+	}
+
+	var agentModels struct {
+		Providers map[string]struct {
+			APIKey string `json:"apiKey"`
+			Models []struct {
+				ID string `json:"id"`
+			} `json:"models"`
+		} `json:"providers"`
+	}
+	data, err = os.ReadFile(filepath.Join(agentDir, "models.json"))
+	if err != nil {
+		t.Fatalf("read synced agent models: %v", err)
+	}
+	if err := json.Unmarshal(data, &agentModels); err != nil {
+		t.Fatalf("decode synced agent models: %v", err)
+	}
+	if len(agentModels.Providers) != 1 {
+		t.Fatalf("agent providers len = %d, want 1", len(agentModels.Providers))
+	}
+	if agentModels.Providers[openClawProviderID].APIKey != "user-token" {
+		t.Fatalf("agent provider apiKey = %q, want saved user token", agentModels.Providers[openClawProviderID].APIKey)
+	}
+	if got := collectOpenClawModelIDs(agentModels.Providers[openClawProviderID].Models); !sameStrings(got, []string{"minimax-m2.5", "Qwen/Qwen3.5-2B"}) {
+		t.Fatalf("agent model ids = %#v, want refreshed model ids", got)
 	}
 }
 
@@ -236,6 +371,236 @@ func TestOpenAIAppShellURLUsesRequestedWorkDir(t *testing.T) {
 	_ = s.appShells.Close(sessionID)
 }
 
+func TestOpenAIAppShellURLRemembersRequestedModel(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	cfg := &config.Config{
+		ModelDir:             t.TempDir(),
+		ListenAddr:           ":11435",
+		AIAppPreferredModels: map[string]string{},
+	}
+	for _, item := range []*model.LocalModel{
+		{
+			Namespace:    "Qwen",
+			Name:         "Qwen3.5-2B",
+			Format:       model.FormatGGUF,
+			Size:         4_000_000_000,
+			Files:        []string{"model.gguf"},
+			DownloadedAt: time.Unix(123, 0),
+		},
+		{
+			Namespace:    "Qwen",
+			Name:         "Qwen2.5-Coder-1.5B",
+			Format:       model.FormatGGUF,
+			Size:         1_500_000_000,
+			Files:        []string{"model.gguf"},
+			DownloadedAt: time.Unix(124, 0),
+		},
+	} {
+		if err := model.SaveManifest(cfg.ModelDir, item); err != nil {
+			t.Fatalf("save model manifest: %v", err)
+		}
+	}
+
+	binDir := t.TempDir()
+	commandPath := filepath.Join(binDir, "claude")
+	content := "#!/bin/sh\nexit 0\n"
+	if runtime.GOOS == "windows" {
+		commandPath = filepath.Join(binDir, "claude.cmd")
+		content = "@echo off\r\nexit /b 0\r\n"
+	}
+	if err := os.WriteFile(commandPath, []byte(content), 0o755); err != nil {
+		t.Fatalf("write fake binary: %v", err)
+	}
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	s := New(cfg, "test")
+
+	url, err := s.openAIAppShellURL(context.Background(), "claude-code", "Qwen/Qwen2.5-Coder-1.5B", "")
+	if err != nil {
+		t.Fatalf("openAIAppShellURL returned error: %v", err)
+	}
+	parsed, err := neturl.Parse(url)
+	if err != nil {
+		t.Fatalf("parse url: %v", err)
+	}
+	sessionID := parsed.Query().Get("session_id")
+	session, ok := s.appShells.Get(sessionID)
+	if !ok {
+		t.Fatalf("expected session %q to exist", sessionID)
+	}
+	if session.modelID != "Qwen/Qwen2.5-Coder-1.5B" {
+		t.Fatalf("session modelID = %q, want coder model", session.modelID)
+	}
+	_ = s.appShells.Close(sessionID)
+
+	if got := s.preferredAIAppModel("claude-code"); got != "Qwen/Qwen2.5-Coder-1.5B" {
+		t.Fatalf("preferredAIAppModel = %q, want coder model", got)
+	}
+}
+
+func TestOpenAIAppShellURLUsesRememberedModelWhenRequestOmitted(t *testing.T) {
+	cfg := &config.Config{
+		ModelDir:   t.TempDir(),
+		ListenAddr: ":11435",
+		AIAppPreferredModels: map[string]string{
+			"claude-code": "Qwen/Qwen2.5-Coder-1.5B",
+		},
+	}
+	for _, item := range []*model.LocalModel{
+		{
+			Namespace:    "Qwen",
+			Name:         "Qwen3.5-2B",
+			Format:       model.FormatGGUF,
+			Size:         4_000_000_000,
+			Files:        []string{"model.gguf"},
+			DownloadedAt: time.Unix(123, 0),
+		},
+		{
+			Namespace:    "Qwen",
+			Name:         "Qwen2.5-Coder-1.5B",
+			Format:       model.FormatGGUF,
+			Size:         1_500_000_000,
+			Files:        []string{"model.gguf"},
+			DownloadedAt: time.Unix(124, 0),
+		},
+	} {
+		if err := model.SaveManifest(cfg.ModelDir, item); err != nil {
+			t.Fatalf("save model manifest: %v", err)
+		}
+	}
+
+	binDir := t.TempDir()
+	commandPath := filepath.Join(binDir, "claude")
+	content := "#!/bin/sh\nexit 0\n"
+	if runtime.GOOS == "windows" {
+		commandPath = filepath.Join(binDir, "claude.cmd")
+		content = "@echo off\r\nexit /b 0\r\n"
+	}
+	if err := os.WriteFile(commandPath, []byte(content), 0o755); err != nil {
+		t.Fatalf("write fake binary: %v", err)
+	}
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	s := New(cfg, "test")
+
+	url, err := s.openAIAppShellURL(context.Background(), "claude-code", "", "")
+	if err != nil {
+		t.Fatalf("openAIAppShellURL returned error: %v", err)
+	}
+	parsed, err := neturl.Parse(url)
+	if err != nil {
+		t.Fatalf("parse url: %v", err)
+	}
+	sessionID := parsed.Query().Get("session_id")
+	session, ok := s.appShells.Get(sessionID)
+	if !ok {
+		t.Fatalf("expected session %q to exist", sessionID)
+	}
+	if session.modelID != "Qwen/Qwen2.5-Coder-1.5B" {
+		t.Fatalf("session modelID = %q, want remembered coder model", session.modelID)
+	}
+	_ = s.appShells.Close(sessionID)
+}
+
+func TestOpenAIAppShellURLMissingCloudTokenShowsSettingsHint(t *testing.T) {
+	cfg := &config.Config{
+		ModelDir:   t.TempDir(),
+		ListenAddr: ":11435",
+	}
+	if err := model.SaveManifest(cfg.ModelDir, &model.LocalModel{
+		Namespace:    "Qwen",
+		Name:         "Qwen3.5-2B",
+		Format:       model.FormatGGUF,
+		Size:         4_000_000_000,
+		Files:        []string{"model.gguf"},
+		DownloadedAt: time.Unix(123, 0),
+	}); err != nil {
+		t.Fatalf("save model manifest: %v", err)
+	}
+
+	binDir := t.TempDir()
+	commandPath := filepath.Join(binDir, "claude")
+	content := "#!/bin/sh\nexit 0\n"
+	if runtime.GOOS == "windows" {
+		commandPath = filepath.Join(binDir, "claude.cmd")
+		content = "@echo off\r\nexit /b 0\r\n"
+	}
+	if err := os.WriteFile(commandPath, []byte(content), 0o755); err != nil {
+		t.Fatalf("write fake binary: %v", err)
+	}
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	s := New(cfg, "test")
+
+	_, err := s.openAIAppShellURL(context.Background(), "claude-code", "afrideva/Qwen2-0.5B-Instruct-GGUF:fh23aijhzx8g", "")
+	if err == nil {
+		t.Fatal("openAIAppShellURL returned nil error, want settings hint")
+	}
+	if got := err.Error(); !strings.Contains(got, "open csghub-lite Settings and save an Access Token first") {
+		t.Fatalf("error = %q, want settings hint", got)
+	}
+}
+
+func TestPrepareAIAppShellLaunchSetsTerminalEnvForClaudeCode(t *testing.T) {
+	binDir := t.TempDir()
+	commandPath := filepath.Join(binDir, "claude")
+	content := "#!/bin/sh\nexit 0\n"
+	if runtime.GOOS == "windows" {
+		commandPath = filepath.Join(binDir, "claude.cmd")
+		content = "@echo off\r\nexit /b 0\r\n"
+	}
+	if err := os.WriteFile(commandPath, []byte(content), 0o755); err != nil {
+		t.Fatalf("write fake binary: %v", err)
+	}
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("NO_COLOR", "1")
+
+	s := New(&config.Config{ListenAddr: ":11435"}, "test")
+	workDir := t.TempDir()
+	prepared, err := s.prepareAIAppShellLaunch(aiAppOpenTarget{
+		AppID:       "claude-code",
+		DisplayName: "Claude Code",
+		Binaries:    []string{"claude"},
+	}, "Qwen/Qwen3.5-2B", []string{"Qwen/Qwen3.5-2B"}, workDir)
+	if err != nil {
+		t.Fatalf("prepareAIAppShellLaunch returned error: %v", err)
+	}
+
+	for key, want := range map[string]string{
+		"TERM":           "xterm-256color",
+		"COLORTERM":      "truecolor",
+		"FORCE_COLOR":    "1",
+		"CLICOLOR":       "1",
+		"TERM_PROGRAM":   "csghub-lite",
+		"CLAUDE_API_KEY": "csghub-lite",
+	} {
+		if got := envValue(prepared.Env, key); got != want {
+			t.Fatalf("%s = %q, want %q", key, got, want)
+		}
+	}
+	if envHasKey(prepared.Env, "NO_COLOR") {
+		t.Fatalf("NO_COLOR should be removed from web shell environment: %#v", prepared.Env)
+	}
+
+	settingsJSON := argValue(prepared.Args, "--settings")
+	if settingsJSON == "" {
+		t.Fatalf("expected --settings in args: %#v", prepared.Args)
+	}
+	var payload struct {
+		Permissions struct {
+			DefaultMode string `json:"defaultMode"`
+		} `json:"permissions"`
+	}
+	if err := json.Unmarshal([]byte(settingsJSON), &payload); err != nil {
+		t.Fatalf("decode settings json: %v", err)
+	}
+	if payload.Permissions.DefaultMode != "acceptEdits" {
+		t.Fatalf("permissions.defaultMode = %q, want acceptEdits", payload.Permissions.DefaultMode)
+	}
+}
+
 func TestWriteOpenCodeWebLaunchConfigIncludesAllModels(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
@@ -276,4 +641,73 @@ func TestWriteOpenCodeWebLaunchConfigIncludesAllModels(t *testing.T) {
 	if _, ok := models["Qwen/Qwen2.5-Coder-1.5B"]; !ok {
 		t.Fatalf("missing coder model in config: %#v", models)
 	}
+}
+
+func envValue(env []string, key string) string {
+	prefix := key + "="
+	for _, item := range env {
+		if strings.HasPrefix(item, prefix) {
+			return strings.TrimPrefix(item, prefix)
+		}
+	}
+	return ""
+}
+
+func envHasKey(env []string, key string) bool {
+	prefix := key + "="
+	for _, item := range env {
+		if strings.HasPrefix(item, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+func collectOpenClawModelIDs(items []struct {
+	ID string `json:"id"`
+}) []string {
+	ids := make([]string, 0, len(items))
+	for _, item := range items {
+		ids = append(ids, item.ID)
+	}
+	return ids
+}
+
+func mapKeys[V any](m map[string]V) []string {
+	keys := make([]string, 0, len(m))
+	for key := range m {
+		keys = append(keys, key)
+	}
+	return keys
+}
+
+func sameStrings(got, want []string) bool {
+	if len(got) != len(want) {
+		return false
+	}
+	seen := make(map[string]int, len(want))
+	for _, item := range want {
+		seen[item]++
+	}
+	for _, item := range got {
+		seen[item]--
+		if seen[item] < 0 {
+			return false
+		}
+	}
+	for _, count := range seen {
+		if count != 0 {
+			return false
+		}
+	}
+	return true
+}
+
+func argValue(args []string, name string) string {
+	for i := 0; i+1 < len(args); i++ {
+		if args[i] == name {
+			return args[i+1]
+		}
+	}
+	return ""
 }

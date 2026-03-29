@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -15,6 +16,7 @@ func (s *Server) handleApps(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	s.enrichAIApps(r.Context(), apps)
 	writeJSON(w, http.StatusOK, api.AIAppsResponse{Apps: apps})
 }
 
@@ -43,6 +45,7 @@ func (s *Server) handleAppInstall(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	s.enrichAIApp(r.Context(), &info)
 	writeJSON(w, http.StatusAccepted, info)
 }
 
@@ -71,6 +74,7 @@ func (s *Server) handleAppUninstall(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	s.enrichAIApp(r.Context(), &info)
 	writeJSON(w, http.StatusAccepted, info)
 }
 
@@ -96,6 +100,36 @@ func (s *Server) handleAppOpen(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, api.AIAppOpenResponse{URL: url})
+}
+
+func (s *Server) enrichAIApps(ctx context.Context, apps []api.AIAppInfo) {
+	for i := range apps {
+		s.enrichAIApp(ctx, &apps[i])
+	}
+}
+
+func (s *Server) enrichAIApp(ctx context.Context, info *api.AIAppInfo) {
+	if info == nil || !info.Supported || info.Disabled {
+		return
+	}
+
+	var (
+		modelID string
+		err     error
+	)
+
+	switch info.ID {
+	case "claude-code", "open-code", "codex":
+		modelID, _, err = s.resolveAIAppShellLaunchModels(ctx, info.ID, "")
+	case "openclaw":
+		modelID, _, err = s.resolveAIAppLaunchModels(ctx, "")
+	default:
+		return
+	}
+
+	if err == nil {
+		info.ModelID = modelID
+	}
 }
 
 func (s *Server) handleAppLogs(w http.ResponseWriter, r *http.Request) {

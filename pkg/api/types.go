@@ -227,6 +227,7 @@ type AIAppInfo struct {
 	Progress       int       `json:"progress,omitempty"`
 	InstallPath    string    `json:"install_path,omitempty"`
 	Version        string    `json:"version,omitempty"`
+	ModelID        string    `json:"model_id,omitempty"`
 	LogPath        string    `json:"log_path,omitempty"`
 	LastError      string    `json:"last_error,omitempty"`
 	DisabledReason string    `json:"disabled_reason,omitempty"`

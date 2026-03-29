@@ -28,8 +28,14 @@ const (
 	aiAppShellDefaultCols = 120
 	aiAppShellDefaultRows = 36
 	aiAppShellReplayLimit = 256 * 1024
-	aiAppShellIdleTimeout = 30 * time.Second
 	openCodeWebProviderID = "csghub-lite"
+)
+
+var (
+	aiAppShellIdleTimeout  = 15 * time.Minute
+	aiAppShellPingInterval = 30 * time.Second
+	aiAppShellPongWait     = 75 * time.Second
+	aiAppShellWriteTimeout = 10 * time.Second
 )
 
 var aiAppShellUpgrader = websocket.Upgrader{
@@ -181,6 +187,7 @@ func (s *aiAppShellSession) streamOutput() {
 		if n > 0 {
 			chunk := append([]byte(nil), buf[:n]...)
 			s.appendReplay(chunk)
+			s.touchActivity()
 			s.broadcast(aiAppShellEvent{output: chunk})
 		}
 		if err != nil {
@@ -240,7 +247,7 @@ func (s *aiAppShellSession) Attach() aiAppShellAttach {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	s.stopIdleTimeoutLocked()
+	s.scheduleIdleTimeoutLocked()
 
 	attach := aiAppShellAttach{
 		ready: aiAppShellControlMessage{
@@ -295,6 +302,9 @@ func (s *aiAppShellSession) WriteInput(p []byte) error {
 		return nil
 	}
 	_, err := s.pty.Write(p)
+	if err == nil {
+		s.touchActivity()
+	}
 	return err
 }
 
@@ -302,7 +312,11 @@ func (s *aiAppShellSession) Resize(cols, rows int) error {
 	if cols <= 0 || rows <= 0 {
 		return nil
 	}
-	return s.pty.Resize(cols, rows)
+	if err := s.pty.Resize(cols, rows); err != nil {
+		return err
+	}
+	s.touchActivity()
+	return nil
 }
 
 func (s *aiAppShellSession) Terminate() {
@@ -313,7 +327,10 @@ func (s *aiAppShellSession) Terminate() {
 	}
 	s.terminating = true
 	s.stopIdleTimeoutLocked()
-	process := s.cmd.Process
+	var process *os.Process
+	if s.cmd != nil {
+		process = s.cmd.Process
+	}
 	pty := s.pty
 	s.mu.Unlock()
 
@@ -323,6 +340,12 @@ func (s *aiAppShellSession) Terminate() {
 	if pty != nil {
 		_ = pty.Close()
 	}
+}
+
+func (s *aiAppShellSession) touchActivity() {
+	s.mu.Lock()
+	s.scheduleIdleTimeoutLocked()
+	s.mu.Unlock()
 }
 
 func (s *aiAppShellSession) appendReplay(chunk []byte) {
@@ -389,7 +412,7 @@ func (s *Server) openAIAppShellURL(ctx context.Context, appID, requestedModel, r
 		return "", err
 	}
 
-	defaultModel, modelIDs, err := s.resolveAIAppLaunchModels(ctx, requestedModel)
+	defaultModel, modelIDs, err := s.resolveAIAppShellLaunchModels(ctx, appID, requestedModel)
 	if err != nil {
 		return "", err
 	}
@@ -403,6 +426,9 @@ func (s *Server) openAIAppShellURL(ctx context.Context, appID, requestedModel, r
 	if err != nil {
 		return "", err
 	}
+	if strings.TrimSpace(requestedModel) != "" {
+		s.savePreferredAIAppModel(appID, defaultModel)
+	}
 
 	u, err := neturl.Parse(s.localBaseURL())
 	if err != nil {
@@ -414,6 +440,28 @@ func (s *Server) openAIAppShellURL(ctx context.Context, appID, requestedModel, r
 	query.Set("app_id", session.appID)
 	u.RawQuery = query.Encode()
 	return u.String(), nil
+}
+
+func (s *Server) resolveAIAppShellLaunchModels(ctx context.Context, appID, requestedModel string) (string, []string, error) {
+	requestedModel = strings.TrimSpace(requestedModel)
+	if requestedModel != "" {
+		return s.resolveAIAppLaunchModels(ctx, requestedModel)
+	}
+
+	preferredModel := s.preferredAIAppModel(appID)
+	if preferredModel != "" {
+		modelID, modelIDs, err := s.resolveAIAppLaunchModels(ctx, preferredModel)
+		if err == nil {
+			return modelID, modelIDs, nil
+		}
+		if strings.Contains(err.Error(), "is not available for AI Apps") {
+			s.clearPreferredAIAppModel(appID)
+		} else {
+			return "", nil, err
+		}
+	}
+
+	return s.resolveAIAppLaunchModels(ctx, "")
 }
 
 func resolveAIAppOpenTarget(appID string) (aiAppOpenTarget, error) {
@@ -486,6 +534,9 @@ func (s *Server) resolveAIAppLaunchModels(ctx context.Context, requestedModel st
 	requestedModel = strings.TrimSpace(requestedModel)
 	if requestedModel != "" {
 		if _, ok := seen[requestedModel]; !ok {
+			if strings.TrimSpace(s.cfg.Token) == "" {
+				return "", nil, fmt.Errorf("model %q is not available for AI Apps. If you are trying to use an OpenCSG model, please open csghub-lite Settings and save an Access Token first", requestedModel)
+			}
 			return "", nil, fmt.Errorf("model %q is not available for AI Apps", requestedModel)
 		}
 		return requestedModel, modelIDs, nil
@@ -504,6 +555,65 @@ func appendUniqueModelID(modelIDs []string, seen map[string]struct{}, modelID st
 	}
 	seen[modelID] = struct{}{}
 	return append(modelIDs, modelID)
+}
+
+func (s *Server) preferredAIAppModel(appID string) string {
+	s.prefsMu.Lock()
+	defer s.prefsMu.Unlock()
+	if s.cfg == nil || s.cfg.AIAppPreferredModels == nil {
+		return ""
+	}
+	return strings.TrimSpace(s.cfg.AIAppPreferredModels[strings.TrimSpace(appID)])
+}
+
+func (s *Server) savePreferredAIAppModel(appID, modelID string) {
+	appID = strings.TrimSpace(appID)
+	modelID = strings.TrimSpace(modelID)
+	if appID == "" || modelID == "" || s.cfg == nil {
+		return
+	}
+
+	s.prefsMu.Lock()
+	defer s.prefsMu.Unlock()
+	if s.cfg.AIAppPreferredModels == nil {
+		s.cfg.AIAppPreferredModels = map[string]string{}
+	}
+	s.cfg.AIAppPreferredModels[appID] = modelID
+	_ = config.Save(s.cfg)
+}
+
+func (s *Server) clearPreferredAIAppModel(appID string) {
+	appID = strings.TrimSpace(appID)
+	if appID == "" || s.cfg == nil {
+		return
+	}
+
+	s.prefsMu.Lock()
+	defer s.prefsMu.Unlock()
+	if s.cfg.AIAppPreferredModels == nil {
+		return
+	}
+	if _, ok := s.cfg.AIAppPreferredModels[appID]; !ok {
+		return
+	}
+	delete(s.cfg.AIAppPreferredModels, appID)
+	_ = config.Save(s.cfg)
+}
+
+func aiAppShellEnvOverrides(overrides map[string]string) map[string]string {
+	// Web shell sessions run in a PTY even when the background server itself was
+	// started without an interactive terminal, so advertise a capable terminal.
+	merged := map[string]string{
+		"TERM":         "xterm-256color",
+		"COLORTERM":    "truecolor",
+		"FORCE_COLOR":  "1",
+		"CLICOLOR":     "1",
+		"TERM_PROGRAM": "csghub-lite",
+	}
+	for key, value := range overrides {
+		merged[key] = value
+	}
+	return merged
 }
 
 func (s *Server) prepareAIAppShellLaunch(target aiAppOpenTarget, modelID string, modelIDs []string, requestedWorkDir string) (aiAppPreparedLaunch, error) {
@@ -526,13 +636,13 @@ func (s *Server) prepareAIAppShellLaunch(target aiAppOpenTarget, modelID string,
 				"--model", modelID,
 				"--settings", claudeLaunchSettingsJSON(serverURL),
 			},
-			Env: envWithOverrides(map[string]string{
+			Env: envWithOverridesAndUnset(aiAppShellEnvOverrides(map[string]string{
 				"ANTHROPIC_BASE_URL":   serverURL,
 				"ANTHROPIC_AUTH_TOKEN": "csghub-lite",
 				"ANTHROPIC_API_KEY":    "csghub-lite",
 				"CLAUDE_API_BASE_URL":  serverURL,
 				"CLAUDE_API_KEY":       "csghub-lite",
-			}),
+			}), "NO_COLOR"),
 			Dir: workingDir,
 		}, nil
 	case "open-code":
@@ -542,9 +652,9 @@ func (s *Server) prepareAIAppShellLaunch(target aiAppOpenTarget, modelID string,
 		}
 		return aiAppPreparedLaunch{
 			Binary: binary,
-			Env: envWithOverrides(map[string]string{
+			Env: envWithOverridesAndUnset(aiAppShellEnvOverrides(map[string]string{
 				"OPENCODE_CONFIG": configPath,
-			}),
+			}), "NO_COLOR"),
 			Dir: workingDir,
 		}, nil
 	case "codex":
@@ -554,9 +664,9 @@ func (s *Server) prepareAIAppShellLaunch(target aiAppOpenTarget, modelID string,
 				"-c", fmt.Sprintf(`openai_base_url=%q`, strings.TrimRight(serverURL, "/")+"/v1"),
 				"--model", modelID,
 			},
-			Env: envWithOverrides(map[string]string{
+			Env: envWithOverridesAndUnset(aiAppShellEnvOverrides(map[string]string{
 				"OPENAI_API_KEY": "csghub-lite",
-			}),
+			}), "NO_COLOR"),
 			Dir: workingDir,
 		}, nil
 	default:
@@ -612,6 +722,9 @@ func claudeLaunchSettingsJSON(serverURL string) string {
 			"ANTHROPIC_API_KEY":    "csghub-lite",
 			"CLAUDE_API_BASE_URL":  serverURL,
 			"CLAUDE_API_KEY":       "csghub-lite",
+		},
+		"permissions": map[string]string{
+			"defaultMode": "acceptEdits",
 		},
 	}
 	data, err := json.Marshal(payload)
@@ -796,36 +909,53 @@ func (s *Server) handleAppShellWS(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer conn.Close()
+	_ = conn.SetReadDeadline(time.Now().Add(aiAppShellPongWait))
+	conn.SetPongHandler(func(string) error {
+		session.touchActivity()
+		return conn.SetReadDeadline(time.Now().Add(aiAppShellPongWait))
+	})
 
 	attach := session.Attach()
 	defer session.Detach(attach.events)
 
-	if err := conn.WriteJSON(attach.ready); err != nil {
+	if err := writeAIAppShellJSON(conn, attach.ready); err != nil {
 		return
 	}
 	if len(attach.replay) > 0 {
-		if err := conn.WriteMessage(websocket.BinaryMessage, attach.replay); err != nil {
+		if err := writeAIAppShellBinary(conn, attach.replay); err != nil {
 			return
 		}
 	}
 	if attach.exitMsg != nil {
-		_ = conn.WriteJSON(attach.exitMsg)
+		_ = writeAIAppShellJSON(conn, attach.exitMsg)
 		return
 	}
 
 	writerDone := make(chan struct{})
+	pingTicker := time.NewTicker(aiAppShellPingInterval)
 	go func() {
+		defer pingTicker.Stop()
 		defer close(writerDone)
 		defer conn.Close()
-		for event := range attach.events {
-			if len(event.output) > 0 {
-				if err := conn.WriteMessage(websocket.BinaryMessage, event.output); err != nil {
+		for {
+			select {
+			case event, ok := <-attach.events:
+				if !ok {
 					return
 				}
-			}
-			if event.exit != nil {
-				_ = conn.WriteJSON(event.exit)
-				return
+				if len(event.output) > 0 {
+					if err := writeAIAppShellBinary(conn, event.output); err != nil {
+						return
+					}
+				}
+				if event.exit != nil {
+					_ = writeAIAppShellJSON(conn, event.exit)
+					return
+				}
+			case <-pingTicker.C:
+				if err := writeAIAppShellPing(conn); err != nil {
+					return
+				}
 			}
 		}
 	}()
@@ -841,6 +971,7 @@ func (s *Server) handleAppShellWS(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			return
 		}
+		_ = conn.SetReadDeadline(time.Now().Add(aiAppShellPongWait))
 
 		switch messageType {
 		case websocket.BinaryMessage:
@@ -857,6 +988,24 @@ func (s *Server) handleAppShellWS(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
+}
+
+func writeAIAppShellJSON(conn *websocket.Conn, value interface{}) error {
+	_ = conn.SetWriteDeadline(time.Now().Add(aiAppShellWriteTimeout))
+	err := conn.WriteJSON(value)
+	_ = conn.SetWriteDeadline(time.Time{})
+	return err
+}
+
+func writeAIAppShellBinary(conn *websocket.Conn, payload []byte) error {
+	_ = conn.SetWriteDeadline(time.Now().Add(aiAppShellWriteTimeout))
+	err := conn.WriteMessage(websocket.BinaryMessage, payload)
+	_ = conn.SetWriteDeadline(time.Time{})
+	return err
+}
+
+func writeAIAppShellPing(conn *websocket.Conn) error {
+	return conn.WriteControl(websocket.PingMessage, []byte("keepalive"), time.Now().Add(aiAppShellWriteTimeout))
 }
 
 func (s *Server) handleAppShellClose(w http.ResponseWriter, r *http.Request) {

@@ -2,7 +2,7 @@ import { signal } from "@preact/signals";
 import { useEffect } from "preact/hooks";
 import { t, locale, setLocale } from "../i18n";
 import type { Locale } from "../i18n";
-import { clearCloudToken, getCloudAuthStatus } from "../api/client";
+import { clearCloudToken, getCloudAuthStatus, saveCloudToken } from "../api/client";
 import type { CloudAuthStatus } from "../api/client";
 
 const contextLengthSteps = [4096, 8192, 16384, 32768, 65536, 131072, 262144];
@@ -13,8 +13,10 @@ const modelLocation = signal("");
 const appVersion = signal("");
 const contextIndex = signal(1);
 const cloudAuth = signal<CloudAuthStatus | null>(null);
+const cloudTokenInput = signal("");
 const cloudAuthError = signal("");
 const isClearingCloudToken = signal(false);
+const isSavingCloudToken = signal(false);
 
 function loadContextIndex(): number {
   try {
@@ -81,8 +83,13 @@ function cloudUserInitial(status: CloudAuthStatus | null): string {
   return label ? label[0].toUpperCase() : "?";
 }
 
+function hasCloudAuth(status: CloudAuthStatus | null | undefined): boolean {
+  return status?.authenticated ?? status?.has_token ?? false;
+}
+
 export function Settings() {
   void locale.value;
+  const showTokenInput = !(cloudAuth.value?.authenticated && cloudAuth.value?.user);
 
   useEffect(() => {
     fetchSettings();
@@ -108,6 +115,30 @@ export function Settings() {
       cloudAuthError.value = err?.message || t("chat.failedResp");
     } finally {
       isClearingCloudToken.value = false;
+    }
+  };
+
+  const handleSaveCloudToken = async () => {
+    const token = cloudTokenInput.value.trim();
+    if (!token) {
+      cloudAuthError.value = t("chat.cloudTokenEmpty");
+      return;
+    }
+
+    isSavingCloudToken.value = true;
+    cloudAuthError.value = "";
+    try {
+      const status = await saveCloudToken(token);
+      cloudAuth.value = status;
+      if (!hasCloudAuth(status)) {
+        cloudAuthError.value = t("chat.cloudLoginExpired");
+        return;
+      }
+      cloudTokenInput.value = "";
+    } catch (err: any) {
+      cloudAuthError.value = err?.message || t("chat.failedResp");
+    } finally {
+      isSavingCloudToken.value = false;
     }
   };
 
@@ -268,6 +299,32 @@ export function Settings() {
                   class="px-4 py-2 border border-gray-200 rounded-lg text-sm text-gray-700 hover:bg-gray-50 transition-colors"
                 >
                   {t("settings.openTokenPage")}
+                </button>
+              </div>
+            </div>
+          )}
+          {showTokenInput && (
+            <div class="mt-5 border-t border-gray-100 pt-5">
+              <label class="mb-2 block text-sm font-medium text-gray-700">{t("chat.cloudTokenLabel")}</label>
+              <p class="mb-3 text-sm text-gray-500">{t("settings.tokenInputHint")}</p>
+              <div class="flex flex-col gap-3 sm:flex-row sm:items-end">
+                <div class="flex-1">
+                  <input
+                    type="password"
+                    autoComplete="off"
+                    spellcheck={false}
+                    class="w-full rounded-lg border border-gray-200 px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    placeholder={t("chat.cloudTokenPlaceholder")}
+                    value={cloudTokenInput.value}
+                    onInput={(e) => (cloudTokenInput.value = (e.target as HTMLInputElement).value)}
+                  />
+                </div>
+                <button
+                  onClick={handleSaveCloudToken}
+                  disabled={isSavingCloudToken.value}
+                  class="px-4 py-2 border border-indigo-200 rounded-lg text-sm text-indigo-700 hover:bg-indigo-50 disabled:opacity-60 disabled:cursor-not-allowed transition-colors"
+                >
+                  {isSavingCloudToken.value ? t("chat.cloudSavingToken") : t("chat.cloudSaveToken")}
                 </button>
               </div>
             </div>

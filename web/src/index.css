@@ -1,3 +1,8 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/* Fix xterm cursor not showing */
+.xterm .xterm-viewport {
+  cursor: text !important;
+}

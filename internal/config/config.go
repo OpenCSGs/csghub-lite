@@ -25,11 +25,12 @@ func (c *Config) DisplayURL() string {
 }
 
 type Config struct {
-	ServerURL  string `json:"server_url"`
-	Token      string `json:"token,omitempty"`
-	ListenAddr string `json:"listen_addr"`
-	ModelDir   string `json:"model_dir"`
-	DatasetDir string `json:"dataset_dir"`
+	ServerURL            string            `json:"server_url"`
+	Token                string            `json:"token,omitempty"`
+	ListenAddr           string            `json:"listen_addr"`
+	ModelDir             string            `json:"model_dir"`
+	DatasetDir           string            `json:"dataset_dir"`
+	AIAppPreferredModels map[string]string `json:"ai_app_preferred_models,omitempty"`
 }
 
 var (
@@ -123,6 +124,9 @@ func Load() (*Config, error) {
 		}
 		if globalConfig.DatasetDir == "" {
 			globalConfig.DatasetDir = datasetDir
+		}
+		if globalConfig.AIAppPreferredModels == nil {
+			globalConfig.AIAppPreferredModels = map[string]string{}
 		}
 	})
 	return globalConfig, loadErr
