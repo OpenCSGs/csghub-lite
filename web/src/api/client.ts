@@ -188,8 +188,13 @@ async function fetchJSON<T>(url: string, init?: RequestInit): Promise<T> {
   }
 }
 
-export async function getTags(): Promise<ModelInfo[]> {
-  const data = await fetchJSON<{ models: ModelInfo[] }>("/api/tags");
+export async function getTags(options?: { refresh?: boolean }): Promise<ModelInfo[]> {
+  const query = new URLSearchParams();
+  if (options?.refresh) {
+    query.set("refresh", "1");
+  }
+  const url = query.toString() ? `/api/tags?${query}` : "/api/tags";
+  const data = await fetchJSON<{ models: ModelInfo[] }>(url);
   return data.models || [];
 }
 

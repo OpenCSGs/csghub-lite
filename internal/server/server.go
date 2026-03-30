@@ -51,6 +51,10 @@ type Server struct {
 	mu      sync.RWMutex
 	engines map[string]*managedEngine
 	prefsMu sync.Mutex
+
+	cloudRefreshMu   sync.Mutex
+	cloudRefreshAt   time.Time
+	cloudRefreshWait chan struct{}
 }
 
 func New(cfg *config.Config, version string) *Server {

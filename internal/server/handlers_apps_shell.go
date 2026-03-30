@@ -28,6 +28,9 @@ const (
 	aiAppShellDefaultCols = 120
 	aiAppShellDefaultRows = 36
 	aiAppShellReplayLimit = 256 * 1024
+	aiAppShellEventBuffer = 1024
+	aiAppShellReadBuffer  = 64 * 1024
+	aiAppShellWriteBatch  = 64 * 1024
 	openCodeWebProviderID = "csghub-lite"
 	codexWebProviderID    = "csghub_lite"
 	codexContextWindow    = 272000
@@ -217,7 +220,7 @@ func (s *aiAppShellSession) start() {
 }
 
 func (s *aiAppShellSession) streamOutput() {
-	buf := make([]byte, 4096)
+	buf := make([]byte, aiAppShellReadBuffer)
 	for {
 		n, err := s.pty.Read(buf)
 		if n > 0 {
@@ -311,7 +314,7 @@ func (s *aiAppShellSession) Attach() aiAppShellAttach {
 		return attach
 	}
 
-	ch := make(chan aiAppShellEvent, 256)
+	ch := make(chan aiAppShellEvent, aiAppShellEventBuffer)
 	s.subs[ch] = struct{}{}
 	attach.events = ch
 	return attach
@@ -396,15 +399,48 @@ func (s *aiAppShellSession) appendReplay(chunk []byte) {
 
 func (s *aiAppShellSession) broadcast(event aiAppShellEvent) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
-	for ch := range s.subs {
+	subscribers := s.subscribersLocked()
+	s.mu.Unlock()
+	for _, ch := range subscribers {
+		sendAIAppShellEvent(ch, event)
+	}
+}
+
+func sendAIAppShellEvent(ch chan aiAppShellEvent, event aiAppShellEvent) (sent bool) {
+	sent = true
+	defer func() {
+		if recover() != nil {
+			sent = false
+		}
+	}()
+	ch <- event
+	return sent
+}
+
+func drainAIAppShellOutput(first aiAppShellEvent, events <-chan aiAppShellEvent) ([]byte, *aiAppShellControlMessage, bool) {
+	payload := append([]byte(nil), first.output...)
+	if first.exit != nil {
+		return payload, first.exit, false
+	}
+
+	for len(payload) < aiAppShellWriteBatch {
 		select {
-		case ch <- event:
+		case next, ok := <-events:
+			if !ok {
+				return payload, nil, true
+			}
+			if len(next.output) > 0 {
+				payload = append(payload, next.output...)
+			}
+			if next.exit != nil {
+				return payload, next.exit, false
+			}
 		default:
-			// The browser terminal runs on localhost, so a full buffer is unexpected.
-			// Drop rather than blocking the PTY reader indefinitely.
+			return payload, nil, false
 		}
 	}
+
+	return payload, nil, false
 }
 
 func (s *aiAppShellSession) subscribersLocked() []chan aiAppShellEvent {
@@ -576,6 +612,15 @@ func (s *Server) resolveAIAppLaunchModels(ctx context.Context, requestedModel st
 
 	requestedModel = strings.TrimSpace(requestedModel)
 	if requestedModel != "" {
+		if _, ok := seen[requestedModel]; !ok {
+			if s.cloud != nil && strings.TrimSpace(s.cfg.Token) != "" {
+				if cloudModels, err := s.cloud.RefreshChatModels(ctx); err == nil {
+					for _, item := range cloudModels {
+						modelIDs = appendUniqueModelID(modelIDs, seen, item.Model)
+					}
+				}
+			}
+		}
 		if _, ok := seen[requestedModel]; !ok {
 			if strings.TrimSpace(s.cfg.Token) == "" {
 				return "", nil, fmt.Errorf("model %q is not available for AI Apps. If you are trying to use an OpenCSG model, please open csghub-lite Settings and save an Access Token first", requestedModel)
@@ -798,7 +843,7 @@ func writeOpenCodeWebLaunchConfig(serverURL, defaultModel string, modelIDs []str
 		"provider": map[string]interface{}{
 			openCodeWebProviderID: map[string]interface{}{
 				"npm":  "@ai-sdk/openai-compatible",
-				"name": "CSGHub Lite",
+				"name": "OpenCSG",
 				"options": map[string]interface{}{
 					"baseURL": strings.TrimRight(serverURL, "/") + "/v1",
 				},
@@ -864,7 +909,7 @@ func codexModelCatalogEntries(modelIDs []string) []codexModelCatalogEntry {
 		entries = append(entries, codexModelCatalogEntry{
 			Slug:                       modelID,
 			DisplayName:                modelID,
-			Description:                "Model served by CSGHub Lite.",
+			Description:                "Model served by OpenCSG.",
 			SupportedReasoningLevels:   []codexReasoningEffortPreset{},
 			ShellType:                  "shell_command",
 			Visibility:                 "list",
@@ -894,7 +939,7 @@ func codexShellConfigArgs(serverURL string, modelIDs []string) ([]string, error)
 	}
 	return []string{
 		"-c", fmt.Sprintf(`model_provider=%q`, codexWebProviderID),
-		"-c", fmt.Sprintf(`model_providers.%s.name=%q`, codexWebProviderID, "CSGHub Lite"),
+		"-c", fmt.Sprintf(`model_providers.%s.name=%q`, codexWebProviderID, "OpenCSG"),
 		"-c", fmt.Sprintf(`model_providers.%s.base_url=%q`, codexWebProviderID, baseURL),
 		"-c", fmt.Sprintf(`model_providers.%s.supports_websockets=false`, codexWebProviderID),
 		"-c", fmt.Sprintf(`model_catalog_json=%q`, modelCatalogPath),
@@ -1065,13 +1110,17 @@ func (s *Server) handleAppShellWS(w http.ResponseWriter, r *http.Request) {
 				if !ok {
 					return
 				}
-				if len(event.output) > 0 {
-					if err := writeAIAppShellBinary(conn, event.output); err != nil {
+				payload, exitMsg, closed := drainAIAppShellOutput(event, attach.events)
+				if len(payload) > 0 {
+					if err := writeAIAppShellBinary(conn, payload); err != nil {
 						return
 					}
 				}
-				if event.exit != nil {
-					_ = writeAIAppShellJSON(conn, event.exit)
+				if exitMsg != nil {
+					_ = writeAIAppShellJSON(conn, exitMsg)
+					return
+				}
+				if closed {
 					return
 				}
 			case <-pingTicker.C:

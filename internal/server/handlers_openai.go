@@ -288,7 +288,9 @@ func openAIChoiceFinishReason(choice api.OpenAIChoice) string {
 
 // GET /v1/models -- OpenAI-compatible model listing
 func (s *Server) handleOpenAIModels(w http.ResponseWriter, r *http.Request) {
-	models, err := s.listAvailableModels(r.Context())
+	w.Header().Set("Cache-Control", "no-cache")
+
+	models, err := s.listAvailableModelsWithRefresh(r.Context(), requestWantsModelRefresh(r))
 	if err != nil {
 		writeOpenAIError(w, http.StatusInternalServerError, "server_error", err.Error())
 		return

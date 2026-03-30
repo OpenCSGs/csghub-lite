@@ -83,8 +83,7 @@ func (s *Server) refreshOpenClawModelCatalog(ctx context.Context) {
 		return
 	}
 
-	s.cloud.InvalidateChatModels()
-	if _, err := s.cloud.RefreshChatModels(ctx); err != nil {
+	if _, err := s.refreshCloudChatModels(ctx); err != nil {
 		log.Printf("refreshing cloud models before opening OpenClaw failed: %v", err)
 	}
 }

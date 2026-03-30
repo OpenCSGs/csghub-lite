@@ -7,6 +7,8 @@ import { locale, t } from "../i18n";
 
 type ConnectionState = "connecting" | "connected" | "disconnected" | "exited";
 const claudeCodeAppId = "claude-code";
+const shellAppsWithModelSwitch = new Set([claudeCodeAppId]);
+const shellAppsWithWorkDirSwitch = new Set(["claude-code", "open-code", "codex"]);
 
 interface ShellControlMessage {
   type: string;
@@ -103,7 +105,6 @@ export function AIAppShell() {
 
   const containerRef = useRef<HTMLDivElement>(null);
   const terminalRef = useRef<Terminal | null>(null);
-  const copyResetRef = useRef<number | null>(null);
   const sessionId = useMemo(() => new URLSearchParams(location.search).get("session_id")?.trim() || "", []);
   const queryAppId = useMemo(() => new URLSearchParams(location.search).get("app_id")?.trim() || "", []);
   const [title, setTitle] = useState("");
@@ -118,16 +119,7 @@ export function AIAppShell() {
   const [modelsLoading, setModelsLoading] = useState(false);
   const [selectedModel, setSelectedModel] = useState("");
   const [applyingLaunchConfig, setApplyingLaunchConfig] = useState(false);
-  const [copiedModel, setCopiedModel] = useState(false);
   const exitSeenRef = useRef(false);
-
-  useEffect(() => {
-    return () => {
-      if (copyResetRef.current !== null) {
-        window.clearTimeout(copyResetRef.current);
-      }
-    };
-  }, []);
 
   useEffect(() => {
     if (!sessionId) {
@@ -154,12 +146,16 @@ export function AIAppShell() {
       convertEol: false,
       allowProposedApi: false,
       scrollback: 5000,
-      // Full-screen TUIs like OpenCode query terminal/window dimensions on startup.
-      windowOptions: {
-        getWinSizePixels: true,
-        getCellSizePixels: true,
-        getWinSizeChars: true,
-      },
+      ...(queryAppId === "open-code"
+        ? {
+            // Full-screen OpenCode UI queries terminal/window dimensions on startup.
+            windowOptions: {
+              getWinSizePixels: true,
+              getCellSizePixels: true,
+              getWinSizeChars: true,
+            },
+          }
+        : {}),
     });
     terminalRef.current = terminal;
     const fitAddon = new FitAddon();
@@ -193,8 +189,24 @@ export function AIAppShell() {
       });
     };
 
+    let followOutputFrame: number | null = null;
+    const scheduleFollowOutput = () => {
+      if (followOutputFrame !== null) {
+        return;
+      }
+      followOutputFrame = window.requestAnimationFrame(() => {
+        followOutputFrame = null;
+        if (terminal.rows > 0) {
+          terminal.scrollToBottom();
+        }
+      });
+    };
+
     const sendResize = () => {
       fitAddon.fit();
+      if (terminal.rows > 0) {
+        scheduleFollowOutput();
+      }
       if (ws.readyState !== WebSocket.OPEN) {
         return;
       }
@@ -211,6 +223,7 @@ export function AIAppShell() {
 
     const inputDisposable = terminal.onData((data) => {
       sendInput(encoder.encode(data));
+      scheduleFollowOutput();
     });
     const binaryDisposable = terminal.onBinary((data) => {
       sendInput(encodeTerminalBinary(data));
@@ -285,7 +298,9 @@ export function AIAppShell() {
         ? new Uint8Array(event.data)
         : new Uint8Array();
       if (chunk.byteLength > 0) {
-        terminal.write(chunk);
+        terminal.write(chunk, () => {
+          scheduleFollowOutput();
+        });
       }
     };
 
@@ -312,6 +327,9 @@ export function AIAppShell() {
       if (resizeFrame !== null) {
         window.cancelAnimationFrame(resizeFrame);
       }
+      if (followOutputFrame !== null) {
+        window.cancelAnimationFrame(followOutputFrame);
+      }
       for (const timer of resizeTimers) {
         window.clearTimeout(timer);
       }
@@ -327,7 +345,7 @@ export function AIAppShell() {
   }, [sessionId]);
 
   useEffect(() => {
-    if (appId !== claudeCodeAppId) {
+    if (!shellAppsWithModelSwitch.has(appId)) {
       setModels([]);
       setModelsLoading(false);
       return;
@@ -336,7 +354,7 @@ export function AIAppShell() {
     let disposed = false;
     setModelsLoading(true);
 
-    getTags()
+    getTags({ refresh: true })
       .then((items) => {
         if (disposed) return;
         setModels(normalizeShellModels(items));
@@ -357,7 +375,7 @@ export function AIAppShell() {
   }, [appId]);
 
   useEffect(() => {
-    if (appId !== claudeCodeAppId) {
+    if (!shellAppsWithModelSwitch.has(appId)) {
       setSelectedModel("");
       return;
     }
@@ -388,28 +406,28 @@ export function AIAppShell() {
       : "bg-amber-500/15 text-amber-200 border-amber-500/30";
 
   const isOpenCodeShell = appId === "open-code";
-  const isCodexShell = appId === "codex";
-  const canConfigureClaudeShell = appId === claudeCodeAppId;
-  const canSwitchShellWorkDir = canConfigureClaudeShell || isOpenCodeShell;
+  const canSwitchShellModel = shellAppsWithModelSwitch.has(appId);
+  const canSwitchShellWorkDir = shellAppsWithWorkDirSwitch.has(appId);
   const trimmedWorkDir = workDirInput.trim();
-  const modelChanged = canConfigureClaudeShell && selectedModel !== modelId;
+  const modelChanged = canSwitchShellModel && selectedModel !== modelId;
   const workDirChanged = trimmedWorkDir !== workDir;
   const launchConfigChanged = modelChanged || workDirChanged;
-  const applyLaunchConfigDisabled = !canSwitchShellWorkDir ||
+  const canApplyLaunchConfig = canSwitchShellModel || canSwitchShellWorkDir;
+  const applyLaunchConfigDisabled = !canApplyLaunchConfig ||
     applyingLaunchConfig ||
-    !trimmedWorkDir ||
-    (canConfigureClaudeShell && (modelsLoading || !selectedModel)) ||
+    (canSwitchShellWorkDir && !trimmedWorkDir) ||
+    (canSwitchShellModel && (modelsLoading || !selectedModel)) ||
     !launchConfigChanged;
 
   const handleApplyLaunchConfig = async () => {
-    if (!canSwitchShellWorkDir || applyLaunchConfigDisabled) {
+    if (!canApplyLaunchConfig || applyLaunchConfigDisabled) {
       return;
     }
 
     setApplyingLaunchConfig(true);
     setError("");
     try {
-      const requestedModel = canConfigureClaudeShell
+      const requestedModel = canSwitchShellModel
         ? selectedModel
         : modelId || undefined;
       const { url } = await openAIApp(appId || claudeCodeAppId, requestedModel, trimmedWorkDir);
@@ -433,33 +451,10 @@ export function AIAppShell() {
     }, 50);
   };
 
-  const handleCopyModel = async () => {
-    if (!modelId) {
-      return;
-    }
-    try {
-      await navigator.clipboard.writeText(modelId);
-      setCopiedModel(true);
-      if (copyResetRef.current !== null) {
-        window.clearTimeout(copyResetRef.current);
-      }
-      copyResetRef.current = window.setTimeout(() => {
-        setCopiedModel(false);
-        copyResetRef.current = null;
-      }, 1500);
-    } catch {
-      // Ignore clipboard failures so the shell UI keeps working.
-    }
-  };
-
-  const handleScrollTerminalTop = () => {
-    terminalRef.current?.scrollToTop();
-    terminalRef.current?.focus();
-  };
-
   return (
-    <div class="h-screen overflow-hidden bg-slate-950 text-slate-100 flex flex-col">
-      <div class="border-b border-slate-800 px-5 py-4 flex items-center justify-between gap-4">
+    <div class="absolute inset-0 bg-slate-950 text-slate-100 flex flex-col">
+      <div class="absolute top-0 left-0 right-0 z-10 bg-slate-950/95 backdrop-blur border-b border-slate-800 flex flex-col shadow-sm">
+        <div class="px-5 py-4 flex items-center justify-between gap-4">
         <div class="min-w-0">
           <div class="flex items-center gap-3 flex-wrap">
             <h1 class="text-base font-semibold text-white truncate">{shellTitle}</h1>
@@ -469,15 +464,15 @@ export function AIAppShell() {
           </div>
           <div class="mt-1 flex items-center gap-3 flex-wrap text-xs text-slate-400">
             {appId && <span>{appId}</span>}
-            {!isOpenCodeShell && modelId && <span>{t("aiApps.shellModel")}: {modelId}</span>}
-            {workDir && <span>{t("aiApps.shellDirectory")}: {workDir}</span>}
+            {!canSwitchShellModel && modelId && <span>{t("aiApps.shellModel")}: {modelId}</span>}
+            {!canSwitchShellWorkDir && workDir && <span>{t("aiApps.shellDirectory")}: {workDir}</span>}
             {state === "exited" && exitCode !== null && <span>{t("aiApps.shellExitCode", String(exitCode))}</span>}
           </div>
         </div>
         <div class="flex items-center gap-2 flex-wrap justify-end">
-          {canSwitchShellWorkDir && (
+          {canApplyLaunchConfig && (
             <>
-              {canConfigureClaudeShell && (
+              {canSwitchShellModel && (
                 <div class="relative min-w-[260px] max-w-[340px]">
                   <select
                     value={selectedModel}
@@ -557,61 +552,15 @@ export function AIAppShell() {
           {error}
         </div>
       )}
-
-      {isCodexShell && (
-        <div class="border-b border-indigo-900/40 bg-indigo-950/30 px-5 py-3">
-          <div class="flex items-center justify-between gap-3 flex-wrap">
-            <p class="text-sm text-indigo-100">
-              {t("aiApps.codexLoginHint")}
-            </p>
-            <button
-              onClick={handleScrollTerminalTop}
-              class="rounded-lg border border-indigo-500/40 px-3 py-2 text-sm text-indigo-100 hover:bg-indigo-500/10 transition-colors"
-            >
-              {t("aiApps.codexScrollTop")}
-            </button>
-          </div>
-        </div>
-      )}
-
-      {canConfigureClaudeShell && modelId && (
-        <div class="border-b border-slate-800 bg-slate-950/80 px-5 py-3">
-          <div class="flex items-center justify-between gap-3 flex-wrap">
-            <div class="min-w-0 flex-1">
-              <div class="text-[11px] font-medium uppercase tracking-wide text-slate-400">
-                {t("aiApps.shellModel")}
-              </div>
-              <input
-                type="text"
-                readOnly
-                value={modelId}
-                onFocus={(e) => (e.currentTarget as HTMLInputElement).select()}
-                class="mt-1 w-full rounded-lg border border-slate-800 bg-slate-900 px-3 py-2 font-mono text-sm text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                aria-label={t("aiApps.shellModel")}
-              />
-            </div>
-            <button
-              onClick={() => void handleCopyModel()}
-              class={`rounded-lg border px-3 py-2 text-sm transition-colors ${
-                copiedModel
-                  ? "border-emerald-500/40 text-emerald-200"
-                  : "border-slate-700 text-slate-200 hover:bg-slate-900"
-              }`}
-              title={t("chat.copyModel")}
-            >
-              {copiedModel ? t("dash.copied") : t("chat.copyModel")}
-            </button>
-          </div>
-        </div>
-      )}
+      </div>
 
       {!sessionId ? (
-        <div class="flex-1 flex items-center justify-center px-6 text-sm text-slate-400">
+        <div class="absolute inset-0 flex items-center justify-center px-6 text-sm text-slate-400">
           {t("aiApps.shellSessionMissing")}
         </div>
       ) : (
-        <div class="flex-1 min-h-0 overflow-hidden p-3">
-          <div ref={containerRef} class="h-full w-full overflow-hidden" />
+        <div class="absolute inset-0 pt-[80px] pb-[50px] px-4 flex flex-col z-0">
+          <div ref={containerRef} class="flex-1 min-h-0 w-full overflow-hidden" />
         </div>
       )}
     </div>

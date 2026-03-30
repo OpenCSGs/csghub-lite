@@ -173,16 +173,7 @@ export function AIApps() {
     }
   };
 
-  const handleClearError = () => {
-    if (actionError.value) {
-      actionError.value = "";
-      return;
-    }
-    loadError.value = "";
-  };
-
   const grouped = groupedApps.value;
-  const showSettingsShortcut = shouldShowAIAppSettingsShortcut(visibleError.value);
 
   return (
     <div class="p-8 max-w-5xl mx-auto">
@@ -197,24 +188,6 @@ export function AIApps() {
                 <path stroke-linecap="round" stroke-linejoin="round" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
               </svg>
               <span class="min-w-0">{visibleError.value}</span>
-            </div>
-            <div class="flex items-center gap-2 ml-auto">
-              {showSettingsShortcut && (
-                <a
-                  href="/settings"
-                  class="inline-flex items-center rounded-lg border border-red-200 bg-white px-3 py-2 text-xs font-medium text-red-700 hover:bg-red-100 transition-colors"
-                >
-                  {t("aiApps.openSettings")}
-                </a>
-              )}
-              <button
-                onClick={handleClearError}
-                class="inline-flex items-center rounded-lg border border-red-200 bg-white p-2 text-red-700 hover:bg-red-100 transition-colors"
-                aria-label={t("aiApps.close")}
-                title={t("aiApps.close")}
-              >
-                <CloseIcon className="w-4 h-4" />
-              </button>
             </div>
           </div>
         </div>
@@ -569,7 +542,7 @@ function LiveLogsDrawer({
     let disposed = false;
     setModelsLoading(true);
 
-    getTags()
+    getTags({ refresh: true })
       .then((items) => {
         if (disposed) return;
         setModels(normalizeAIAppModels(items));
@@ -661,9 +634,6 @@ function LiveLogsDrawer({
               <p class="text-sm text-gray-500 mt-1">{getLocalizedText(app.description, locale.value)}</p>
             </div>
           </div>
-          <button onClick={onClose} class="text-gray-400 hover:text-gray-600 p-1">
-            <CloseIcon className="w-5 h-5" />
-          </button>
         </div>
 
         <div class="flex-1 overflow-auto px-6 py-5 space-y-5">
@@ -898,12 +868,6 @@ function LiveLogsDrawer({
                 {actionLabel(state)}
               </button>
             )}
-            <button
-              onClick={onClose}
-              class="inline-flex items-center justify-center rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 transition-colors"
-            >
-              {t("aiApps.close")}
-            </button>
           </div>
         </div>
       </div>
@@ -1127,19 +1091,6 @@ function normalizeAIAppModels(models: ModelInfo[]): ModelInfo[] {
   return out;
 }
 
-function shouldShowAIAppSettingsShortcut(message: string): boolean {
-  const normalized = message.trim().toLowerCase();
-  if (!normalized) {
-    return false;
-  }
-  return normalized.includes("access token") ||
-    normalized.includes("opencsg") ||
-    normalized.includes("settings") ||
-    normalized.includes("设置") ||
-    normalized.includes("没有本地模型") ||
-    normalized.includes("本地模型");
-}
-
 function localizeAIAppErrorMessage(message: string, fallback: string): string {
   const trimmed = message.trim();
   if (!trimmed) {
@@ -1198,14 +1149,6 @@ function InstallIcon({ className }: { className: string }) {
   return (
     <svg class={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
       <path stroke-linecap="round" stroke-linejoin="round" d="M12 5v10m0 0l-4-4m4 4l4-4M5 19h14" />
-    </svg>
-  );
-}
-
-function CloseIcon({ className }: { className: string }) {
-  return (
-    <svg class={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-      <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
     </svg>
   );
 }

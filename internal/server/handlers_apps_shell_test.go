@@ -1,6 +1,7 @@
 package server
 
 import (
+	"bytes"
 	"testing"
 	"time"
 )
@@ -77,4 +78,85 @@ func TestAIAppShellSessionAttachStillExpiresWhenIdle(t *testing.T) {
 		_, ok := manager.Get(session.id)
 		return !ok
 	}, "attached idle session did not expire after idle timeout")
+}
+
+func TestDrainAIAppShellOutputBatchesQueuedChunksAndPreservesExit(t *testing.T) {
+	events := make(chan aiAppShellEvent, 4)
+	events <- aiAppShellEvent{output: []byte(" world")}
+	events <- aiAppShellEvent{output: []byte("!\n")}
+	events <- aiAppShellEvent{
+		exit: &aiAppShellControlMessage{Type: "exit", ExitCode: 0},
+	}
+
+	payload, exitMsg, closed := drainAIAppShellOutput(aiAppShellEvent{output: []byte("hello")}, events)
+	if closed {
+		t.Fatal("closed = true, want false")
+	}
+	if exitMsg == nil || exitMsg.Type != "exit" {
+		t.Fatalf("exitMsg = %#v, want exit control message", exitMsg)
+	}
+	if got, want := string(payload), "hello world!\n"; got != want {
+		t.Fatalf("payload = %q, want %q", got, want)
+	}
+}
+
+func TestDrainAIAppShellOutputStopsAtBatchLimit(t *testing.T) {
+	events := make(chan aiAppShellEvent, 2)
+	fill := bytes.Repeat([]byte("a"), aiAppShellWriteBatch)
+
+	payload, exitMsg, closed := drainAIAppShellOutput(aiAppShellEvent{output: fill}, events)
+	if closed {
+		t.Fatal("closed = true, want false")
+	}
+	if exitMsg != nil {
+		t.Fatalf("exitMsg = %#v, want nil", exitMsg)
+	}
+	if len(payload) != aiAppShellWriteBatch {
+		t.Fatalf("payload len = %d, want %d", len(payload), aiAppShellWriteBatch)
+	}
+}
+
+func TestBroadcastDoesNotDropWhenSubscriberBufferIsFull(t *testing.T) {
+	session := &aiAppShellSession{
+		subs: make(map[chan aiAppShellEvent]struct{}),
+	}
+	ch := make(chan aiAppShellEvent, 1)
+	session.subs[ch] = struct{}{}
+	ch <- aiAppShellEvent{output: []byte("first")}
+
+	done := make(chan struct{})
+	go func() {
+		session.broadcast(aiAppShellEvent{output: []byte("second")})
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		t.Fatal("broadcast returned before subscriber buffer drained")
+	case <-time.After(20 * time.Millisecond):
+	}
+
+	select {
+	case event := <-ch:
+		if got, want := string(event.output), "first"; got != want {
+			t.Fatalf("first event = %q, want %q", got, want)
+		}
+	case <-time.After(100 * time.Millisecond):
+		t.Fatal("timed out reading first event")
+	}
+
+	select {
+	case <-done:
+	case <-time.After(100 * time.Millisecond):
+		t.Fatal("broadcast did not resume after buffer drained")
+	}
+
+	select {
+	case event := <-ch:
+		if got, want := string(event.output), "second"; got != want {
+			t.Fatalf("second event = %q, want %q", got, want)
+		}
+	case <-time.After(100 * time.Millisecond):
+		t.Fatal("timed out reading second event")
+	}
 }

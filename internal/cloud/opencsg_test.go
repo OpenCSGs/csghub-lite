@@ -55,15 +55,12 @@ func TestModelInfoFromRemote_FiltersUnsupportedTask(t *testing.T) {
 	}
 }
 
-func TestModelInfoFromRemote_AllowsCSGBotModelsWithBlankTask(t *testing.T) {
+func TestModelInfoFromRemote_AllowsBlankTaskAsTextGeneration(t *testing.T) {
 	info, ok := modelInfoFromRemote(remoteModel{
-		ID: "deepseek-v3",
-		Metadata: map[string]interface{}{
-			"is_csgbot_model": true,
-		},
+		ID: "claude",
 	})
 	if !ok {
-		t.Fatal("expected csgbot model with blank task to be included")
+		t.Fatal("expected blank-task model to be included")
 	}
 	if info.PipelineTag != "text-generation" {
 		t.Fatalf("PipelineTag = %q, want text-generation fallback", info.PipelineTag)

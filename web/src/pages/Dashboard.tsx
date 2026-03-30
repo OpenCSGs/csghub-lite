@@ -328,21 +328,11 @@ console.log(data.choices[0].message.content);`;
               {isVision && <span class="ml-2 px-1.5 py-0.5 text-xs bg-purple-50 text-purple-700 rounded">Vision</span>}
             </p>
           </div>
-          <button onClick={onClose} class="text-gray-400 hover:text-gray-600 p-1">
-            <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
-            </svg>
-          </button>
         </div>
         <div class="flex-1 overflow-auto px-6 py-4 space-y-5">
           <CodeBlock title={t("dash.apiCurl")} code={curlExample} />
           <CodeBlock title={t("dash.apiPython")} code={pythonExample} />
           <CodeBlock title={t("dash.apiJs")} code={jsExample} />
-        </div>
-        <div class="px-6 py-3 border-t border-gray-100 text-right">
-          <button onClick={onClose} class="px-4 py-2 text-sm bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors">
-            {t("dash.close")}
-          </button>
         </div>
       </div>
     </div>

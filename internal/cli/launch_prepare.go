@@ -326,7 +326,7 @@ func prependDefaultCodexProviderConfig(args []string, serverURL string) []string
 	baseURL := strings.TrimRight(serverURL, "/") + "/v1"
 	defaults := [][2]string{
 		{"model_provider", fmt.Sprintf("%q", codexLaunchProviderID)},
-		{fmt.Sprintf("model_providers.%s.name", codexLaunchProviderID), `"CSGHub Lite"`},
+		{fmt.Sprintf("model_providers.%s.name", codexLaunchProviderID), `"OpenCSG"`},
 		{fmt.Sprintf("model_providers.%s.base_url", codexLaunchProviderID), fmt.Sprintf("%q", baseURL)},
 		{fmt.Sprintf("model_providers.%s.supports_websockets", codexLaunchProviderID), "false"},
 	}
@@ -398,7 +398,7 @@ func writeOpenCodeLaunchConfig(serverURL, modelID string) (string, error) {
 		"provider": map[string]interface{}{
 			openCodeLaunchProviderID: map[string]interface{}{
 				"npm":  "@ai-sdk/openai-compatible",
-				"name": "CSGHub Lite",
+				"name": "OpenCSG",
 				"options": map[string]interface{}{
 					"baseURL": strings.TrimRight(serverURL, "/") + "/v1",
 				},
@@ -470,12 +470,12 @@ func codexModelCatalogEntries(models []api.ModelInfo) []codexModelCatalogEntry {
 		if displayName == "" {
 			displayName = modelID
 		}
-		description := "Model served by CSGHub Lite."
+		description := "Model served by OpenCSG."
 		switch strings.TrimSpace(item.Source) {
 		case "local":
-			description = "Local model served by CSGHub Lite."
+			description = "Local model served by OpenCSG."
 		case "cloud":
-			description = "OpenCSG model served by CSGHub Lite."
+			description = "Cloud model served by OpenCSG."
 		}
 
 		inputModalities := []string{"text"}

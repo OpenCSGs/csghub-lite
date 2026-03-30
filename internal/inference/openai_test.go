@@ -107,3 +107,35 @@ func TestOpenAIEngineChatRequestBodyMatchesCloudDefaults(t *testing.T) {
 		t.Fatalf("messages = %T %v, want 2 items", got["messages"], got["messages"])
 	}
 }
+
+func TestOpenAIEngineChatRequestBodyDropsTopPForClaudeModels(t *testing.T) {
+	var got map[string]interface{}
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&got); err != nil {
+			t.Fatalf("decode request: %v", err)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{"choices":[{"message":{"content":"ok"}}]}`)
+	}))
+	defer ts.Close()
+
+	eng := NewOpenAIEngine(ts.URL, "claude-opus-4-6", "test-token")
+	opts := DefaultOptions()
+	opts.Temperature = 0.2
+	opts.TopP = 0.9
+
+	_, err := eng.Chat(context.Background(), []Message{
+		{Role: "user", Content: "hi"},
+	}, opts, nil)
+	if err != nil {
+		t.Fatalf("Chat returned error: %v", err)
+	}
+
+	if got["temperature"] != 0.2 {
+		t.Fatalf("temperature = %v, want 0.2", got["temperature"])
+	}
+	if _, ok := got["top_p"]; ok {
+		t.Fatalf("top_p = %v, want omitted for claude models", got["top_p"])
+	}
+}

@@ -56,6 +56,24 @@ const selectedModelInfo = computed(() =>
   availableModels.value.find((x) => modelKey(x) === selectedModelKey.value)
 );
 
+function setAvailableModels(models: ModelInfo[]) {
+  availableModels.value = models;
+  if (selectedModelKey.value && models.some((x) => modelKey(x) === selectedModelKey.value)) {
+    return;
+  }
+  if (models.length === 0) {
+    selectedModelKey.value = "";
+    return;
+  }
+
+  const localModels = models.filter((x) => (x.source || "local") === "local");
+  const gguf = localModels.filter((x) => x.format === "gguf");
+  const fallback = gguf[0] || localModels[0] || models[0];
+  if (fallback) {
+    selectedModelKey.value = modelKey(fallback);
+  }
+}
+
 const isVisionModel = computed(() => {
   const m = selectedModelInfo.value;
   return m?.pipeline_tag === "image-text-to-text" && (m?.source === "cloud" || m?.has_mmproj === true);
@@ -213,6 +231,11 @@ export function Chat() {
         cloudAuthError.value = t("chat.cloudLoginExpired");
         return;
       }
+      try {
+        setAvailableModels(await getTags({ refresh: true }));
+      } catch {
+        /* ignore */
+      }
       cloudTokenInput.value = "";
       showCloudAuthDialog.value = false;
     } catch (e: any) {
@@ -223,16 +246,8 @@ export function Chat() {
   };
 
   useEffect(() => {
-    getTags().then((m) => {
-      availableModels.value = m;
-      if (!selectedModelKey.value && m.length > 0) {
-        const localModels = m.filter((x) => (x.source || "local") === "local");
-        const gguf = localModels.filter((x) => x.format === "gguf");
-        const fallback = gguf[0] || localModels[0] || m[0];
-        if (fallback) {
-          selectedModelKey.value = modelKey(fallback);
-        }
-      }
+    getTags({ refresh: true }).then((m) => {
+      setAvailableModels(m);
     }).catch(() => {});
     getPs().then((running) => {
       if (running.length > 0 && !selectedModelKey.value) {

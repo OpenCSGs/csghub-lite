@@ -648,7 +648,7 @@ func TestPrepareAIAppShellLaunchUsesCustomProviderForCodex(t *testing.T) {
 
 	for _, want := range []string{
 		`model_provider="csghub_lite"`,
-		`model_providers.csghub_lite.name="CSGHub Lite"`,
+		`model_providers.csghub_lite.name="OpenCSG"`,
 		`model_providers.csghub_lite.base_url="http://127.0.0.1:11435/v1"`,
 		`model_providers.csghub_lite.supports_websockets=false`,
 	} {

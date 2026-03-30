@@ -1,0 +1,117 @@
+package server
+
+import (
+	"context"
+	"net/http"
+	"strings"
+	"time"
+
+	"github.com/opencsgs/csghub-lite/pkg/api"
+)
+
+const forcedCloudModelRefreshInterval = 30 * time.Second
+
+func requestWantsModelRefresh(r *http.Request) bool {
+	value := strings.TrimSpace(strings.ToLower(r.URL.Query().Get("refresh")))
+	switch value {
+	case "1", "true", "yes", "on":
+		return true
+	default:
+		return false
+	}
+}
+
+func (s *Server) listAvailableModelsWithRefresh(ctx context.Context, refreshCloud bool) ([]api.ModelInfo, error) {
+	localModels, err := s.manager.List()
+	if err != nil {
+		return nil, err
+	}
+
+	seen := make(map[string]struct{}, len(localModels)+8)
+	out := make([]api.ModelInfo, 0, len(localModels)+8)
+	for _, item := range localModels {
+		modelID := strings.TrimSpace(item.FullName())
+		if modelID == "" {
+			continue
+		}
+		if _, ok := seen[modelID]; ok {
+			continue
+		}
+		seen[modelID] = struct{}{}
+		out = append(out, api.ModelInfo{
+			Name:        modelID,
+			Model:       modelID,
+			ModifiedAt:  item.DownloadedAt,
+			DisplayName: modelID,
+			Source:      "local",
+			PipelineTag: "text-generation",
+		})
+	}
+
+	cloudModels, err := s.listCloudModels(ctx, refreshCloud)
+	if err == nil {
+		for _, item := range cloudModels {
+			modelID := strings.TrimSpace(item.Model)
+			if modelID == "" {
+				continue
+			}
+			if _, ok := seen[modelID]; ok {
+				continue
+			}
+			seen[modelID] = struct{}{}
+			out = append(out, item)
+		}
+	}
+
+	return out, nil
+}
+
+func (s *Server) listCloudModels(ctx context.Context, refresh bool) ([]api.ModelInfo, error) {
+	if s == nil || s.cloud == nil || s.cfg == nil || strings.TrimSpace(s.cfg.Token) == "" {
+		return nil, nil
+	}
+	if refresh {
+		return s.refreshCloudChatModels(ctx)
+	}
+	return s.cloud.ListChatModels(ctx)
+}
+
+func (s *Server) refreshCloudChatModels(ctx context.Context) ([]api.ModelInfo, error) {
+	if s == nil || s.cloud == nil || s.cfg == nil || strings.TrimSpace(s.cfg.Token) == "" {
+		return nil, nil
+	}
+
+	for {
+		s.cloudRefreshMu.Lock()
+		if wait := s.cloudRefreshWait; wait != nil {
+			s.cloudRefreshMu.Unlock()
+			select {
+			case <-wait:
+				continue
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			}
+		}
+
+		if !s.cloudRefreshAt.IsZero() && time.Since(s.cloudRefreshAt) < forcedCloudModelRefreshInterval {
+			s.cloudRefreshMu.Unlock()
+			return s.cloud.ListChatModels(ctx)
+		}
+
+		wait := make(chan struct{})
+		s.cloudRefreshAt = time.Now()
+		s.cloudRefreshWait = wait
+		s.cloudRefreshMu.Unlock()
+
+		models, err := s.cloud.RefreshChatModels(ctx)
+
+		s.cloudRefreshMu.Lock()
+		if s.cloudRefreshWait == wait {
+			s.cloudRefreshWait = nil
+			close(wait)
+		}
+		s.cloudRefreshMu.Unlock()
+
+		return models, err
+	}
+}

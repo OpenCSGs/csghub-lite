@@ -175,22 +175,10 @@ func supportsChat(item remoteModel) bool {
 	case "text-generation", "image-text-to-text":
 		return true
 	case "":
-		return metadataFlag(item.Metadata, "is_csgbot_model")
+		return true
 	default:
 		return false
 	}
-}
-
-func metadataFlag(metadata map[string]interface{}, key string) bool {
-	if metadata == nil {
-		return false
-	}
-	raw, ok := metadata[key]
-	if !ok {
-		return false
-	}
-	value, ok := raw.(bool)
-	return ok && value
 }
 
 func cloneModels(models []api.ModelInfo) []api.ModelInfo {

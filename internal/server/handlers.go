@@ -62,6 +62,8 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 
 // GET /api/tags -- list local models
 func (s *Server) handleTags(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-cache")
+
 	models, err := s.manager.List()
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
@@ -90,13 +92,11 @@ func (s *Server) handleTags(w http.ResponseWriter, r *http.Request) {
 			HasMMProj:   hasMMProj,
 		})
 	}
-	if s.cloud != nil {
-		cloudModels, err := s.cloud.ListChatModels(r.Context())
-		if err != nil {
-			log.Printf("cloud models unavailable: %v", err)
-		} else {
-			infos = append(infos, cloudModels...)
-		}
+	cloudModels, err := s.listCloudModels(r.Context(), requestWantsModelRefresh(r))
+	if err != nil {
+		log.Printf("cloud models unavailable: %v", err)
+	} else {
+		infos = append(infos, cloudModels...)
 	}
 
 	writeJSON(w, http.StatusOK, api.TagsResponse{Models: infos})

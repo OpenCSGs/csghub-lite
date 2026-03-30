@@ -253,7 +253,7 @@ func getAIAppInfo(serverURL, appID string) (api.AIAppInfo, error) {
 
 func getLaunchModels(serverURL string) ([]api.ModelInfo, error) {
 	client := &http.Client{Timeout: 10 * time.Second}
-	resp, err := client.Get(serverURL + "/api/tags")
+	resp, err := client.Get(serverURL + "/api/tags?refresh=1")
 	if err != nil {
 		return nil, fmt.Errorf("querying AI app models: %w", err)
 	}

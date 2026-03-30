@@ -36,53 +36,13 @@ func requestWantsAnthropicModels(r *http.Request) bool {
 }
 
 func (s *Server) listAvailableModels(ctx context.Context) ([]api.ModelInfo, error) {
-	localModels, err := s.manager.List()
-	if err != nil {
-		return nil, err
-	}
-
-	seen := make(map[string]struct{}, len(localModels)+8)
-	out := make([]api.ModelInfo, 0, len(localModels)+8)
-	for _, item := range localModels {
-		modelID := strings.TrimSpace(item.FullName())
-		if modelID == "" {
-			continue
-		}
-		if _, ok := seen[modelID]; ok {
-			continue
-		}
-		seen[modelID] = struct{}{}
-		out = append(out, api.ModelInfo{
-			Name:        modelID,
-			Model:       modelID,
-			ModifiedAt:  item.DownloadedAt,
-			DisplayName: modelID,
-			Source:      "local",
-			PipelineTag: "text-generation",
-		})
-	}
-
-	if s.cloud != nil && strings.TrimSpace(s.cfg.Token) != "" {
-		if cloudModels, err := s.cloud.ListChatModels(ctx); err == nil {
-			for _, item := range cloudModels {
-				modelID := strings.TrimSpace(item.Model)
-				if modelID == "" {
-					continue
-				}
-				if _, ok := seen[modelID]; ok {
-					continue
-				}
-				seen[modelID] = struct{}{}
-				out = append(out, item)
-			}
-		}
-	}
-
-	return out, nil
+	return s.listAvailableModelsWithRefresh(ctx, false)
 }
 
 func (s *Server) handleAnthropicModels(w http.ResponseWriter, r *http.Request) {
-	models, err := s.listAvailableModels(r.Context())
+	w.Header().Set("Cache-Control", "no-cache")
+
+	models, err := s.listAvailableModelsWithRefresh(r.Context(), requestWantsModelRefresh(r))
 	if err != nil {
 		writeAnthropicError(w, http.StatusInternalServerError, err.Error())
 		return

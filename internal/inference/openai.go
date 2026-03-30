@@ -30,6 +30,7 @@ func NewOpenAIEngine(baseURL, modelName, token string) Engine {
 }
 
 func (e *openAIEngine) ChatCompletion(ctx context.Context, reqBody map[string]interface{}) (*http.Response, error) {
+	reqBody = sanitizeOpenAIRequestBody(e.modelName, reqBody)
 	body, err := json.Marshal(reqBody)
 	if err != nil {
 		return nil, fmt.Errorf("marshaling request: %w", err)
@@ -83,6 +84,7 @@ func (e *openAIEngine) Chat(ctx context.Context, messages []Message, opts Option
 	if len(opts.Stop) > 0 {
 		reqBody["stop"] = opts.Stop
 	}
+	reqBody = sanitizeOpenAIRequestBody(e.modelName, reqBody)
 
 	body, err := json.Marshal(reqBody)
 	if err != nil {
@@ -200,6 +202,33 @@ func decodeOpenAIHTTPError(resp *http.Response) error {
 		message = resp.Status
 	}
 	return NewHTTPStatusError(resp.StatusCode, message)
+}
+
+func sanitizeOpenAIRequestBody(modelName string, reqBody map[string]interface{}) map[string]interface{} {
+	if len(reqBody) == 0 {
+		return reqBody
+	}
+	if !openAIModelRequiresSingleSamplingParam(modelName) {
+		return reqBody
+	}
+	if _, hasTemp := reqBody["temperature"]; !hasTemp {
+		return reqBody
+	}
+	if _, hasTopP := reqBody["top_p"]; !hasTopP {
+		return reqBody
+	}
+
+	out := make(map[string]interface{}, len(reqBody))
+	for key, value := range reqBody {
+		out[key] = value
+	}
+	delete(out, "top_p")
+	return out
+}
+
+func openAIModelRequiresSingleSamplingParam(modelName string) bool {
+	modelName = strings.TrimSpace(strings.ToLower(modelName))
+	return strings.HasPrefix(modelName, "claude")
 }
 
 func messagesToOpenAI(messages []Message) []map[string]interface{} {

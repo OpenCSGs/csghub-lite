@@ -10,6 +10,7 @@ import (
 	"github.com/opencsgs/csghub-lite/internal/config"
 	"github.com/opencsgs/csghub-lite/internal/csghub"
 	"github.com/opencsgs/csghub-lite/internal/inference"
+	"github.com/opencsgs/csghub-lite/pkg/api"
 )
 
 type cloudAuthUser struct {
@@ -55,6 +56,9 @@ func (s *Server) handleCloudAuthTokenSave(w http.ResponseWriter, r *http.Request
 		writeError(w, http.StatusInternalServerError, "saving token: "+err.Error())
 		return
 	}
+	if s.cloud != nil {
+		s.cloud.InvalidateChatModels()
+	}
 
 	writeJSON(w, http.StatusOK, s.cloudAuthStatus(r.Context()))
 }
@@ -64,6 +68,9 @@ func (s *Server) handleCloudAuthTokenDelete(w http.ResponseWriter, r *http.Reque
 	if err := config.Save(s.cfg); err != nil {
 		writeError(w, http.StatusInternalServerError, "clearing token: "+err.Error())
 		return
+	}
+	if s.cloud != nil {
+		s.cloud.InvalidateChatModels()
 	}
 
 	writeJSON(w, http.StatusOK, s.cloudAuthStatus(r.Context()))
@@ -112,14 +119,23 @@ func (s *Server) getChatEngine(ctx context.Context, modelID, source string, numC
 		return nil, err
 	}
 
-	models, cloudErr := s.cloud.ListChatModels(ctx)
+	models, cloudErr := s.listCloudModels(ctx, false)
 	if cloudErr != nil {
 		return nil, err
 	}
-	for _, item := range models {
-		if item.Model == modelID {
-			return s.newCloudEngine(modelID)
-		}
+	if modelInfoListContains(models, modelID) {
+		return s.newCloudEngine(modelID)
+	}
+
+	if s.cloud == nil {
+		return nil, err
+	}
+	models, cloudErr = s.cloud.RefreshChatModels(ctx)
+	if cloudErr != nil {
+		return nil, err
+	}
+	if modelInfoListContains(models, modelID) {
+		return s.newCloudEngine(modelID)
 	}
 
 	return nil, err
@@ -135,4 +151,17 @@ func (s *Server) newCloudEngine(modelID string) (inference.Engine, error) {
 		baseURL = s.cloud.BaseURL()
 	}
 	return inference.NewOpenAIEngine(baseURL, modelID, token), nil
+}
+
+func modelInfoListContains(models []api.ModelInfo, modelID string) bool {
+	modelID = strings.TrimSpace(modelID)
+	if modelID == "" {
+		return false
+	}
+	for _, item := range models {
+		if strings.TrimSpace(item.Model) == modelID {
+			return true
+		}
+	}
+	return false
 }
