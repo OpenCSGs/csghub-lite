@@ -35,10 +35,12 @@ const drawerLogs = signal<string[]>([]);
 const drawerStreaming = signal(false);
 const appStates = signal<Record<string, AIAppRuntimeState>>(createAIAppStateSnapshot());
 const loadingApps = signal(true);
-const apiError = signal("");
+const loadError = signal("");
+const actionError = signal("");
 const pendingInstallId = signal("");
 const pendingUninstallId = signal("");
 const pendingOpenId = signal("");
+const visibleError = computed(() => actionError.value || loadError.value);
 
 const filteredApps = computed(() => {
   const currentLocale = locale.value;
@@ -95,10 +97,10 @@ export function AIApps() {
         const apps = await getAIApps();
         if (disposed) return;
         mergeAppStates(apps);
-        apiError.value = "";
+        loadError.value = "";
       } catch (error) {
         if (disposed) return;
-        apiError.value = (error as Error).message || t("aiApps.loadFailed");
+        loadError.value = localizeAIAppErrorMessage((error as Error).message, t("aiApps.loadFailed"));
       } finally {
         if (!disposed) {
           loadingApps.value = false;
@@ -125,13 +127,13 @@ export function AIApps() {
 
   const handleInstall = async (appId: string) => {
     pendingInstallId.value = appId;
-    apiError.value = "";
+    actionError.value = "";
     try {
       const state = await installAIApp(appId);
       mergeAppStates([state]);
       openDrawer(appId, "install");
     } catch (error) {
-      apiError.value = (error as Error).message || t("aiApps.installFailed");
+      actionError.value = localizeAIAppErrorMessage((error as Error).message, t("aiApps.installFailed"));
     } finally {
       pendingInstallId.value = "";
     }
@@ -139,12 +141,12 @@ export function AIApps() {
 
   const handleUninstall = async (appId: string) => {
     pendingUninstallId.value = appId;
-    apiError.value = "";
+    actionError.value = "";
     try {
       const state = await uninstallAIApp(appId);
       mergeAppStates([state]);
     } catch (error) {
-      apiError.value = (error as Error).message || t("aiApps.uninstallFailed");
+      actionError.value = localizeAIAppErrorMessage((error as Error).message, t("aiApps.uninstallFailed"));
     } finally {
       pendingUninstallId.value = "";
     }
@@ -152,7 +154,7 @@ export function AIApps() {
 
   const handleOpenApp = async (appId: string, modelId?: string) => {
     pendingOpenId.value = appId;
-    apiError.value = "";
+    actionError.value = "";
     const popup = openAppPopup();
     try {
       const { url } = await openAIApp(appId, modelId);
@@ -165,25 +167,56 @@ export function AIApps() {
       if (popup) {
         popup.close();
       }
-      apiError.value = (error as Error).message || t("aiApps.openFailed");
+      actionError.value = localizeAIAppErrorMessage((error as Error).message, t("aiApps.openFailed"));
     } finally {
       pendingOpenId.value = "";
     }
   };
 
+  const handleClearError = () => {
+    if (actionError.value) {
+      actionError.value = "";
+      return;
+    }
+    loadError.value = "";
+  };
+
   const grouped = groupedApps.value;
+  const showSettingsShortcut = shouldShowAIAppSettingsShortcut(visibleError.value);
 
   return (
     <div class="p-8 max-w-5xl mx-auto">
       <h1 class="text-2xl font-bold text-gray-900">{t("aiApps.title")}</h1>
       <p class="text-gray-500 text-sm mt-1 mb-6">{t("aiApps.subtitle")}</p>
 
-      {apiError.value && (
-        <div class="mb-4 flex items-start gap-2 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-          <svg class="w-4 h-4 mt-0.5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-          </svg>
-          <span>{apiError.value}</span>
+      {visibleError.value && (
+        <div class="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          <div class="flex items-start justify-between gap-3 flex-wrap">
+            <div class="flex items-start gap-2 min-w-0">
+              <svg class="w-4 h-4 mt-0.5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+              <span class="min-w-0">{visibleError.value}</span>
+            </div>
+            <div class="flex items-center gap-2 ml-auto">
+              {showSettingsShortcut && (
+                <a
+                  href="/settings"
+                  class="inline-flex items-center rounded-lg border border-red-200 bg-white px-3 py-2 text-xs font-medium text-red-700 hover:bg-red-100 transition-colors"
+                >
+                  {t("aiApps.openSettings")}
+                </a>
+              )}
+              <button
+                onClick={handleClearError}
+                class="inline-flex items-center rounded-lg border border-red-200 bg-white p-2 text-red-700 hover:bg-red-100 transition-colors"
+                aria-label={t("aiApps.close")}
+                title={t("aiApps.close")}
+              >
+                <CloseIcon className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
@@ -1092,6 +1125,59 @@ function normalizeAIAppModels(models: ModelInfo[]): ModelInfo[] {
     out.push(model);
   }
   return out;
+}
+
+function shouldShowAIAppSettingsShortcut(message: string): boolean {
+  const normalized = message.trim().toLowerCase();
+  if (!normalized) {
+    return false;
+  }
+  return normalized.includes("access token") ||
+    normalized.includes("opencsg") ||
+    normalized.includes("settings") ||
+    normalized.includes("设置") ||
+    normalized.includes("没有本地模型") ||
+    normalized.includes("本地模型");
+}
+
+function localizeAIAppErrorMessage(message: string, fallback: string): string {
+  const trimmed = message.trim();
+  if (!trimmed) {
+    return fallback;
+  }
+
+  const normalized = trimmed.toLowerCase();
+  if (normalized.includes("no local models were found") && normalized.includes("access token")) {
+    return t("aiApps.error.noLocalModelsOpenCSG");
+  }
+  if (normalized.includes("no local or opencsg models were found")) {
+    return t("aiApps.error.noLocalOrCloudModels");
+  }
+  if (normalized.includes("no models were found. pull a model first")) {
+    return t("aiApps.error.noModelsFound");
+  }
+  if (normalized.includes("is not available for ai apps") && normalized.includes("access token first")) {
+    const requestedModel = extractAIAppRequestedModel(trimmed);
+    return requestedModel
+      ? t("aiApps.error.modelUnavailableWithCloudHint", requestedModel)
+      : t("aiApps.error.modelUnavailableCloudHint");
+  }
+  if (normalized.includes("is not available for ai apps")) {
+    const requestedModel = extractAIAppRequestedModel(trimmed);
+    return requestedModel
+      ? t("aiApps.error.modelUnavailable", requestedModel)
+      : fallback;
+  }
+  return trimmed;
+}
+
+function extractAIAppRequestedModel(message: string): string {
+  const quotedMatch = message.match(/^model\s+"(.+?)"\s+is not available for ai apps/i);
+  if (quotedMatch?.[1]) {
+    return quotedMatch[1];
+  }
+  const plainMatch = message.match(/^model\s+(.+?)\s+is not available for ai apps/i);
+  return plainMatch?.[1]?.trim() || "";
 }
 
 function formatAIAppModelLabel(model: ModelInfo): string {

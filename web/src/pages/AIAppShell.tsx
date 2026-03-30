@@ -102,6 +102,7 @@ export function AIAppShell() {
   void locale.value;
 
   const containerRef = useRef<HTMLDivElement>(null);
+  const terminalRef = useRef<Terminal | null>(null);
   const copyResetRef = useRef<number | null>(null);
   const sessionId = useMemo(() => new URLSearchParams(location.search).get("session_id")?.trim() || "", []);
   const queryAppId = useMemo(() => new URLSearchParams(location.search).get("app_id")?.trim() || "", []);
@@ -160,6 +161,7 @@ export function AIAppShell() {
         getWinSizeChars: true,
       },
     });
+    terminalRef.current = terminal;
     const fitAddon = new FitAddon();
     terminal.loadAddon(fitAddon);
     terminal.open(terminalContainer);
@@ -318,6 +320,9 @@ export function AIAppShell() {
       inputDisposable.dispose();
       ws.close();
       terminal.dispose();
+      if (terminalRef.current === terminal) {
+        terminalRef.current = null;
+      }
     };
   }, [sessionId]);
 
@@ -383,6 +388,7 @@ export function AIAppShell() {
       : "bg-amber-500/15 text-amber-200 border-amber-500/30";
 
   const isOpenCodeShell = appId === "open-code";
+  const isCodexShell = appId === "codex";
   const canConfigureClaudeShell = appId === claudeCodeAppId;
   const canSwitchShellWorkDir = canConfigureClaudeShell || isOpenCodeShell;
   const trimmedWorkDir = workDirInput.trim();
@@ -444,6 +450,11 @@ export function AIAppShell() {
     } catch {
       // Ignore clipboard failures so the shell UI keeps working.
     }
+  };
+
+  const handleScrollTerminalTop = () => {
+    terminalRef.current?.scrollToTop();
+    terminalRef.current?.focus();
   };
 
   return (
@@ -544,6 +555,22 @@ export function AIAppShell() {
       {error && (
         <div class="px-5 py-3 border-b border-red-900/40 bg-red-950/40 text-sm text-red-200">
           {error}
+        </div>
+      )}
+
+      {isCodexShell && (
+        <div class="border-b border-indigo-900/40 bg-indigo-950/30 px-5 py-3">
+          <div class="flex items-center justify-between gap-3 flex-wrap">
+            <p class="text-sm text-indigo-100">
+              {t("aiApps.codexLoginHint")}
+            </p>
+            <button
+              onClick={handleScrollTerminalTop}
+              class="rounded-lg border border-indigo-500/40 px-3 py-2 text-sm text-indigo-100 hover:bg-indigo-500/10 transition-colors"
+            >
+              {t("aiApps.codexScrollTop")}
+            </button>
+          </div>
         </div>
       )}
 

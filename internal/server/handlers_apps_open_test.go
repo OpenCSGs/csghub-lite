@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -544,6 +545,21 @@ func TestOpenAIAppShellURLMissingCloudTokenShowsSettingsHint(t *testing.T) {
 	}
 }
 
+func TestOpenAIAppShellURLWithoutLocalModelsShowsOpenCSGLoginHint(t *testing.T) {
+	s := New(&config.Config{
+		ModelDir:   t.TempDir(),
+		ListenAddr: ":11435",
+	}, "test")
+
+	_, err := s.openAIAppShellURL(context.Background(), "codex", "", "")
+	if err == nil {
+		t.Fatal("openAIAppShellURL returned nil error, want OpenCSG login hint")
+	}
+	if got := err.Error(); !strings.Contains(got, "save an Access Token to use OpenCSG models") {
+		t.Fatalf("error = %q, want OpenCSG login hint", got)
+	}
+}
+
 func TestPrepareAIAppShellLaunchSetsTerminalEnvForClaudeCode(t *testing.T) {
 	binDir := t.TempDir()
 	commandPath := filepath.Join(binDir, "claude")
@@ -639,6 +655,9 @@ func TestPrepareAIAppShellLaunchUsesCustomProviderForCodex(t *testing.T) {
 		if !hasConfigOverride(prepared.Args, want) {
 			t.Fatalf("missing Codex config override %q in args %#v", want, prepared.Args)
 		}
+	}
+	if !slices.Contains(prepared.Args, "--no-alt-screen") {
+		t.Fatalf("expected Codex web shell args to include --no-alt-screen: %#v", prepared.Args)
 	}
 	if hasConfigPrefix(prepared.Args, "openai_base_url=") {
 		t.Fatalf("args = %#v, want custom provider config instead of openai_base_url", prepared.Args)

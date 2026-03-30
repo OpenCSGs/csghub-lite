@@ -530,6 +530,7 @@ func (s *Server) resolveAIAppLaunchModels(ctx context.Context, requestedModel st
 	if err != nil {
 		return "", nil, fmt.Errorf("listing local models: %w", err)
 	}
+	hasLocalModels := len(localModels) > 0
 
 	sort.SliceStable(localModels, func(i, j int) bool {
 		left := scoreOpenClawModel(localModels[i])
@@ -564,6 +565,12 @@ func (s *Server) resolveAIAppLaunchModels(ctx context.Context, requestedModel st
 	}
 
 	if defaultModel == "" {
+		if !hasLocalModels {
+			if strings.TrimSpace(s.cfg.Token) == "" {
+				return "", nil, fmt.Errorf("no local models were found. Pull a model first, or open csghub-lite Settings and save an Access Token to use OpenCSG models")
+			}
+			return "", nil, fmt.Errorf("no local or OpenCSG models were found. Pull a model first, or check OpenCSG model access in csghub-lite Settings")
+		}
 		return "", nil, fmt.Errorf("no models were found. Pull a model first, then open the app")
 	}
 
@@ -700,7 +707,7 @@ func (s *Server) prepareAIAppShellLaunch(target aiAppOpenTarget, modelID string,
 		}
 		return aiAppPreparedLaunch{
 			Binary: binary,
-			Args:   append(configArgs, "--model", modelID),
+			Args:   append(configArgs, "--no-alt-screen", "--model", modelID),
 			Env:    envWithOverridesAndUnset(aiAppShellEnvOverrides(nil), "NO_COLOR"),
 			Dir:    workingDir,
 		}, nil
