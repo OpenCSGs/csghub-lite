@@ -467,17 +467,18 @@ install_llama_server() {
     fi
     mkdir -p "$_llama_dir"
 
-    # Install shared libraries from the entire extract tree (tarballs may put .so under lib/
+    # Install shared libraries from the entire extract tree (tarballs may put libs under lib/
     # next to bin/llama-server; only searching dirname(llama-server) misses them).
-    # Parentheses are required for correct find -o grouping.
+    # Preserve symlinks like libmtmd.0.dylib -> libmtmd.0.0.8429.dylib; the loader resolves
+    # @rpath against those compatibility names, not just the versioned payload files.
     if [ -w "$_llama_dir" ]; then
-        find "$_tmpdir" \( -name "*.dylib" -o -name "*.so" -o -name "*.so.*" \) -type f | while read -r _lib; do
+        find "$_tmpdir" \( -type f -o -type l \) \( -name "*.dylib" -o -name "*.so" -o -name "*.so.*" \) | while read -r _lib; do
             mv "$_lib" "$_llama_dir/"
         done
         mv "$_llama_bin" "$_llama_dir/"
     else
         info "Requires sudo to install llama-server."
-        find "$_tmpdir" \( -name "*.dylib" -o -name "*.so" -o -name "*.so.*" \) -type f | while read -r _lib; do
+        find "$_tmpdir" \( -type f -o -type l \) \( -name "*.dylib" -o -name "*.so" -o -name "*.so.*" \) | while read -r _lib; do
             sudo mv "$_lib" "$_llama_dir/"
         done
         sudo mv "$_llama_bin" "$_llama_dir/"
