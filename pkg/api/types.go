@@ -68,6 +68,17 @@ type TagsResponse struct {
 	Models []ModelInfo `json:"models"`
 }
 
+type LocalModelSearchResponse struct {
+	Query       string      `json:"query,omitempty"`
+	Format      string      `json:"format,omitempty"`
+	PipelineTag string      `json:"pipeline_tag,omitempty"`
+	Limit       int         `json:"limit"`
+	Offset      int         `json:"offset"`
+	Total       int         `json:"total"`
+	HasMore     bool        `json:"has_more"`
+	Models      []ModelInfo `json:"models"`
+}
+
 type ShowResponse struct {
 	ModelFile string    `json:"modelfile"`
 	Details   ModelInfo `json:"details"`
@@ -133,6 +144,8 @@ type ModelInfo struct {
 	Source      string    `json:"source,omitempty"`
 	PipelineTag string    `json:"pipeline_tag,omitempty"`
 	HasMMProj   bool      `json:"has_mmproj,omitempty"`
+	Description string    `json:"description,omitempty"`
+	License     string    `json:"license,omitempty"`
 }
 
 type ModelOptions struct {

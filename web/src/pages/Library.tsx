@@ -1,25 +1,26 @@
 import { useEffect } from "preact/hooks";
-import { signal, computed } from "@preact/signals";
-import { getTags, deleteModel, loadModel, getPs } from "../api/client";
+import { computed, signal } from "@preact/signals";
+import { deleteModel, getPs, loadModel, searchLocalModels } from "../api/client";
 import type { ModelInfo, RunningModel } from "../api/client";
-import { t, locale } from "../i18n";
+import { locale, t } from "../i18n";
 
 type FormatFilter = "all" | "gguf" | "safetensors";
 
 const allModels = signal<ModelInfo[]>([]);
 const runningModels = signal<RunningModel[]>([]);
+const searchQuery = signal("");
 const formatFilter = signal<FormatFilter>("all");
 const sortField = signal<"name" | "size" | "modified_at">("name");
 const sortAsc = signal(true);
+const modelsLoading = signal(false);
 const loadingRun = signal<string>("");
 const loadProgress = signal<string>("");
-const runError = signal<string>("");
+const libraryError = signal<string>("");
+
+let loadModelsRequestID = 0;
 
 const filtered = computed(() => {
-  let list = allModels.value;
-  if (formatFilter.value !== "all") {
-    list = list.filter((m) => m.format === formatFilter.value);
-  }
+  const list = allModels.value;
   const field = sortField.value;
   const asc = sortAsc.value;
   return [...list].sort((a, b) => {
@@ -35,28 +36,74 @@ function isCloudModel(model: Pick<ModelInfo, "source">): boolean {
   return model.source === "cloud";
 }
 
-function loadModels() {
-  getTags().then((m) => (allModels.value = m.filter((model) => !isCloudModel(model)))).catch(() => {});
-  getPs().then((m) => (runningModels.value = m)).catch(() => {});
+async function loadModels() {
+  const requestID = ++loadModelsRequestID;
+  modelsLoading.value = true;
+  libraryError.value = "";
+
+  try {
+    const models: ModelInfo[] = [];
+    let offset = 0;
+    const limit = 100;
+
+    for (;;) {
+      const resp = await searchLocalModels({
+        q: searchQuery.value,
+        format: formatFilter.value === "all" ? undefined : formatFilter.value,
+        limit,
+        offset,
+      });
+
+      models.push(...(resp.models || []).filter((model) => !isCloudModel(model)));
+
+      if (!resp.has_more || !resp.models?.length) {
+        break;
+      }
+      offset += resp.models.length;
+    }
+
+    if (requestID !== loadModelsRequestID) return;
+    allModels.value = models;
+  } catch (e: any) {
+    if (requestID !== loadModelsRequestID) return;
+    allModels.value = [];
+    libraryError.value = e?.message || t("lib.failedLoadModels");
+  } finally {
+    if (requestID === loadModelsRequestID) {
+      modelsLoading.value = false;
+    }
+  }
+}
+
+function loadRunningModels() {
+  getPs().then((models) => (runningModels.value = models)).catch(() => {});
 }
 
 export function Library() {
   void locale.value;
 
   useEffect(() => {
-    loadModels();
+    loadRunningModels();
   }, []);
+
+  useEffect(() => {
+    const timeout = window.setTimeout(() => {
+      void loadModels();
+    }, searchQuery.value.trim() ? 250 : 0);
+    return () => window.clearTimeout(timeout);
+  }, [searchQuery.value, formatFilter.value]);
 
   const handleDelete = async (name: string) => {
     if (!confirm(t("lib.deleteConfirm", name))) return;
     await deleteModel(name);
-    allModels.value = allModels.value.filter((m) => m.name !== name);
+    await loadModels();
+    loadRunningModels();
   };
 
   const handleRun = async (name: string) => {
     loadingRun.value = name;
     loadProgress.value = "";
-    runError.value = "";
+    libraryError.value = "";
     try {
       await loadModel(name, (p) => {
         if (p.step && p.total && p.total > 0 && p.current) {
@@ -66,9 +113,10 @@ export function Library() {
           loadProgress.value = p.step;
         }
       });
-      loadModels();
+      await loadModels();
+      loadRunningModels();
     } catch (e: any) {
-      runError.value = e?.message || t("lib.failedLoad");
+      libraryError.value = e?.message || t("lib.failedLoad");
     }
     loadingRun.value = "";
     loadProgress.value = "";
@@ -84,6 +132,7 @@ export function Library() {
   };
 
   const isRunning = (name: string) => runningModels.value.some((m) => m.name === name);
+  const hasActiveFilters = searchQuery.value.trim().length > 0 || formatFilter.value !== "all";
 
   return (
     <div class="p-8 max-w-5xl mx-auto">
@@ -94,19 +143,32 @@ export function Library() {
         </div>
       </div>
 
-      {/* Error Banner */}
-      {runError.value && (
+      {libraryError.value && (
         <div class="mt-4 flex items-start gap-2 bg-red-50 border border-red-200 text-red-700 text-sm px-4 py-3 rounded-lg">
           <svg class="w-4 h-4 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
             <path stroke-linecap="round" stroke-linejoin="round" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
           </svg>
-          <span class="whitespace-pre-line flex-1">{runError.value}</span>
-          <button onClick={() => (runError.value = "")} class="ml-auto text-red-400 hover:text-red-600 flex-shrink-0">&#x2715;</button>
+          <span class="whitespace-pre-line flex-1">{libraryError.value}</span>
+          <button onClick={() => (libraryError.value = "")} class="ml-auto text-red-400 hover:text-red-600 flex-shrink-0">&#x2715;</button>
         </div>
       )}
 
-      {/* Filter Tabs */}
-      <div class="flex items-center gap-4 mt-6 mb-6">
+      <div class="flex items-center gap-4 mt-6 mb-6 flex-wrap">
+        <div class="relative flex-1 min-w-[260px]">
+          <svg class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-4.35-4.35m1.85-5.15a7 7 0 11-14 0 7 7 0 0114 0z" />
+          </svg>
+          <input
+            type="text"
+            value={searchQuery.value}
+            onInput={(e) => (searchQuery.value = (e.currentTarget as HTMLInputElement).value)}
+            placeholder={t("lib.search")}
+            class="w-full pl-10 pr-24 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+          />
+          <span class="absolute right-3 top-1/2 -translate-y-1/2 text-[11px] font-medium text-gray-400 bg-gray-50 px-2 py-0.5 rounded-full">
+            {modelsLoading.value ? t("lib.searching") : t("lib.results", filtered.value.length)}
+          </span>
+        </div>
         <div class="flex bg-gray-100 rounded-lg p-0.5">
           {(["all", "gguf", "safetensors"] as FormatFilter[]).map((f) => (
             <button
@@ -124,7 +186,6 @@ export function Library() {
         </div>
       </div>
 
-      {/* Table */}
       <div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
         <table class="w-full text-sm">
           <thead>
@@ -137,10 +198,16 @@ export function Library() {
             </tr>
           </thead>
           <tbody>
-            {filtered.value.length === 0 ? (
+            {modelsLoading.value ? (
               <tr>
                 <td colSpan={5} class="text-center py-12 text-gray-400">
-                  {t("lib.noModels")}
+                  {t("lib.searching")}
+                </td>
+              </tr>
+            ) : filtered.value.length === 0 ? (
+              <tr>
+                <td colSpan={5} class="text-center py-12 text-gray-400">
+                  {hasActiveFilters ? t("lib.noSearchResults") : t("lib.noModels")}
                 </td>
               </tr>
             ) : (
@@ -148,11 +215,11 @@ export function Library() {
                 <tr key={m.name} class="border-b border-gray-50 hover:bg-gray-50/50">
                   <td class="px-4 py-3 font-medium text-gray-900">{m.name}</td>
                   <td class="px-4 py-3">
-                    <span class={`inline-block px-2 py-0.5 rounded text-xs font-medium ${
-                      m.format === "gguf"
-                        ? "bg-blue-50 text-blue-700"
-                        : "bg-purple-50 text-purple-700"
-                    }`}>
+                    <span
+                      class={`inline-block px-2 py-0.5 rounded text-xs font-medium ${
+                        m.format === "gguf" ? "bg-blue-50 text-blue-700" : "bg-purple-50 text-purple-700"
+                      }`}
+                    >
                       {m.format?.toUpperCase() || "—"}
                     </span>
                   </td>
@@ -200,7 +267,6 @@ export function Library() {
           </tbody>
         </table>
       </div>
-
     </div>
   );
 }

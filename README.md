@@ -125,6 +125,7 @@ The server listens on `localhost:11435` by default.
 |---|---|---|
 | `GET` | `/api/health` | Health check |
 | `GET` | `/api/tags` | List local models |
+| `GET` | `/api/models/search` | Search local downloaded models |
 | `GET` | `/api/ps` | List running models |
 | `POST` | `/api/show` | Show model details |
 | `POST` | `/api/pull` | Pull a model (streaming) |
@@ -158,6 +159,14 @@ curl http://localhost:11435/api/generate -d '{
 
 ```bash
 curl http://localhost:11435/api/ps
+```
+
+### Example: Search local models
+
+Use `q` for keyword search, with optional `format`, `pipeline_tag`, `limit`, and `offset` filters.
+
+```bash
+curl "http://localhost:11435/api/models/search?q=qwen&format=gguf&limit=10"
 ```
 
 ### Example: Stop a model

@@ -8,6 +8,19 @@ export interface ModelInfo {
   source?: string;
   pipeline_tag?: string;
   has_mmproj?: boolean;
+  description?: string;
+  license?: string;
+}
+
+export interface LocalModelSearchResponse {
+  query?: string;
+  format?: string;
+  pipeline_tag?: string;
+  limit: number;
+  offset: number;
+  total: number;
+  has_more: boolean;
+  models: ModelInfo[];
 }
 
 export interface RunningModel {
@@ -196,6 +209,23 @@ export async function getTags(options?: { refresh?: boolean }): Promise<ModelInf
   const url = query.toString() ? `/api/tags?${query}` : "/api/tags";
   const data = await fetchJSON<{ models: ModelInfo[] }>(url);
   return data.models || [];
+}
+
+export async function searchLocalModels(params?: {
+  q?: string;
+  format?: string;
+  pipeline_tag?: string;
+  limit?: number;
+  offset?: number;
+}): Promise<LocalModelSearchResponse> {
+  const query = new URLSearchParams();
+  if (params?.q?.trim()) query.set("q", params.q.trim());
+  if (params?.format?.trim()) query.set("format", params.format.trim());
+  if (params?.pipeline_tag?.trim()) query.set("pipeline_tag", params.pipeline_tag.trim());
+  if (typeof params?.limit === "number") query.set("limit", String(params.limit));
+  if (typeof params?.offset === "number") query.set("offset", String(params.offset));
+  const url = query.toString() ? `/api/models/search?${query}` : "/api/models/search";
+  return fetchJSON<LocalModelSearchResponse>(url);
 }
 
 export async function getPs(): Promise<RunningModel[]> {

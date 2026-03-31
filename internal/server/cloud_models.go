@@ -22,7 +22,7 @@ func requestWantsModelRefresh(r *http.Request) bool {
 }
 
 func (s *Server) listAvailableModelsWithRefresh(ctx context.Context, refreshCloud bool) ([]api.ModelInfo, error) {
-	localModels, err := s.manager.List()
+	localModels, err := s.listLocalModelInfos()
 	if err != nil {
 		return nil, err
 	}
@@ -30,7 +30,7 @@ func (s *Server) listAvailableModelsWithRefresh(ctx context.Context, refreshClou
 	seen := make(map[string]struct{}, len(localModels)+8)
 	out := make([]api.ModelInfo, 0, len(localModels)+8)
 	for _, item := range localModels {
-		modelID := strings.TrimSpace(item.FullName())
+		modelID := strings.TrimSpace(item.Model)
 		if modelID == "" {
 			continue
 		}
@@ -38,14 +38,7 @@ func (s *Server) listAvailableModelsWithRefresh(ctx context.Context, refreshClou
 			continue
 		}
 		seen[modelID] = struct{}{}
-		out = append(out, api.ModelInfo{
-			Name:        modelID,
-			Model:       modelID,
-			ModifiedAt:  item.DownloadedAt,
-			DisplayName: modelID,
-			Source:      "local",
-			PipelineTag: "text-generation",
-		})
+		out = append(out, item)
 	}
 
 	cloudModels, err := s.listCloudModels(ctx, refreshCloud)

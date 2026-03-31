@@ -303,6 +303,7 @@ func TestRoutes(t *testing.T) {
 	}{
 		{"GET", "/"},
 		{"GET", "/api/tags"},
+		{"GET", "/api/models/search"},
 		{"POST", "/api/show"},
 		{"POST", "/api/pull"},
 		{"DELETE", "/api/delete"},

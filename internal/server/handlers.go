@@ -11,7 +11,6 @@ import (
 
 	"github.com/opencsgs/csghub-lite/internal/csghub"
 	"github.com/opencsgs/csghub-lite/internal/inference"
-	"github.com/opencsgs/csghub-lite/internal/model"
 	"github.com/opencsgs/csghub-lite/pkg/api"
 )
 
@@ -64,34 +63,12 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleTags(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-cache")
 
-	models, err := s.manager.List()
+	infos, err := s.listLocalModelInfos()
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 
-	var infos []api.ModelInfo
-	for _, m := range models {
-		tag := m.PipelineTag
-		hasMMProj := false
-		dir, dirErr := s.manager.ModelPath(m.FullName())
-		if tag == "" && dirErr == nil {
-			tag = model.DetectPipelineTag(dir)
-		}
-		if dirErr == nil {
-			hasMMProj = model.FindMMProj(dir) != ""
-		}
-		infos = append(infos, api.ModelInfo{
-			Name:        m.FullName(),
-			Model:       m.FullName(),
-			Size:        m.Size,
-			Format:      string(m.Format),
-			ModifiedAt:  m.DownloadedAt,
-			Source:      "local",
-			PipelineTag: tag,
-			HasMMProj:   hasMMProj,
-		})
-	}
 	cloudModels, err := s.listCloudModels(r.Context(), requestWantsModelRefresh(r))
 	if err != nil {
 		log.Printf("cloud models unavailable: %v", err)
@@ -164,13 +141,7 @@ func (s *Server) handleShow(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, api.ShowResponse{
-		Details: api.ModelInfo{
-			Name:       lm.FullName(),
-			Model:      lm.FullName(),
-			Size:       lm.Size,
-			Format:     string(lm.Format),
-			ModifiedAt: lm.DownloadedAt,
-		},
+		Details: s.localModelInfo(lm),
 	})
 }
 
