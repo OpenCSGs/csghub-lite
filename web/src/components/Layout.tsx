@@ -20,6 +20,14 @@ function SettingsIcon({ active }: { active: boolean }) {
   );
 }
 
+function HelpIcon() {
+  return (
+    <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="#9CA3AF" stroke-width="2">
+      <path stroke-linecap="round" stroke-linejoin="round" d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+    </svg>
+  );
+}
+
 export function Layout({ children }: { children: ComponentChildren }) {
   const { path } = useLocation();
   void locale.value;
@@ -55,7 +63,7 @@ export function Layout({ children }: { children: ComponentChildren }) {
           return (
             <a
               href="/settings"
-              class={`flex items-center gap-3 mx-3 mb-4 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
+              class={`flex items-center gap-3 mx-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
                 active
                   ? "bg-indigo-50 text-indigo-700"
                   : "text-gray-600 hover:bg-gray-50 hover:text-gray-900"
@@ -66,6 +74,15 @@ export function Layout({ children }: { children: ComponentChildren }) {
             </a>
           );
         })()}
+        <a
+          href="https://opencsg.com/docs/csghub/101/function/csghub-lite/intro"
+          target="_blank"
+          rel="noopener noreferrer"
+          class="flex items-center gap-3 mx-3 mb-4 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors text-gray-600 hover:bg-gray-50 hover:text-gray-900"
+        >
+          <HelpIcon />
+          {t("nav.help")}
+        </a>
       </aside>
       <main class="flex-1 overflow-auto bg-gray-50 flex flex-col">
         <div class="flex-1">{children}</div>

@@ -199,6 +199,7 @@ const en: Record<string, string> = {
 
   // Settings
   "nav.settings": "Settings",
+  "nav.help": "Help",
   "settings.title": "Settings",
   "settings.subtitle": "This page offers a unified settings hub for the product.",
   "settings.modelLocation": "Model location",
@@ -477,6 +478,7 @@ const zh: Record<string, string> = {
 
   // Settings
   "nav.settings": "设置",
+  "nav.help": "帮助",
   "settings.title": "设置",
   "settings.subtitle": "此页面提供产品的统一设置中心。",
   "settings.modelLocation": "模型存储位置",
