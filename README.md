@@ -24,20 +24,6 @@ Inspired by [Ollama](https://ollama.com), csghub-lite provides model download, l
 curl -fsSL https://hub.opencsg.com/csghub-lite/install.sh | sh
 ```
 
-On macOS, the installer prefers a writable directory that is already on your
-`PATH` (for example `/opt/homebrew/bin`) and falls back to `~/bin`, so it
-normally avoids `sudo`.
-
-### Optional: Homebrew (mainly macOS)
-
-```bash
-brew tap opencsgs/csghub-lite https://github.com/OpenCSGs/csghub-lite
-brew install opencsgs/csghub-lite/csghub-lite
-```
-
-Homebrew is provided as an extra install path mainly for macOS users. On Linux,
-prefer `curl ... | sh`, release tarballs, or native packages.
-
 ### Quick install (Windows PowerShell)
 
 ```powershell

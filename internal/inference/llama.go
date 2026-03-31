@@ -204,7 +204,6 @@ func newLlamaEngine(modelPath, modelName string, verbose bool, progress ConvertP
 		"--host", "127.0.0.1",
 		"--port", fmt.Sprintf("%d", port),
 		"-c", strconv.Itoa(effectiveNumCtx),
-		"--reasoning", "off",
 	}
 	if len(mmproj) > 0 && mmproj[0] != "" {
 		args = append(args, "--mmproj", mmproj[0])
