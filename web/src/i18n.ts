@@ -199,6 +199,7 @@ const en: Record<string, string> = {
 
   // Settings
   "nav.settings": "Settings",
+  "nav.apiDocs": "API Docs",
   "nav.help": "Help",
   "settings.title": "Settings",
   "settings.subtitle": "This page offers a unified settings hub for the product.",
@@ -483,6 +484,7 @@ const zh: Record<string, string> = {
 
   // Settings
   "nav.settings": "设置",
+  "nav.apiDocs": "API 文档",
   "nav.help": "帮助",
   "settings.title": "设置",
   "settings.subtitle": "此页面提供产品的统一设置中心。",

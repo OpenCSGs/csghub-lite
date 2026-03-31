@@ -28,6 +28,14 @@ function HelpIcon() {
   );
 }
 
+function DocsIcon() {
+  return (
+    <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="#9CA3AF" stroke-width="2">
+      <path stroke-linecap="round" stroke-linejoin="round" d="M12 6.253v13m0-13C10.832 5.477 8.955 5 7 5a4 4 0 00-4 4v9a4 4 0 014-4c1.955 0 3.832.477 5 1.253m0-9C13.168 5.477 15.045 5 17 5a4 4 0 014 4v9a4 4 0 00-4-4c-1.955 0-3.832.477-5 1.253" />
+    </svg>
+  );
+}
+
 export function Layout({ children }: { children: ComponentChildren }) {
   const { path } = useLocation();
   void locale.value;
@@ -74,6 +82,15 @@ export function Layout({ children }: { children: ComponentChildren }) {
             </a>
           );
         })()}
+        <a
+          href="/api-docs.html"
+          target="_blank"
+          rel="noopener noreferrer"
+          class="flex items-center gap-3 mx-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors text-gray-600 hover:bg-gray-50 hover:text-gray-900"
+        >
+          <DocsIcon />
+          {t("nav.apiDocs")}
+        </a>
         <a
           href="https://opencsg.com/docs/csghub/101/function/csghub-lite/intro"
           target="_blank"

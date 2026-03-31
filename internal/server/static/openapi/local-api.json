@@ -1,0 +1,3969 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "CSGHub Lite Local API",
+    "version": "0.1.0",
+    "description": "Structured documentation for the local `/api/*` and `/v1/*` endpoints served by `csghub-lite`.\n\nMaintenance note: whenever you add, remove, or rename an `/api/*` or `/v1/*` route in `internal/server/routes.go`, update this file and run the OpenAPI sync test before merging."
+  },
+  "servers": [
+    {
+      "url": "/",
+      "description": "Current csghub-lite server"
+    },
+    {
+      "url": "http://localhost:11435",
+      "description": "Default local server"
+    }
+  ],
+  "tags": [
+    {
+      "name": "Health",
+      "description": "Health and lifecycle endpoints."
+    },
+    {
+      "name": "Models",
+      "description": "Model listing, metadata, lifecycle, and download endpoints."
+    },
+    {
+      "name": "Inference",
+      "description": "Local text generation and chat endpoints."
+    },
+    {
+      "name": "Datasets",
+      "description": "Local dataset management endpoints."
+    },
+    {
+      "name": "Marketplace",
+      "description": "Proxy endpoints for listing models and datasets from CSGHub."
+    },
+    {
+      "name": "System",
+      "description": "Local machine and application settings endpoints."
+    },
+    {
+      "name": "CloudAuth",
+      "description": "OpenCSG access token status and management."
+    },
+    {
+      "name": "Logs",
+      "description": "Server-side and AI App log streaming."
+    },
+    {
+      "name": "AI Apps",
+      "description": "Managed AI App listing, install, launch, and shell endpoints."
+    },
+    {
+      "name": "Compatibility",
+      "description": "OpenAI- and Anthropic-compatible `/v1/*` endpoints."
+    }
+  ],
+  "paths": {
+    "/api/health": {
+      "get": {
+        "tags": [
+          "Health"
+        ],
+        "summary": "Check server health",
+        "operationId": "getHealth",
+        "responses": {
+          "200": {
+            "description": "Server is reachable.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthResponse"
+                },
+                "example": {
+                  "status": "ok"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/tags": {
+      "get": {
+        "tags": [
+          "Models"
+        ],
+        "summary": "List available models",
+        "description": "Returns local models and, when an OpenCSG token is configured, any available cloud chat models.",
+        "operationId": "getTags",
+        "parameters": [
+          {
+            "name": "refresh",
+            "in": "query",
+            "description": "Force a refresh of the cloud model catalog before returning results.",
+            "schema": {
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Available models.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TagsResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      }
+    },
+    "/api/models/search": {
+      "get": {
+        "tags": [
+          "Models"
+        ],
+        "summary": "Search local downloaded models",
+        "operationId": "searchLocalModels",
+        "parameters": [
+          {
+            "name": "q",
+            "in": "query",
+            "description": "Case-insensitive search text matched against model metadata.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "format",
+            "in": "query",
+            "description": "Filter by local model format, such as `gguf`.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "pipeline_tag",
+            "in": "query",
+            "description": "Filter by detected pipeline type, such as `text-generation` or `image-text-to-text`.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Maximum number of results to return. Defaults to `20`, capped at `100`.",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 20
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "description": "Zero-based offset into the filtered result set.",
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Matching local models.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LocalModelSearchResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      }
+    },
+    "/api/ps": {
+      "get": {
+        "tags": [
+          "Models"
+        ],
+        "summary": "List running models",
+        "operationId": "getRunningModels",
+        "responses": {
+          "200": {
+            "description": "Loaded and running inference models.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PsResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/show": {
+      "post": {
+        "tags": [
+          "Models"
+        ],
+        "summary": "Show model details",
+        "operationId": "showModel",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ShowRequest"
+              },
+              "example": {
+                "model": "Qwen/Qwen3-0.6B-GGUF"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Model metadata.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ShowResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      }
+    },
+    "/api/pull": {
+      "post": {
+        "tags": [
+          "Models"
+        ],
+        "summary": "Download a model",
+        "description": "Streams model download progress as Server-Sent Events.",
+        "operationId": "pullModel",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PullRequest"
+              },
+              "example": {
+                "model": "Qwen/Qwen3-0.6B-GGUF"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Streaming download progress.",
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "$ref": "#/components/schemas/EventStream"
+                },
+                "example": "data: {\"status\":\"pulling Qwen/Qwen3-0.6B-GGUF\"}\n\ndata: {\"status\":\"downloading model.gguf\",\"digest\":\"model.gguf\",\"total\":123456,\"completed\":4096}\n\ndata: {\"status\":\"success\"}\n\n"
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          }
+        }
+      }
+    },
+    "/api/load": {
+      "post": {
+        "tags": [
+          "Models"
+        ],
+        "summary": "Eagerly load a model",
+        "description": "Loads a model into memory and optionally streams progress while conversions are running.",
+        "operationId": "loadModel",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LoadRequest"
+              },
+              "example": {
+                "model": "Qwen/Qwen3-0.6B-GGUF",
+                "stream": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Load completed or streaming progress returned.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LoadResponse"
+                },
+                "example": {
+                  "status": "ready"
+                }
+              },
+              "text/event-stream": {
+                "schema": {
+                  "$ref": "#/components/schemas/EventStream"
+                },
+                "example": "data: {\"status\":\"loading Qwen/Qwen3-0.6B-GGUF\"}\n\ndata: {\"status\":\"converting\",\"step\":\"quantizing\",\"current\":1,\"total\":3}\n\ndata: {\"status\":\"ready\"}\n\n"
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          }
+        }
+      }
+    },
+    "/api/stop": {
+      "post": {
+        "tags": [
+          "Models"
+        ],
+        "summary": "Stop a running model",
+        "operationId": "stopModel",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StopRequest"
+              },
+              "example": {
+                "model": "Qwen/Qwen3-0.6B-GGUF"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Model stopped.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StatusResponse"
+                },
+                "example": {
+                  "status": "stopped"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      }
+    },
+    "/api/delete": {
+      "delete": {
+        "tags": [
+          "Models"
+        ],
+        "summary": "Delete a local model",
+        "operationId": "deleteModel",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DeleteRequest"
+              },
+              "example": {
+                "model": "Qwen/Qwen3-0.6B-GGUF"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Model deleted.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StatusResponse"
+                },
+                "example": {
+                  "status": "deleted"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      }
+    },
+    "/api/generate": {
+      "post": {
+        "tags": [
+          "Inference"
+        ],
+        "summary": "Generate text",
+        "description": "Generates text from a prompt. By default the endpoint streams tokens as Server-Sent Events unless `stream` is set to `false`.",
+        "operationId": "generateText",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GenerateRequest"
+              },
+              "example": {
+                "model": "Qwen/Qwen3-0.6B-GGUF",
+                "prompt": "Write a haiku about local inference.",
+                "stream": false,
+                "options": {
+                  "temperature": 0.7,
+                  "max_tokens": 128
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Generated text or a streaming event sequence.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenerateResponse"
+                }
+              },
+              "text/event-stream": {
+                "schema": {
+                  "$ref": "#/components/schemas/EventStream"
+                },
+                "example": "data: {\"model\":\"Qwen/Qwen3-0.6B-GGUF\",\"response\":\"Local\",\"done\":false,\"created_at\":\"2026-03-31T12:00:00Z\"}\n\ndata: {\"model\":\"Qwen/Qwen3-0.6B-GGUF\",\"response\":\" inference\",\"done\":false,\"created_at\":\"2026-03-31T12:00:00Z\"}\n\ndata: {\"model\":\"Qwen/Qwen3-0.6B-GGUF\",\"response\":\"\",\"done\":true,\"created_at\":\"2026-03-31T12:00:01Z\"}\n\n"
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      }
+    },
+    "/api/chat": {
+      "post": {
+        "tags": [
+          "Inference"
+        ],
+        "summary": "Generate chat completions",
+        "description": "Supports local models and, when `source` is `cloud`, OpenCSG-backed chat models. Streaming responses are sent as SSE when `Accept: text/event-stream` or `X-CSGHUB-Stream: sse` is provided; otherwise streaming defaults to NDJSON.",
+        "operationId": "chatCompletions",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChatRequest"
+              },
+              "example": {
+                "model": "Qwen/Qwen3-0.6B-GGUF",
+                "messages": [
+                  {
+                    "role": "system",
+                    "content": "You are a helpful assistant."
+                  },
+                  {
+                    "role": "user",
+                    "content": "What is 1 + 1?"
+                  }
+                ],
+                "stream": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Chat completion output or streaming token events.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChatResponse"
+                }
+              },
+              "text/event-stream": {
+                "schema": {
+                  "$ref": "#/components/schemas/EventStream"
+                },
+                "example": "data: {\"model\":\"Qwen/Qwen3-0.6B-GGUF\",\"message\":{\"role\":\"assistant\",\"content\":\"2\"},\"done\":false,\"created_at\":\"2026-03-31T12:00:00Z\"}\n\ndata: {\"model\":\"Qwen/Qwen3-0.6B-GGUF\",\"done\":true,\"created_at\":\"2026-03-31T12:00:00Z\"}\n\n"
+              },
+              "application/x-ndjson": {
+                "schema": {
+                  "$ref": "#/components/schemas/NDJSONStream"
+                },
+                "example": "{\"model\":\"Qwen/Qwen3-0.6B-GGUF\",\"message\":{\"role\":\"assistant\",\"content\":\"2\"},\"done\":false,\"created_at\":\"2026-03-31T12:00:00Z\"}\n{\"model\":\"Qwen/Qwen3-0.6B-GGUF\",\"message\":{\"role\":\"assistant\",\"content\":\"\"},\"done\":true,\"created_at\":\"2026-03-31T12:00:00Z\"}\n"
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      }
+    },
+    "/api/datasets": {
+      "get": {
+        "tags": [
+          "Datasets"
+        ],
+        "summary": "List local datasets",
+        "operationId": "getDatasets",
+        "responses": {
+          "200": {
+            "description": "Available local datasets.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DatasetTagsResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      }
+    },
+    "/api/datasets/show": {
+      "post": {
+        "tags": [
+          "Datasets"
+        ],
+        "summary": "Show dataset details",
+        "operationId": "showDataset",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DatasetShowRequest"
+              },
+              "example": {
+                "dataset": "OpenCSG/demo-dataset"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Dataset metadata and file list.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DatasetShowResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      }
+    },
+    "/api/datasets/files": {
+      "post": {
+        "tags": [
+          "Datasets"
+        ],
+        "summary": "List files inside a dataset path",
+        "operationId": "listDatasetFiles",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DatasetFilesRequest"
+              },
+              "example": {
+                "dataset": "OpenCSG/demo-dataset",
+                "path": "train"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "File and directory entries under the requested dataset path.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DatasetFilesResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      }
+    },
+    "/api/datasets/pull": {
+      "post": {
+        "tags": [
+          "Datasets"
+        ],
+        "summary": "Download a dataset",
+        "description": "Streams dataset download progress as Server-Sent Events.",
+        "operationId": "pullDataset",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DatasetPullRequest"
+              },
+              "example": {
+                "dataset": "OpenCSG/demo-dataset"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Streaming dataset download progress.",
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "$ref": "#/components/schemas/EventStream"
+                },
+                "example": "data: {\"status\":\"pulling OpenCSG/demo-dataset\"}\n\ndata: {\"status\":\"downloading train.parquet\",\"digest\":\"train.parquet\",\"total\":123456,\"completed\":4096}\n\ndata: {\"status\":\"success\"}\n\n"
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          }
+        }
+      }
+    },
+    "/api/datasets/delete": {
+      "delete": {
+        "tags": [
+          "Datasets"
+        ],
+        "summary": "Delete a local dataset",
+        "operationId": "deleteDataset",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DatasetDeleteRequest"
+              },
+              "example": {
+                "dataset": "OpenCSG/demo-dataset"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Dataset deleted.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StatusResponse"
+                },
+                "example": {
+                  "status": "deleted"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      }
+    },
+    "/api/marketplace/models": {
+      "get": {
+        "tags": [
+          "Marketplace"
+        ],
+        "summary": "List marketplace models",
+        "description": "Proxies the upstream CSGHub model listing API and normalizes the response to `{ data, total }`.",
+        "operationId": "getMarketplaceModels",
+        "parameters": [
+          {
+            "name": "search",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "sort",
+            "in": "query",
+            "description": "Marketplace sort mode such as `trending` or `recently_updated`.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "default": 1
+            }
+          },
+          {
+            "name": "per",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "default": 16
+            }
+          },
+          {
+            "name": "source",
+            "in": "query",
+            "description": "Optional upstream source filter forwarded to CSGHub.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Marketplace model list.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MarketplaceModelsResponse"
+                }
+              }
+            }
+          },
+          "502": {
+            "$ref": "#/components/responses/BadGateway"
+          }
+        }
+      }
+    },
+    "/api/marketplace/datasets": {
+      "get": {
+        "tags": [
+          "Marketplace"
+        ],
+        "summary": "List marketplace datasets",
+        "description": "Proxies the upstream CSGHub dataset listing API and normalizes the response to `{ data, total }`.",
+        "operationId": "getMarketplaceDatasets",
+        "parameters": [
+          {
+            "name": "search",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "sort",
+            "in": "query",
+            "description": "Marketplace sort mode such as `trending` or `recently_updated`.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "default": 1
+            }
+          },
+          {
+            "name": "per",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "default": 16
+            }
+          },
+          {
+            "name": "source",
+            "in": "query",
+            "description": "Optional upstream source filter forwarded to CSGHub.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Marketplace dataset list.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MarketplaceDatasetsResponse"
+                }
+              }
+            }
+          },
+          "502": {
+            "$ref": "#/components/responses/BadGateway"
+          }
+        }
+      }
+    },
+    "/api/system": {
+      "get": {
+        "tags": [
+          "System"
+        ],
+        "summary": "Get system resource information",
+        "operationId": "getSystemInfo",
+        "responses": {
+          "200": {
+            "description": "CPU, memory, and GPU information gathered from the local machine.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SystemInfo"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/settings": {
+      "get": {
+        "tags": [
+          "System"
+        ],
+        "summary": "Get application settings",
+        "operationId": "getSettings",
+        "responses": {
+          "200": {
+            "description": "Minimal application settings surfaced to the UI.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SettingsResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/cloud/auth": {
+      "get": {
+        "tags": [
+          "CloudAuth"
+        ],
+        "summary": "Get OpenCSG authentication status",
+        "operationId": "getCloudAuthStatus",
+        "responses": {
+          "200": {
+            "description": "Current access token status and, when available, the authenticated user profile.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CloudAuthStatus"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/cloud/auth/token": {
+      "post": {
+        "tags": [
+          "CloudAuth"
+        ],
+        "summary": "Save or replace the OpenCSG access token",
+        "operationId": "saveCloudAuthToken",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CloudAuthTokenRequest"
+              },
+              "example": {
+                "token": "glpat-or-opencsg-token"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated auth status after saving the token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CloudAuthStatus"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "CloudAuth"
+        ],
+        "summary": "Clear the saved OpenCSG access token",
+        "operationId": "deleteCloudAuthToken",
+        "responses": {
+          "200": {
+            "description": "Updated auth status after clearing the token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CloudAuthStatus"
+                }
+              }
+            }
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      }
+    },
+    "/api/shutdown": {
+      "post": {
+        "tags": [
+          "Health"
+        ],
+        "summary": "Gracefully stop the local server",
+        "operationId": "shutdownServer",
+        "responses": {
+          "200": {
+            "description": "Shutdown has been scheduled.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StatusResponse"
+                },
+                "example": {
+                  "status": "shutting down"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/logs": {
+      "get": {
+        "tags": [
+          "Logs"
+        ],
+        "summary": "Stream server logs",
+        "description": "Returns recent log history and then continues streaming new log lines as Server-Sent Events.",
+        "operationId": "streamServerLogs",
+        "responses": {
+          "200": {
+            "description": "Live server logs.",
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "$ref": "#/components/schemas/EventStream"
+                },
+                "example": "data: 2026/03/31 12:00:00 REQUEST: GET /api/health (1ms)\n\ndata: 2026/03/31 12:00:01 REQUEST: POST /api/chat (214ms)\n\n"
+              }
+            }
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/ServiceUnavailable"
+          }
+        }
+      }
+    },
+    "/api/apps": {
+      "get": {
+        "tags": [
+          "AI Apps"
+        ],
+        "summary": "List managed AI Apps",
+        "operationId": "getAIApps",
+        "responses": {
+          "200": {
+            "description": "Managed AI Apps and their local state.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AIAppsResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      }
+    },
+    "/api/apps/install": {
+      "post": {
+        "tags": [
+          "AI Apps"
+        ],
+        "summary": "Install an AI App",
+        "operationId": "installAIApp",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AIAppActionRequest"
+              },
+              "example": {
+                "app_id": "openclaw"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Install task accepted.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AIAppInfo"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          }
+        }
+      }
+    },
+    "/api/apps/uninstall": {
+      "post": {
+        "tags": [
+          "AI Apps"
+        ],
+        "summary": "Uninstall an AI App",
+        "operationId": "uninstallAIApp",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AIAppActionRequest"
+              },
+              "example": {
+                "app_id": "openclaw"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Uninstall task accepted.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AIAppInfo"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          }
+        }
+      }
+    },
+    "/api/apps/open": {
+      "post": {
+        "tags": [
+          "AI Apps"
+        ],
+        "summary": "Open an AI App entry point",
+        "description": "Returns a URL to the AI App web UI or shell entry after validating install state and model availability.",
+        "operationId": "openAIApp",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AIAppActionRequest"
+              },
+              "example": {
+                "app_id": "openclaw",
+                "model_id": "Qwen/Qwen3-0.6B-GGUF"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Resolved launch URL.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AIAppOpenResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      }
+    },
+    "/api/apps/logs": {
+      "get": {
+        "tags": [
+          "Logs"
+        ],
+        "summary": "Stream AI App logs",
+        "operationId": "streamAIAppLogs",
+        "parameters": [
+          {
+            "name": "app_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "AI App identifier returned from `/api/apps`."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Recent and live AI App logs.",
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "$ref": "#/components/schemas/EventStream"
+                },
+                "example": "data: [install] starting openclaw\n\ndata: [install] download complete\n\n"
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      }
+    },
+    "/api/apps/shell/{id}/ws": {
+      "get": {
+        "tags": [
+          "AI Apps"
+        ],
+        "summary": "Attach to an AI App shell session",
+        "description": "Upgrades the request to a WebSocket connection. The server sends JSON control messages such as `ready` and `exit`, plus binary frames containing terminal output. Clients may send binary input frames and JSON resize messages like `{ \"type\": \"resize\", \"cols\": 120, \"rows\": 36 }`.",
+        "operationId": "attachAIAppShell",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Shell session identifier returned by the AI App launch flow."
+          }
+        ],
+        "responses": {
+          "101": {
+            "description": "WebSocket upgrade completed."
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      }
+    },
+    "/api/apps/shell/{id}/close": {
+      "post": {
+        "tags": [
+          "AI Apps"
+        ],
+        "summary": "Close an AI App shell session",
+        "operationId": "closeAIAppShell",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Shell session identifier returned by the AI App launch flow."
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Shell session closed."
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      }
+    },
+    "/v1/chat/completions": {
+      "post": {
+        "tags": [
+          "Compatibility"
+        ],
+        "summary": "OpenAI-compatible chat completions",
+        "description": "Compatibility layer for OpenAI Chat Completions. When `stream` is true the server streams SSE chunks and ends with `data: [DONE]`.",
+        "operationId": "openAIChatCompletions",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OpenAIChatRequest"
+              },
+              "example": {
+                "model": "Qwen/Qwen3-0.6B-GGUF",
+                "messages": [
+                  {
+                    "role": "user",
+                    "content": "Write a short haiku."
+                  }
+                ],
+                "stream": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Chat completion output or streamed chunk sequence.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OpenAIChatResponse"
+                }
+              },
+              "text/event-stream": {
+                "schema": {
+                  "$ref": "#/components/schemas/EventStream"
+                },
+                "example": "data: {\"id\":\"chatcmpl-1\",\"object\":\"chat.completion.chunk\",\"created\":1710000000,\"model\":\"Qwen/Qwen3-0.6B-GGUF\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":\"Hello\"}}]}\n\ndata: {\"id\":\"chatcmpl-1\",\"object\":\"chat.completion.chunk\",\"created\":1710000000,\"model\":\"Qwen/Qwen3-0.6B-GGUF\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":\"\"},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n"
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/OpenAIBadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/OpenAIUnauthorized"
+          },
+          "429": {
+            "$ref": "#/components/responses/OpenAITooManyRequests"
+          },
+          "500": {
+            "$ref": "#/components/responses/OpenAIInternalError"
+          }
+        }
+      }
+    },
+    "/v1/models": {
+      "get": {
+        "tags": [
+          "Compatibility"
+        ],
+        "summary": "List compatibility models",
+        "description": "Returns an OpenAI model list by default. When Anthropic-style headers such as `anthropic-version` are present, the same route returns an Anthropic-compatible model list instead.",
+        "operationId": "listCompatibilityModels",
+        "parameters": [
+          {
+            "name": "refresh",
+            "in": "query",
+            "description": "Force a refresh of the cloud model catalog before returning results.",
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "name": "anthropic-version",
+            "in": "header",
+            "description": "Send this header to receive Anthropic-compatible model metadata.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "anthropic-beta",
+            "in": "header",
+            "description": "Additional Anthropic compatibility hint that also switches the response shape.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-api-key",
+            "in": "header",
+            "description": "Anthropic-style API key header. When provided without `authorization`, the route returns the Anthropic response format.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OpenAI- or Anthropic-compatible model listing.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/OpenAIModelList"
+                    },
+                    {
+                      "$ref": "#/components/schemas/AnthropicModelListResponse"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Compatibility model listing error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/OpenAIErrorResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/AnthropicErrorResponse"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/responses": {
+      "get": {
+        "tags": [
+          "Compatibility"
+        ],
+        "summary": "Responses API probe guard",
+        "description": "Returns a clear compatibility error for websocket probes and other unsupported GET requests to the Responses API endpoint.",
+        "operationId": "getResponsesUnsupported",
+        "responses": {
+          "426": {
+            "description": "WebSocket transport is not supported on this endpoint.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OpenAIErrorResponse"
+                },
+                "example": {
+                  "error": {
+                    "message": "websocket transport is not supported on this endpoint",
+                    "type": "invalid_request_error"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Compatibility"
+        ],
+        "summary": "OpenAI-compatible Responses API",
+        "description": "Minimal Responses API compatibility for Codex and OpenAI SDK clients. When `stream` is true the route emits Responses API-style SSE events and ends with `event: done` plus `[DONE]`.",
+        "operationId": "openAIResponses",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OpenAIResponsesRequest"
+              },
+              "example": {
+                "model": "Qwen/Qwen3-0.6B-GGUF",
+                "input": "Summarize the latest local logs.",
+                "stream": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Responses API output or streamed event sequence.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResponsesResponse"
+                }
+              },
+              "text/event-stream": {
+                "schema": {
+                  "$ref": "#/components/schemas/EventStream"
+                },
+                "example": "event: response.created\ndata: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_1\",\"object\":\"response\",\"status\":\"in_progress\"}}\n\nevent: response.completed\ndata: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_1\",\"object\":\"response\",\"status\":\"completed\"}}\n\nevent: done\ndata: [DONE]\n\n"
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/OpenAIBadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/OpenAIUnauthorized"
+          },
+          "429": {
+            "$ref": "#/components/responses/OpenAITooManyRequests"
+          },
+          "500": {
+            "$ref": "#/components/responses/OpenAIInternalError"
+          }
+        }
+      }
+    },
+    "/v1/messages": {
+      "post": {
+        "tags": [
+          "Compatibility"
+        ],
+        "summary": "Anthropic-compatible messages API",
+        "description": "Anthropic Messages compatibility endpoint. When `stream` is true the route emits Anthropic event-stream events such as `message_start`, `content_block_delta`, and `message_stop`.",
+        "operationId": "anthropicMessages",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AnthropicMessageRequest"
+              },
+              "example": {
+                "model": "Qwen/Qwen3-0.6B-GGUF",
+                "messages": [
+                  {
+                    "role": "user",
+                    "content": "Explain what local inference means."
+                  }
+                ],
+                "max_tokens": 256,
+                "stream": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Anthropic-compatible message response or SSE event sequence.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnthropicMessageResponse"
+                }
+              },
+              "text/event-stream": {
+                "schema": {
+                  "$ref": "#/components/schemas/EventStream"
+                },
+                "example": "event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"id\":\"msg_1\",\"type\":\"message\"}}\n\nevent: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"Hello\"}}\n\nevent: message_stop\ndata: {\"type\":\"message_stop\"}\n\n"
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/AnthropicBadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/AnthropicUnauthorized"
+          },
+          "429": {
+            "$ref": "#/components/responses/AnthropicTooManyRequests"
+          },
+          "500": {
+            "$ref": "#/components/responses/AnthropicInternalError"
+          }
+        }
+      }
+    },
+    "/v1/messages/count_tokens": {
+      "post": {
+        "tags": [
+          "Compatibility"
+        ],
+        "summary": "Anthropic-compatible token counting",
+        "operationId": "anthropicCountTokens",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AnthropicCountTokensRequest"
+              },
+              "example": {
+                "messages": [
+                  {
+                    "role": "user",
+                    "content": "Count the tokens in this sentence."
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Estimated input token count.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnthropicCountTokensResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/AnthropicBadRequest"
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "responses": {
+      "BadRequest": {
+        "description": "The request body, query parameters, or path parameters were invalid.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ApiError"
+            }
+          }
+        }
+      },
+      "Unauthorized": {
+        "description": "Authentication is required or the provided token is invalid.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ApiError"
+            }
+          }
+        }
+      },
+      "NotFound": {
+        "description": "The requested model, dataset, app, or shell session was not found.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ApiError"
+            }
+          }
+        }
+      },
+      "Conflict": {
+        "description": "The request conflicts with the current AI App state.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/AIAppInfo"
+            }
+          }
+        }
+      },
+      "InternalError": {
+        "description": "An internal server error occurred.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ApiError"
+            }
+          }
+        }
+      },
+      "BadGateway": {
+        "description": "The upstream CSGHub service returned an error.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ApiError"
+            }
+          }
+        }
+      },
+      "ServiceUnavailable": {
+        "description": "The requested streaming service is not currently available.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ApiError"
+            }
+          }
+        }
+      },
+      "OpenAIBadRequest": {
+        "description": "The request was invalid for the OpenAI-compatible endpoint.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/OpenAIErrorResponse"
+            }
+          }
+        }
+      },
+      "OpenAIUnauthorized": {
+        "description": "Authentication is required or invalid for the OpenAI-compatible endpoint.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/OpenAIErrorResponse"
+            }
+          }
+        }
+      },
+      "OpenAITooManyRequests": {
+        "description": "The OpenAI-compatible endpoint rejected the request due to rate limiting.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/OpenAIErrorResponse"
+            }
+          }
+        }
+      },
+      "OpenAIInternalError": {
+        "description": "The OpenAI-compatible endpoint encountered an internal error.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/OpenAIErrorResponse"
+            }
+          }
+        }
+      },
+      "AnthropicBadRequest": {
+        "description": "The request was invalid for the Anthropic-compatible endpoint.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/AnthropicErrorResponse"
+            }
+          }
+        }
+      },
+      "AnthropicUnauthorized": {
+        "description": "Authentication is required or invalid for the Anthropic-compatible endpoint.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/AnthropicErrorResponse"
+            }
+          }
+        }
+      },
+      "AnthropicTooManyRequests": {
+        "description": "The Anthropic-compatible endpoint rejected the request due to rate limiting.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/AnthropicErrorResponse"
+            }
+          }
+        }
+      },
+      "AnthropicInternalError": {
+        "description": "The Anthropic-compatible endpoint encountered an internal error.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/AnthropicErrorResponse"
+            }
+          }
+        }
+      }
+    },
+    "schemas": {
+      "ApiError": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "error"
+        ],
+        "properties": {
+          "error": {
+            "type": "string"
+          }
+        }
+      },
+      "EventStream": {
+        "type": "string",
+        "description": "Server-Sent Event stream payload."
+      },
+      "NDJSONStream": {
+        "type": "string",
+        "description": "Newline-delimited JSON stream payload."
+      },
+      "HealthResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "status"
+        ],
+        "properties": {
+          "status": {
+            "type": "string",
+            "example": "ok"
+          }
+        }
+      },
+      "StatusResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "status"
+        ],
+        "properties": {
+          "status": {
+            "type": "string"
+          }
+        }
+      },
+      "SettingsResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "version",
+          "model_dir"
+        ],
+        "properties": {
+          "version": {
+            "type": "string"
+          },
+          "model_dir": {
+            "type": "string"
+          }
+        }
+      },
+      "ModelOptions": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "temperature": {
+            "type": "number"
+          },
+          "top_p": {
+            "type": "number"
+          },
+          "top_k": {
+            "type": "integer"
+          },
+          "max_tokens": {
+            "type": "integer"
+          },
+          "seed": {
+            "type": "integer"
+          },
+          "num_ctx": {
+            "type": "integer"
+          }
+        }
+      },
+      "ImageURLPart": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "url"
+        ],
+        "properties": {
+          "url": {
+            "type": "string",
+            "format": "uri"
+          }
+        }
+      },
+      "ContentPart": {
+        "type": "object",
+        "required": [
+          "type"
+        ],
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "text",
+              "image_url"
+            ]
+          },
+          "text": {
+            "type": "string"
+          },
+          "image_url": {
+            "$ref": "#/components/schemas/ImageURLPart"
+          }
+        }
+      },
+      "ToolFunction": {
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "properties": {
+          "index": {
+            "type": "integer"
+          },
+          "name": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "parameters": {},
+          "arguments": {}
+        }
+      },
+      "Tool": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "type",
+          "function"
+        ],
+        "properties": {
+          "type": {
+            "type": "string"
+          },
+          "function": {
+            "$ref": "#/components/schemas/ToolFunction"
+          }
+        }
+      },
+      "ToolCall": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "type",
+          "function"
+        ],
+        "properties": {
+          "index": {
+            "type": "integer"
+          },
+          "id": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          },
+          "function": {
+            "$ref": "#/components/schemas/ToolFunction"
+          }
+        }
+      },
+      "Message": {
+        "type": "object",
+        "required": [
+          "role"
+        ],
+        "properties": {
+          "role": {
+            "type": "string",
+            "enum": [
+              "system",
+              "user",
+              "assistant",
+              "tool"
+            ]
+          },
+          "content": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/ContentPart"
+                }
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "thinking": {
+            "type": "string"
+          },
+          "tool_calls": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ToolCall"
+            }
+          },
+          "tool_name": {
+            "type": "string"
+          },
+          "tool_call_id": {
+            "type": "string"
+          }
+        }
+      },
+      "GenerateRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "model",
+          "prompt"
+        ],
+        "properties": {
+          "model": {
+            "type": "string"
+          },
+          "prompt": {
+            "type": "string"
+          },
+          "stream": {
+            "type": "boolean",
+            "default": true
+          },
+          "options": {
+            "$ref": "#/components/schemas/ModelOptions"
+          }
+        }
+      },
+      "GenerateResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "model",
+          "response",
+          "done",
+          "created_at"
+        ],
+        "properties": {
+          "model": {
+            "type": "string"
+          },
+          "response": {
+            "type": "string"
+          },
+          "done": {
+            "type": "boolean"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "ChatRequest": {
+        "type": "object",
+        "required": [
+          "model",
+          "messages"
+        ],
+        "properties": {
+          "model": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string",
+            "description": "Optional source hint. Use `cloud` to force an OpenCSG-backed chat model."
+          },
+          "messages": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Message"
+            }
+          },
+          "tools": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Tool"
+            }
+          },
+          "stream": {
+            "type": "boolean",
+            "default": true
+          },
+          "options": {
+            "$ref": "#/components/schemas/ModelOptions"
+          }
+        }
+      },
+      "ChatResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "model",
+          "done",
+          "created_at"
+        ],
+        "properties": {
+          "model": {
+            "type": "string"
+          },
+          "message": {
+            "$ref": "#/components/schemas/Message"
+          },
+          "done": {
+            "type": "boolean"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "PullRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "model"
+        ],
+        "properties": {
+          "model": {
+            "type": "string"
+          }
+        }
+      },
+      "PullResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "status"
+        ],
+        "properties": {
+          "status": {
+            "type": "string"
+          },
+          "digest": {
+            "type": "string"
+          },
+          "total": {
+            "type": "integer"
+          },
+          "completed": {
+            "type": "integer"
+          }
+        }
+      },
+      "DeleteRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "model"
+        ],
+        "properties": {
+          "model": {
+            "type": "string"
+          }
+        }
+      },
+      "ShowRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "model"
+        ],
+        "properties": {
+          "model": {
+            "type": "string"
+          }
+        }
+      },
+      "StopRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "model"
+        ],
+        "properties": {
+          "model": {
+            "type": "string"
+          }
+        }
+      },
+      "LoadRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "model"
+        ],
+        "properties": {
+          "model": {
+            "type": "string"
+          },
+          "stream": {
+            "type": "boolean",
+            "default": false
+          }
+        }
+      },
+      "LoadResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "status"
+        ],
+        "properties": {
+          "status": {
+            "type": "string"
+          },
+          "step": {
+            "type": "string"
+          },
+          "current": {
+            "type": "integer"
+          },
+          "total": {
+            "type": "integer"
+          }
+        }
+      },
+      "ModelInfo": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "name",
+          "model",
+          "size",
+          "format",
+          "modified_at"
+        ],
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "model": {
+            "type": "string"
+          },
+          "size": {
+            "type": "integer"
+          },
+          "format": {
+            "type": "string"
+          },
+          "modified_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "display_name": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "local",
+              "cloud"
+            ]
+          },
+          "pipeline_tag": {
+            "type": "string"
+          },
+          "has_mmproj": {
+            "type": "boolean"
+          },
+          "description": {
+            "type": "string"
+          },
+          "license": {
+            "type": "string"
+          }
+        }
+      },
+      "TagsResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "models"
+        ],
+        "properties": {
+          "models": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ModelInfo"
+            }
+          }
+        }
+      },
+      "LocalModelSearchResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "limit",
+          "offset",
+          "total",
+          "has_more",
+          "models"
+        ],
+        "properties": {
+          "query": {
+            "type": "string"
+          },
+          "format": {
+            "type": "string"
+          },
+          "pipeline_tag": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer"
+          },
+          "offset": {
+            "type": "integer"
+          },
+          "total": {
+            "type": "integer"
+          },
+          "has_more": {
+            "type": "boolean"
+          },
+          "models": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ModelInfo"
+            }
+          }
+        }
+      },
+      "RunningModel": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "name",
+          "model",
+          "size",
+          "format",
+          "expires_at"
+        ],
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "model": {
+            "type": "string"
+          },
+          "size": {
+            "type": "integer"
+          },
+          "format": {
+            "type": "string"
+          },
+          "expires_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "PsResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "models"
+        ],
+        "properties": {
+          "models": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RunningModel"
+            }
+          }
+        }
+      },
+      "ShowResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "details"
+        ],
+        "properties": {
+          "modelfile": {
+            "type": "string"
+          },
+          "details": {
+            "$ref": "#/components/schemas/ModelInfo"
+          }
+        }
+      },
+      "DatasetPullRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "dataset"
+        ],
+        "properties": {
+          "dataset": {
+            "type": "string"
+          }
+        }
+      },
+      "DatasetDeleteRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "dataset"
+        ],
+        "properties": {
+          "dataset": {
+            "type": "string"
+          }
+        }
+      },
+      "DatasetShowRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "dataset"
+        ],
+        "properties": {
+          "dataset": {
+            "type": "string"
+          }
+        }
+      },
+      "DatasetFilesRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "dataset",
+          "path"
+        ],
+        "properties": {
+          "dataset": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          }
+        }
+      },
+      "DatasetInfo": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "name",
+          "dataset",
+          "size",
+          "files",
+          "modified_at"
+        ],
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "dataset": {
+            "type": "string"
+          },
+          "size": {
+            "type": "integer"
+          },
+          "files": {
+            "type": "integer"
+          },
+          "modified_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "DatasetTagsResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "datasets"
+        ],
+        "properties": {
+          "datasets": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DatasetInfo"
+            }
+          }
+        }
+      },
+      "DatasetShowResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "details"
+        ],
+        "properties": {
+          "details": {
+            "$ref": "#/components/schemas/DatasetInfo"
+          },
+          "files": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "DatasetFileEntry": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "name",
+          "size",
+          "is_dir",
+          "modified_at"
+        ],
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "size": {
+            "type": "integer"
+          },
+          "is_dir": {
+            "type": "boolean"
+          },
+          "modified_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "DatasetFilesResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "dataset",
+          "path",
+          "entries"
+        ],
+        "properties": {
+          "dataset": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          },
+          "entries": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DatasetFileEntry"
+            }
+          }
+        }
+      },
+      "DatasetPullResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "status"
+        ],
+        "properties": {
+          "status": {
+            "type": "string"
+          },
+          "digest": {
+            "type": "string"
+          },
+          "total": {
+            "type": "integer"
+          },
+          "completed": {
+            "type": "integer"
+          }
+        }
+      },
+      "SystemInfo": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "cpu_cores",
+          "cpu_usage",
+          "cpu_clock",
+          "ram_used",
+          "ram_total",
+          "ram_info",
+          "gpu_name",
+          "gpu_vram_used",
+          "gpu_vram_total",
+          "gpu_usage_available",
+          "gpu_shared_memory"
+        ],
+        "properties": {
+          "cpu_cores": {
+            "type": "integer"
+          },
+          "cpu_usage": {
+            "type": "number"
+          },
+          "cpu_clock": {
+            "type": "string"
+          },
+          "ram_used": {
+            "type": "integer"
+          },
+          "ram_total": {
+            "type": "integer"
+          },
+          "ram_info": {
+            "type": "string"
+          },
+          "gpu_name": {
+            "type": "string"
+          },
+          "gpu_vram_used": {
+            "type": "integer"
+          },
+          "gpu_vram_total": {
+            "type": "integer"
+          },
+          "gpu_usage_available": {
+            "type": "boolean"
+          },
+          "gpu_shared_memory": {
+            "type": "boolean"
+          }
+        }
+      },
+      "CloudAuthUser": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "username"
+        ],
+        "properties": {
+          "username": {
+            "type": "string"
+          },
+          "nickname": {
+            "type": "string"
+          },
+          "email": {
+            "type": "string"
+          },
+          "avatar": {
+            "type": "string"
+          },
+          "uuid": {
+            "type": "string"
+          }
+        }
+      },
+      "CloudAuthStatus": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "auth_mode",
+          "has_token",
+          "authenticated",
+          "login_url",
+          "access_token_url"
+        ],
+        "properties": {
+          "auth_mode": {
+            "type": "string"
+          },
+          "has_token": {
+            "type": "boolean"
+          },
+          "authenticated": {
+            "type": "boolean"
+          },
+          "login_url": {
+            "type": "string"
+          },
+          "access_token_url": {
+            "type": "string"
+          },
+          "user": {
+            "$ref": "#/components/schemas/CloudAuthUser"
+          }
+        }
+      },
+      "CloudAuthTokenRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "token"
+        ],
+        "properties": {
+          "token": {
+            "type": "string"
+          }
+        }
+      },
+      "AIAppActionRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "app_id"
+        ],
+        "properties": {
+          "app_id": {
+            "type": "string"
+          },
+          "model_id": {
+            "type": "string"
+          },
+          "work_dir": {
+            "type": "string",
+            "description": "Working directory used for shell-based AI App launches."
+          }
+        }
+      },
+      "AIAppInfo": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "installed",
+          "supported",
+          "disabled",
+          "status",
+          "progress_mode",
+          "updated_at"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "installed": {
+            "type": "boolean"
+          },
+          "supported": {
+            "type": "boolean"
+          },
+          "disabled": {
+            "type": "boolean"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "idle",
+              "installing",
+              "uninstalling",
+              "installed",
+              "failed",
+              "disabled"
+            ]
+          },
+          "phase": {
+            "type": "string"
+          },
+          "progress_mode": {
+            "type": "string",
+            "enum": [
+              "percent",
+              "indeterminate"
+            ]
+          },
+          "progress": {
+            "type": "integer"
+          },
+          "install_path": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          },
+          "model_id": {
+            "type": "string"
+          },
+          "log_path": {
+            "type": "string"
+          },
+          "last_error": {
+            "type": "string"
+          },
+          "disabled_reason": {
+            "type": "string"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "AIAppsResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "apps"
+        ],
+        "properties": {
+          "apps": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AIAppInfo"
+            }
+          }
+        }
+      },
+      "AIAppOpenResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "url"
+        ],
+        "properties": {
+          "url": {
+            "type": "string",
+            "format": "uri"
+          }
+        }
+      },
+      "MarketplaceTag": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "name",
+          "category",
+          "show_name"
+        ],
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "category": {
+            "type": "string"
+          },
+          "group": {
+            "type": "string"
+          },
+          "built_in": {
+            "type": "boolean"
+          },
+          "show_name": {
+            "type": "string"
+          }
+        }
+      },
+      "MarketplaceRepository": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "http_clone_url": {
+            "type": "string"
+          },
+          "ssh_clone_url": {
+            "type": "string"
+          }
+        }
+      },
+      "MarketplaceModelMetadata": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "model_params": {
+            "type": "number"
+          },
+          "tensor_type": {
+            "type": "string"
+          },
+          "architecture": {
+            "type": "string"
+          },
+          "mini_gpu_memory_gb": {
+            "type": "number"
+          },
+          "mini_gpu_finetune_gb": {
+            "type": "number"
+          },
+          "model_type": {
+            "type": "string"
+          },
+          "class_name": {
+            "type": "string"
+          }
+        }
+      },
+      "MarketplaceModel": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "name",
+          "description",
+          "likes",
+          "downloads",
+          "path",
+          "created_at",
+          "updated_at",
+          "license"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "name": {
+            "type": "string"
+          },
+          "nickname": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "likes": {
+            "type": "integer"
+          },
+          "downloads": {
+            "type": "integer"
+          },
+          "path": {
+            "type": "string"
+          },
+          "repository_id": {
+            "type": "integer"
+          },
+          "private": {
+            "type": "boolean"
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MarketplaceTag"
+            }
+          },
+          "repository": {
+            "$ref": "#/components/schemas/MarketplaceRepository"
+          },
+          "default_branch": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "license": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string"
+          },
+          "sync_status": {
+            "type": "string"
+          },
+          "metadata": {
+            "$ref": "#/components/schemas/MarketplaceModelMetadata"
+          },
+          "hf_path": {
+            "type": "string"
+          }
+        }
+      },
+      "MarketplaceDataset": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "name",
+          "description",
+          "likes",
+          "downloads",
+          "path",
+          "created_at",
+          "updated_at",
+          "license"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "name": {
+            "type": "string"
+          },
+          "nickname": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "likes": {
+            "type": "integer"
+          },
+          "downloads": {
+            "type": "integer"
+          },
+          "path": {
+            "type": "string"
+          },
+          "repository_id": {
+            "type": "integer"
+          },
+          "private": {
+            "type": "boolean"
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MarketplaceTag"
+            }
+          },
+          "repository": {
+            "$ref": "#/components/schemas/MarketplaceRepository"
+          },
+          "default_branch": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "license": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string"
+          },
+          "sync_status": {
+            "type": "string"
+          },
+          "hf_path": {
+            "type": "string"
+          }
+        }
+      },
+      "MarketplaceModelsResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "data",
+          "total"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MarketplaceModel"
+            }
+          },
+          "total": {
+            "type": "integer"
+          }
+        }
+      },
+      "MarketplaceDatasetsResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "data",
+          "total"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MarketplaceDataset"
+            }
+          },
+          "total": {
+            "type": "integer"
+          }
+        }
+      },
+      "OpenAIError": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "message",
+          "type"
+        ],
+        "properties": {
+          "message": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          }
+        }
+      },
+      "OpenAIErrorResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "error"
+        ],
+        "properties": {
+          "error": {
+            "$ref": "#/components/schemas/OpenAIError"
+          }
+        }
+      },
+      "OpenAIChoice": {
+        "type": "object",
+        "required": [
+          "index"
+        ],
+        "properties": {
+          "index": {
+            "type": "integer"
+          },
+          "message": {
+            "$ref": "#/components/schemas/Message"
+          },
+          "delta": {
+            "$ref": "#/components/schemas/Message"
+          },
+          "finish_reason": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "OpenAIUsage": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "prompt_tokens",
+          "completion_tokens",
+          "total_tokens"
+        ],
+        "properties": {
+          "prompt_tokens": {
+            "type": "integer"
+          },
+          "completion_tokens": {
+            "type": "integer"
+          },
+          "total_tokens": {
+            "type": "integer"
+          }
+        }
+      },
+      "OpenAIChatRequest": {
+        "type": "object",
+        "required": [
+          "model",
+          "messages"
+        ],
+        "properties": {
+          "model": {
+            "type": "string"
+          },
+          "messages": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Message"
+            }
+          },
+          "tools": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Tool"
+            }
+          },
+          "tool_choice": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "parallel_tool_calls": {
+            "type": "boolean"
+          },
+          "stream": {
+            "type": "boolean",
+            "default": false
+          },
+          "temperature": {
+            "type": "number"
+          },
+          "top_p": {
+            "type": "number"
+          },
+          "max_tokens": {
+            "type": "integer"
+          },
+          "num_ctx": {
+            "type": "integer"
+          },
+          "seed": {
+            "type": "integer"
+          },
+          "stop": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "OpenAIChatResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "object",
+          "created",
+          "model",
+          "choices",
+          "usage"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "object": {
+            "type": "string"
+          },
+          "created": {
+            "type": "integer"
+          },
+          "model": {
+            "type": "string"
+          },
+          "choices": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/OpenAIChoice"
+            }
+          },
+          "usage": {
+            "$ref": "#/components/schemas/OpenAIUsage"
+          }
+        }
+      },
+      "OpenAIModel": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "object",
+          "created",
+          "owned_by"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "object": {
+            "type": "string"
+          },
+          "created": {
+            "type": "integer"
+          },
+          "owned_by": {
+            "type": "string"
+          }
+        }
+      },
+      "OpenAIModelList": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "object",
+          "data"
+        ],
+        "properties": {
+          "object": {
+            "type": "string"
+          },
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/OpenAIModel"
+            }
+          }
+        }
+      },
+      "OpenAIResponsesRequest": {
+        "type": "object",
+        "required": [
+          "model"
+        ],
+        "properties": {
+          "model": {
+            "type": "string"
+          },
+          "input": {},
+          "instructions": {
+            "type": "string"
+          },
+          "stream": {
+            "type": "boolean",
+            "default": false
+          },
+          "max_output_tokens": {
+            "type": "integer"
+          },
+          "temperature": {
+            "type": "number"
+          },
+          "top_p": {
+            "type": "number"
+          },
+          "tools": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          },
+          "tool_choice": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "parallel_tool_calls": {
+            "type": "boolean"
+          }
+        }
+      },
+      "ResponsesUsage": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "input_tokens",
+          "output_tokens",
+          "total_tokens"
+        ],
+        "properties": {
+          "input_tokens": {
+            "type": "integer"
+          },
+          "output_tokens": {
+            "type": "integer"
+          },
+          "total_tokens": {
+            "type": "integer"
+          }
+        }
+      },
+      "ResponsesOutputTextPart": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "type",
+          "text",
+          "annotations"
+        ],
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "output_text"
+            ]
+          },
+          "text": {
+            "type": "string"
+          },
+          "annotations": {
+            "type": "array",
+            "items": {}
+          }
+        }
+      },
+      "ResponsesMessageItem": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "type",
+          "status",
+          "role",
+          "content"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "message"
+            ]
+          },
+          "status": {
+            "type": "string"
+          },
+          "role": {
+            "type": "string"
+          },
+          "content": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ResponsesOutputTextPart"
+            }
+          }
+        }
+      },
+      "ResponsesFunctionCallItem": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "type",
+          "call_id",
+          "name",
+          "arguments",
+          "status"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "function_call"
+            ]
+          },
+          "call_id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "arguments": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        }
+      },
+      "ResponsesOutputItem": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/ResponsesMessageItem"
+          },
+          {
+            "$ref": "#/components/schemas/ResponsesFunctionCallItem"
+          }
+        ]
+      },
+      "ResponsesResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "object",
+          "created_at",
+          "status",
+          "model",
+          "output",
+          "output_text",
+          "parallel_tool_calls",
+          "usage"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "object": {
+            "type": "string",
+            "enum": [
+              "response"
+            ]
+          },
+          "created_at": {
+            "type": "integer"
+          },
+          "status": {
+            "type": "string"
+          },
+          "model": {
+            "type": "string"
+          },
+          "output": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ResponsesOutputItem"
+            }
+          },
+          "output_text": {
+            "type": "string"
+          },
+          "parallel_tool_calls": {
+            "type": "boolean"
+          },
+          "usage": {
+            "$ref": "#/components/schemas/ResponsesUsage"
+          }
+        }
+      },
+      "AnthropicTool": {
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "input_schema": {},
+          "cache_control": {},
+          "eager_input_streaming": {
+            "type": "boolean"
+          }
+        }
+      },
+      "AnthropicMessage": {
+        "type": "object",
+        "required": [
+          "role",
+          "content"
+        ],
+        "properties": {
+          "role": {
+            "type": "string"
+          },
+          "content": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/AnthropicContentBlock"
+                }
+              },
+              {
+                "type": "object"
+              }
+            ]
+          }
+        }
+      },
+      "AnthropicContentBlock": {
+        "type": "object",
+        "required": [
+          "type"
+        ],
+        "properties": {
+          "type": {
+            "type": "string"
+          },
+          "text": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "input": {},
+          "content": {},
+          "tool_use_id": {
+            "type": "string"
+          },
+          "is_error": {
+            "type": "boolean"
+          },
+          "thinking": {
+            "type": "string"
+          },
+          "signature": {
+            "type": "string"
+          }
+        }
+      },
+      "AnthropicUsage": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "input_tokens",
+          "output_tokens"
+        ],
+        "properties": {
+          "input_tokens": {
+            "type": "integer"
+          },
+          "output_tokens": {
+            "type": "integer"
+          }
+        }
+      },
+      "AnthropicMessageRequest": {
+        "type": "object",
+        "required": [
+          "model",
+          "messages"
+        ],
+        "properties": {
+          "model": {
+            "type": "string"
+          },
+          "messages": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AnthropicMessage"
+            }
+          },
+          "system": {},
+          "tools": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AnthropicTool"
+            }
+          },
+          "tool_choice": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "max_tokens": {
+            "type": "integer"
+          },
+          "stream": {
+            "type": "boolean",
+            "default": false
+          },
+          "temperature": {
+            "type": "number"
+          },
+          "top_p": {
+            "type": "number"
+          },
+          "stop_sequences": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "AnthropicCountTokensRequest": {
+        "type": "object",
+        "properties": {
+          "model": {
+            "type": "string"
+          },
+          "messages": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AnthropicMessage"
+            }
+          },
+          "system": {},
+          "tools": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AnthropicTool"
+            }
+          },
+          "tool_choice": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "max_tokens": {
+            "type": "integer"
+          },
+          "stream": {
+            "type": "boolean"
+          },
+          "temperature": {
+            "type": "number"
+          },
+          "top_p": {
+            "type": "number"
+          },
+          "stop_sequences": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "AnthropicMessageResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "type",
+          "role",
+          "content",
+          "model",
+          "stop_reason",
+          "usage"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          },
+          "role": {
+            "type": "string"
+          },
+          "content": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AnthropicContentBlock"
+            }
+          },
+          "model": {
+            "type": "string"
+          },
+          "stop_reason": {
+            "type": "string"
+          },
+          "stop_sequence": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "usage": {
+            "$ref": "#/components/schemas/AnthropicUsage"
+          }
+        }
+      },
+      "AnthropicCountTokensResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "input_tokens"
+        ],
+        "properties": {
+          "input_tokens": {
+            "type": "integer"
+          }
+        }
+      },
+      "AnthropicCapabilitySupport": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "supported"
+        ],
+        "properties": {
+          "supported": {
+            "type": "boolean"
+          }
+        }
+      },
+      "AnthropicContextManagementCapability": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "supported"
+        ],
+        "properties": {
+          "supported": {
+            "type": "boolean"
+          }
+        }
+      },
+      "AnthropicThinkingTypes": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "adaptive",
+          "enabled"
+        ],
+        "properties": {
+          "adaptive": {
+            "$ref": "#/components/schemas/AnthropicCapabilitySupport"
+          },
+          "enabled": {
+            "$ref": "#/components/schemas/AnthropicCapabilitySupport"
+          }
+        }
+      },
+      "AnthropicThinkingCapability": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "supported",
+          "types"
+        ],
+        "properties": {
+          "supported": {
+            "type": "boolean"
+          },
+          "types": {
+            "$ref": "#/components/schemas/AnthropicThinkingTypes"
+          }
+        }
+      },
+      "AnthropicModelCapabilities": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "batch",
+          "citations",
+          "code_execution",
+          "context_management",
+          "image_input",
+          "pdf_input",
+          "structured_outputs",
+          "thinking"
+        ],
+        "properties": {
+          "batch": {
+            "$ref": "#/components/schemas/AnthropicCapabilitySupport"
+          },
+          "citations": {
+            "$ref": "#/components/schemas/AnthropicCapabilitySupport"
+          },
+          "code_execution": {
+            "$ref": "#/components/schemas/AnthropicCapabilitySupport"
+          },
+          "context_management": {
+            "$ref": "#/components/schemas/AnthropicContextManagementCapability"
+          },
+          "image_input": {
+            "$ref": "#/components/schemas/AnthropicCapabilitySupport"
+          },
+          "pdf_input": {
+            "$ref": "#/components/schemas/AnthropicCapabilitySupport"
+          },
+          "structured_outputs": {
+            "$ref": "#/components/schemas/AnthropicCapabilitySupport"
+          },
+          "thinking": {
+            "$ref": "#/components/schemas/AnthropicThinkingCapability"
+          }
+        }
+      },
+      "AnthropicModelInfo": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "type",
+          "display_name",
+          "created_at",
+          "max_input_tokens",
+          "max_tokens",
+          "capabilities"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          },
+          "display_name": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "string"
+          },
+          "max_input_tokens": {
+            "type": "integer"
+          },
+          "max_tokens": {
+            "type": "integer"
+          },
+          "capabilities": {
+            "$ref": "#/components/schemas/AnthropicModelCapabilities"
+          }
+        }
+      },
+      "AnthropicModelListResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "data",
+          "has_more"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AnthropicModelInfo"
+            }
+          },
+          "first_id": {
+            "type": "string"
+          },
+          "has_more": {
+            "type": "boolean"
+          },
+          "last_id": {
+            "type": "string"
+          }
+        }
+      },
+      "AnthropicErrorObject": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "type",
+          "message"
+        ],
+        "properties": {
+          "type": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          }
+        }
+      },
+      "AnthropicErrorResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "type",
+          "error"
+        ],
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "error"
+            ]
+          },
+          "error": {
+            "$ref": "#/components/schemas/AnthropicErrorObject"
+          }
+        }
+      }
+    }
+  }
+}
