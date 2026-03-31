@@ -119,85 +119,10 @@ End a line with `\` for multiline input. Press Ctrl+D to exit.
 
 The server listens on `localhost:11435` by default.
 
-### Endpoints
+For full endpoint details and examples, see the [REST API Reference](docs/api/overview.md).
 
-| Method | Path | Description |
-|---|---|---|
-| `GET` | `/api/health` | Health check |
-| `GET` | `/api/tags` | List local models |
-| `GET` | `/api/models/search` | Search local downloaded models |
-| `GET` | `/api/ps` | List running models |
-| `POST` | `/api/show` | Show model details |
-| `POST` | `/api/pull` | Pull a model (streaming) |
-| `POST` | `/api/stop` | Stop/unload a running model |
-| `DELETE` | `/api/delete` | Delete a model |
-| `POST` | `/api/generate` | Text generation (streaming) |
-| `POST` | `/api/chat` | Chat completions (streaming) |
-| `POST` | `/v1/chat/completions` | OpenAI-compatible chat completions |
-| `GET` | `/v1/models` | OpenAI-compatible model listing |
-
-### Example: Chat
-
-```bash
-curl http://localhost:11435/api/chat -d '{
-  "model": "Qwen/Qwen3-0.6B-GGUF",
-  "messages": [{"role": "user", "content": "Hello!"}]
-}'
-```
-
-### Example: Generate (non-streaming)
-
-```bash
-curl http://localhost:11435/api/generate -d '{
-  "model": "Qwen/Qwen3-0.6B-GGUF",
-  "prompt": "Write a haiku about programming",
-  "stream": false
-}'
-```
-
-### Example: List running models
-
-```bash
-curl http://localhost:11435/api/ps
-```
-
-### Example: Search local models
-
-Use `q` for keyword search, with optional `format`, `pipeline_tag`, `limit`, and `offset` filters.
-
-```bash
-curl "http://localhost:11435/api/models/search?q=qwen&format=gguf&limit=10"
-```
-
-### Example: Stop a model
-
-```bash
-curl -X POST http://localhost:11435/api/stop -d '{"model": "Qwen/Qwen3-0.6B-GGUF"}'
-```
-
-### Example: OpenAI-compatible chat
-
-```bash
-curl http://localhost:11435/v1/chat/completions \
-  -H "Content-Type: application/json" \
-  -d '{
-    "model": "Qwen/Qwen3-0.6B-GGUF",
-    "messages": [{"role": "user", "content": "Hello!"}],
-    "stream": false
-  }'
-```
-
-Works with any OpenAI-compatible client (e.g. Python `openai` library):
-
-```python
-from openai import OpenAI
-client = OpenAI(base_url="http://localhost:11435/v1", api_key="unused")
-response = client.chat.completions.create(
-    model="Qwen/Qwen3-0.6B-GGUF",
-    messages=[{"role": "user", "content": "Hello!"}],
-)
-print(response.choices[0].message.content)
-```
+If the local server is running, you can also open the interactive API docs in your browser:
+[http://localhost:11435/api-docs.html](http://localhost:11435/api-docs.html)
 
 ## Configuration
 
