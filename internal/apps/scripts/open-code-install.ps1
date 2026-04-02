@@ -1,47 +1,151 @@
+param(
+    [string]$Target = "latest"
+)
+
 $ErrorActionPreference = "Stop"
+$DefaultDistBaseUrl = "https://opencsg-public-resource.oss-cn-beijing.aliyuncs.com/open-code-releases"
+$DistBaseUrl = if ($env:CSGHUB_LITE_OPEN_CODE_DIST_BASE_URL) { $env:CSGHUB_LITE_OPEN_CODE_DIST_BASE_URL } else { $DefaultDistBaseUrl }
 
 function Emit-Progress([int]$Percent, [string]$Phase) {
     Write-Output "CSGHUB_PROGRESS|$Percent|$Phase"
 }
 
-function Resolve-Registry([string]$PackageName) {
-    $registries = @()
-    if ($env:NPM_CONFIG_REGISTRY) {
-        $registries += $env:NPM_CONFIG_REGISTRY
+function Trim-TrailingSlash([string]$Value) {
+    if ([string]::IsNullOrWhiteSpace($Value)) {
+        return $Value
     }
-    $registries += "https://registry.npmmirror.com"
-    $registries += "https://registry.npmjs.org"
+    return $Value.TrimEnd('/')
+}
 
-    foreach ($registry in ($registries | Select-Object -Unique)) {
-        Write-Host "INFO: checking npm registry $registry"
-        try {
-            npm view $PackageName version --registry $registry *> $null
-            return $registry
-        } catch {
-            continue
-        }
+function Normalize-RequestedVersion([string]$Value) {
+    if ([string]::IsNullOrWhiteSpace($Value) -or $Value -eq "latest") {
+        return "latest"
     }
-    throw "unable to reach a working npm registry for $PackageName"
+    return $Value.TrimStart('v')
 }
 
-if (-not (Get-Command npm -ErrorAction SilentlyContinue)) {
-    throw "npm is required to install OpenCode."
+function Ensure-PathContains([string]$Dir) {
+    $userPath = [Environment]::GetEnvironmentVariable("Path", "User")
+    $parts = @()
+    if ($userPath) { $parts = $userPath.Split(';') }
+    if ($parts -notcontains $Dir) {
+        $newPath = if ($userPath) { "$Dir;$userPath" } else { $Dir }
+        [Environment]::SetEnvironmentVariable("Path", $newPath, "User")
+    }
+    if ($env:Path -notlike "*$Dir*") {
+        $env:Path = "$Dir;$env:Path"
+    }
 }
 
-$packageName = "opencode-ai@latest"
-Emit-Progress 5 "preflight"
-$registry = Resolve-Registry $packageName
-Write-Output "INFO: using npm registry $registry"
+function Install-ExtractedRuntime([string]$Version, [string]$BinaryName, [string]$ExtractedDir) {
+    $launcherDir = Join-Path $env:USERPROFILE ".local\bin"
+    $runtimeRoot = Join-Path $env:USERPROFILE ".local\share\opencode\versions"
+    $versionDir = Join-Path $runtimeRoot $Version
+    $binaryPath = Join-Path $versionDir $BinaryName
+    $launcherPath = Join-Path $launcherDir "opencode.exe"
 
-Emit-Progress 30 "installing"
-npm install -g $packageName --registry $registry
+    New-Item -ItemType Directory -Force -Path $launcherDir | Out-Null
+    New-Item -ItemType Directory -Force -Path $runtimeRoot | Out-Null
 
-Emit-Progress 80 "verifying"
-if (Get-Command opencode -ErrorAction SilentlyContinue) {
-    $cmd = (Get-Command opencode).Source
-    Write-Output "INFO: installed binary: $cmd"
-    try { opencode --version } catch {}
+    if (Test-Path $versionDir) {
+        Remove-Item -Path $versionDir -Recurse -Force
+    }
+    Move-Item -Path $ExtractedDir -Destination $versionDir -Force
+
+    if (-not (Test-Path $binaryPath)) {
+        throw "extracted binary not found at $binaryPath"
+    }
+
+    if (Test-Path $launcherPath) {
+        Remove-Item -Path $launcherPath -Force
+    }
+
+    $linked = $false
+    try {
+        New-Item -ItemType HardLink -Path $launcherPath -Target $binaryPath | Out-Null
+        $linked = $true
+    } catch {
+        Copy-Item -Path $binaryPath -Destination $launcherPath -Force
+    }
+
+    Ensure-PathContains -Dir $launcherDir
+    Write-Output "INFO: installed OpenCode runtime $Version to $versionDir"
+    if ($linked) {
+        Write-Output "INFO: updated launcher $launcherPath via hard link"
+    } else {
+        Write-Output "INFO: updated launcher $launcherPath via file copy"
+    }
 }
 
-Emit-Progress 100 "complete"
-Write-Output "INFO: OpenCode installation complete"
+if (-not [Environment]::Is64BitProcess) {
+    throw "OpenCode does not support 32-bit Windows."
+}
+
+$distBaseUrl = Trim-TrailingSlash $DistBaseUrl
+$requestedVersion = Normalize-RequestedVersion $Target
+$workDir = Join-Path $env:TEMP ("opencode-install-" + [guid]::NewGuid().ToString("N"))
+$downloadDir = Join-Path $workDir "downloads"
+$extractDir = Join-Path $workDir "extract"
+
+try {
+    Emit-Progress 10 "detecting_platform"
+    if ($env:PROCESSOR_ARCHITECTURE -eq "ARM64") {
+        $platform = "win32-arm64"
+    } else {
+        $platform = "win32-x64"
+    }
+
+    New-Item -ItemType Directory -Force -Path $downloadDir | Out-Null
+
+    Emit-Progress 25 "resolving_latest"
+    $version = if ($requestedVersion -eq "latest") {
+        (Invoke-RestMethod -Uri "$distBaseUrl/latest" -ErrorAction Stop).ToString().Trim()
+    } else {
+        $requestedVersion
+    }
+    if ([string]::IsNullOrWhiteSpace($version)) {
+        throw "failed to resolve OpenCode version"
+    }
+
+    $manifest = Invoke-RestMethod -Uri "$distBaseUrl/$version/manifest.json" -ErrorAction Stop
+    $platformMeta = $manifest.platforms.$platform
+    if (-not $platformMeta) {
+        throw "platform $platform not found in manifest"
+    }
+
+    $checksum = $platformMeta.checksum
+    $binaryName = $platformMeta.binary
+    $assetName = $platformMeta.asset
+    $archiveFormat = $platformMeta.archive_format
+    if (-not $checksum -or -not $binaryName -or -not $assetName -or -not $archiveFormat) {
+        throw "manifest is missing fields for platform $platform"
+    }
+    if ($archiveFormat -ne "zip") {
+        throw "unsupported archive format $archiveFormat for $platform"
+    }
+
+    $archivePath = Join-Path $downloadDir $assetName
+    Emit-Progress 55 "downloading_archive"
+    Write-Output "INFO: downloading OpenCode $version for $platform from $distBaseUrl"
+    Invoke-WebRequest -Uri "$distBaseUrl/$version/$platform/$assetName" -OutFile $archivePath -ErrorAction Stop
+
+    Emit-Progress 75 "verifying_checksum"
+    $actualChecksum = (Get-FileHash -Path $archivePath -Algorithm SHA256).Hash.ToLower()
+    if ($actualChecksum -ne $checksum) {
+        throw "checksum verification failed"
+    }
+
+    Emit-Progress 90 "installing_runtime"
+    Expand-Archive -Path $archivePath -DestinationPath $extractDir -Force
+    Install-ExtractedRuntime -Version $version -BinaryName $binaryName -ExtractedDir $extractDir
+
+    Emit-Progress 100 "complete"
+    if (Get-Command opencode -ErrorAction SilentlyContinue) {
+        try { opencode --version } catch {}
+    }
+    Write-Output "INFO: OpenCode installation complete"
+} finally {
+    if (Test-Path $workDir) {
+        Remove-Item -Path $workDir -Recurse -Force -ErrorAction SilentlyContinue
+    }
+}

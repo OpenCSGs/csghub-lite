@@ -65,6 +65,62 @@ make package
 - GitLab 上传会自动从 `local/secrets.env` 读取 `GITLAB_TOKEN`（如果环境变量未设置）。
 - 如果你希望仓库中的 `Formula/csghub-lite.rb` 始终指向“最新正式版”，请在发布完成后提交该文件的更新。
 
+## Claude Code OSS 镜像
+
+`csghub-lite` 内置的 Claude Code 安装脚本现在默认读取 StarHub OSS 上的版本化镜像，而不是优先依赖本机 Node/npm。镜像同步脚本位于 `scripts/sync-claude-code-oss.sh`，会自动读取 `local/secrets.env` 中的 `STARHUB_OSS_*` 和 `STARHUB_CLAUDE_*` 配置。
+
+当前镜像中的平台二进制同时就是可直接安装的 Claude Code runtime。安装时会校验 checksum，然后直接写入本地版本目录并配置 `claude` 启动命令，不再额外调用上游 `claude install`，因此只要能访问 OSS 镜像，就不需要再访问外网下载官方安装链路。
+
+同步最新版本：
+
+```bash
+./scripts/sync-claude-code-oss.sh
+```
+
+同步指定版本但不改写 `latest`：
+
+```bash
+./scripts/sync-claude-code-oss.sh --version 2.1.90 --no-update-latest
+```
+
+同步完成后，OSS 中会生成如下结构：
+
+```text
+claude-code-releases/latest
+claude-code-releases/<version>/manifest.json
+claude-code-releases/<version>/<platform>/<binary>
+```
+
+如果需要临时切换测试镜像，可在安装 Claude Code 前设置 `CSGHUB_LITE_CLAUDE_DIST_BASE_URL`。
+
+## OpenCode / Codex OSS 镜像
+
+对于同样提供三平台发布资产的 CLI（当前包括 `open-code` 和 `codex`），可以使用统一脚本 `scripts/sync-ai-app-oss.sh` 同步到 OSS。脚本会读取 GitHub Release 资产、校验上游 SHA256 digest，然后写入各自的版本化前缀。
+
+同步最新版本：
+
+```bash
+./scripts/sync-ai-app-oss.sh --app open-code --app codex
+```
+
+同步指定应用的指定版本：
+
+```bash
+./scripts/sync-ai-app-oss.sh --app codex --version 0.118.0
+```
+
+默认前缀如下，可通过 `local/secrets.env` 覆盖：
+
+```text
+open-code-releases/<version>/<platform>/<asset>
+codex-releases/<version>/<platform>/<asset>
+```
+
+安装脚本默认也会读取这些 OSS 镜像，并在本地解压后配置 `opencode` / `codex` 启动命令，不再依赖本机 Node/npm。仅在需要测试其他镜像时，才需要额外设置：
+
+- `CSGHUB_LITE_OPEN_CODE_DIST_BASE_URL`
+- `CSGHUB_LITE_CODEX_DIST_BASE_URL`
+
 ## GitLab 补发
 
 如果某个版本已经发到了 GitHub，但 GitLab 资产缺失，可以先把 release 文件拉回本地再补发：

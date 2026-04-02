@@ -2,8 +2,8 @@
 set -euo pipefail
 
 TARGET="${1:-latest}"
-PACKAGE="@anthropic-ai/claude-code"
-GCS_BUCKET="https://storage.googleapis.com/claude-code-dist-86c565f3-f756-42ad-8dfa-d59b1c096819/claude-code-releases"
+DEFAULT_DIST_BASE_URL="https://opencsg-public-resource.oss-cn-beijing.aliyuncs.com/claude-code-releases"
+DIST_BASE_URL="${CSGHUB_LITE_CLAUDE_DIST_BASE_URL:-$DEFAULT_DIST_BASE_URL}"
 DOWNLOAD_DIR="${HOME}/.claude/downloads"
 DOWNLOADER=""
 
@@ -15,62 +15,22 @@ log() {
   printf '%s\n' "$*"
 }
 
-choose_registry() {
-  local seen=""
-  local registry=""
-  local registries=()
-  if [[ -n "${NPM_CONFIG_REGISTRY:-}" ]]; then
-    registries+=("${NPM_CONFIG_REGISTRY}")
-  fi
-  registries+=("https://registry.npmmirror.com" "https://registry.npmjs.org")
-
-  for registry in "${registries[@]}"; do
-    [[ "$seen" == *"|$registry|"* ]] && continue
-    seen="${seen}|${registry}|"
-    printf 'INFO: checking npm registry %s\n' "${registry}" >&2
-    if npm view "${PACKAGE}" version --registry "${registry}" >/dev/null 2>&1; then
-      printf '%s\n' "${registry}"
-      return 0
-    fi
+trim_trailing_slash() {
+  local value="$1"
+  while [[ "$value" == */ ]]; do
+    value="${value%/}"
   done
-  return 1
+  printf '%s\n' "$value"
 }
 
-install_via_npm() {
-  local registry=""
-  local package_spec="${PACKAGE}"
-
-  if ! command -v npm >/dev/null 2>&1; then
-    log "INFO: npm not found; falling back to native Claude Code installer"
-    return 1
+resolve_requested_version() {
+  local requested="${TARGET:-latest}"
+  requested="${requested#v}"
+  if [[ -z "$requested" || "$requested" == "latest" ]]; then
+    download_text "$(trim_trailing_slash "$DIST_BASE_URL")/latest" | tr -d '[:space:]'
+    return 0
   fi
-
-  emit_progress 10 preflight
-  registry="$(choose_registry || true)"
-  if [[ -z "${registry}" ]]; then
-    log "WARN: unable to reach a working npm registry for ${PACKAGE}; falling back to native installer"
-    return 1
-  fi
-
-  if [[ "${TARGET}" != "latest" ]]; then
-    package_spec="${PACKAGE}@${TARGET}"
-  fi
-
-  log "INFO: using npm registry ${registry}"
-  emit_progress 25 resolving_latest
-  emit_progress 55 installing
-  npm install -g "${package_spec}" --registry "${registry}"
-
-  emit_progress 90 verifying
-  if ! command -v claude >/dev/null 2>&1; then
-    log "ERROR: Claude Code command was not found on PATH after npm installation"
-    exit 1
-  fi
-
-  claude --version || true
-  emit_progress 100 complete
-  log "INFO: Claude Code installation complete via npm"
-  return 0
+  printf '%s\n' "$requested"
 }
 
 select_downloader() {
@@ -105,15 +65,73 @@ download_file() {
   fi
 }
 
-get_checksum_from_manifest() {
+get_platform_entry_from_manifest() {
   local json="$1"
   local platform="$2"
-  json=$(echo "$json" | tr -d '\n\r\t' | sed 's/ \+/ /g')
-  if [[ $json =~ \"$platform\"[^}]*\"checksum\"[[:space:]]*:[[:space:]]*\"([a-f0-9]{64})\" ]]; then
-    echo "${BASH_REMATCH[1]}"
+  json="$(printf '%s' "$json" | tr -d '\n\r\t' | sed 's/ \+/ /g')"
+  if [[ $json =~ \"$platform\"[[:space:]]*:[[:space:]]*\{([^}]*)\} ]]; then
+    printf '%s\n' "${BASH_REMATCH[1]}"
     return 0
   fi
   return 1
+}
+
+get_platform_string_field() {
+  local entry="$1"
+  local field="$2"
+  if [[ $entry =~ \"$field\"[[:space:]]*:[[:space:]]*\"([^\"]+)\" ]]; then
+    printf '%s\n' "${BASH_REMATCH[1]}"
+    return 0
+  fi
+  return 1
+}
+
+shell_profile_file() {
+  local home_dir="${HOME:-}"
+  if [[ -z "$home_dir" ]]; then
+    return 1
+  fi
+  case "$(basename "${SHELL:-}")" in
+    zsh)  printf '%s\n' "${home_dir}/.zprofile" ;;
+    bash) printf '%s\n' "${home_dir}/.bash_profile" ;;
+    *)    printf '%s\n' "${home_dir}/.profile" ;;
+  esac
+}
+
+ensure_local_bin_on_path() {
+  local bin_dir="${HOME}/.local/bin"
+  local profile=""
+  local line='case ":$PATH:" in *":$HOME/.local/bin:"*) ;; *) export PATH="$HOME/.local/bin:$PATH" ;; esac'
+
+  export PATH="${bin_dir}:${PATH}"
+
+  profile="$(shell_profile_file || true)"
+  if [[ -z "$profile" ]]; then
+    return 0
+  fi
+  mkdir -p "$(dirname "$profile")"
+  [[ -f "$profile" ]] || : > "$profile"
+  if ! grep -F "$line" "$profile" >/dev/null 2>&1; then
+    printf '\n%s\n' "$line" >> "$profile"
+  fi
+}
+
+install_native_runtime() {
+  local version="$1"
+  local binary_path="$2"
+  local version_dir="${HOME}/.local/share/claude/versions"
+  local version_path="${version_dir}/${version}"
+  local launcher_dir="${HOME}/.local/bin"
+  local launcher_path="${launcher_dir}/claude"
+
+  mkdir -p "$version_dir" "$launcher_dir"
+  rm -f "$version_path"
+  mv "$binary_path" "$version_path"
+  chmod +x "$version_path"
+  ln -sfn "$version_path" "$launcher_path"
+  ensure_local_bin_on_path
+  log "INFO: installed Claude Code runtime ${version} to ${version_path}"
+  log "INFO: updated launcher ${launcher_path}"
 }
 
 install_via_native_binary() {
@@ -121,8 +139,11 @@ install_via_native_binary() {
   local arch=""
   local platform=""
   local version=""
+  local dist_base_url=""
   local manifest_json=""
+  local platform_entry=""
   local checksum=""
+  local binary_name=""
   local binary_path=""
   local actual=""
 
@@ -168,19 +189,36 @@ install_via_native_binary() {
   fi
 
   mkdir -p "$DOWNLOAD_DIR"
+  dist_base_url="$(trim_trailing_slash "$DIST_BASE_URL")"
 
   emit_progress 25 resolving_latest
-  version="$(download_text "$GCS_BUCKET/latest")"
-  manifest_json="$(download_text "$GCS_BUCKET/$version/manifest.json")"
-  checksum="$(get_checksum_from_manifest "$manifest_json" "$platform" || true)"
+  version="$(resolve_requested_version)"
+  version="$(printf '%s' "$version" | tr -d '[:space:]')"
+  if [[ -z "$version" ]]; then
+    log "ERROR: failed to resolve Claude Code version"
+    exit 1
+  fi
+
+  manifest_json="$(download_text "$dist_base_url/$version/manifest.json")"
+  platform_entry="$(get_platform_entry_from_manifest "$manifest_json" "$platform" || true)"
+  checksum="$(get_platform_string_field "$platform_entry" "checksum" || true)"
+  binary_name="$(get_platform_string_field "$platform_entry" "binary" || true)"
+  if [[ -z "$binary_name" ]]; then
+    if [[ "$platform" == win32-* ]]; then
+      binary_name="claude.exe"
+    else
+      binary_name="claude"
+    fi
+  fi
   if [[ -z "$checksum" ]]; then
     log "ERROR: platform ${platform} not found in manifest"
     exit 1
   fi
 
-  binary_path="$DOWNLOAD_DIR/claude-$version-$platform"
+  binary_path="$DOWNLOAD_DIR/${binary_name}-${version}-${platform}"
   emit_progress 55 downloading_binary
-  download_file "$GCS_BUCKET/$version/$platform/claude" "$binary_path"
+  log "INFO: downloading Claude Code ${version} for ${platform} from ${dist_base_url}"
+  download_file "$dist_base_url/$version/$platform/$binary_name" "$binary_path"
 
   emit_progress 75 verifying_checksum
   if [[ "$os" == "darwin" ]]; then
@@ -197,10 +235,8 @@ install_via_native_binary() {
 
   chmod +x "$binary_path"
 
-  emit_progress 90 running_installer
-  log "INFO: running Claude Code installer target ${TARGET}"
-  "$binary_path" install "$TARGET"
-  rm -f "$binary_path"
+  emit_progress 90 installing_runtime
+  install_native_runtime "$version" "$binary_path"
 
   emit_progress 100 complete
   if command -v claude >/dev/null 2>&1; then
@@ -208,9 +244,5 @@ install_via_native_binary() {
   fi
   log "INFO: Claude Code installation complete"
 }
-
-if install_via_npm; then
-  exit 0
-fi
 
 install_via_native_binary

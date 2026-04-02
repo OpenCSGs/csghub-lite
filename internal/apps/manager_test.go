@@ -1,6 +1,60 @@
 package apps
 
-import "testing"
+import (
+	"os"
+	"path/filepath"
+	"testing"
+)
+
+func TestAppSpecsRequirePTYForClaudeInstall(t *testing.T) {
+	var claude appSpec
+	found := false
+	for _, spec := range appSpecs() {
+		if spec.id == "claude-code" {
+			claude = spec
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatal("claude-code spec not found")
+	}
+	if claude.unix == nil || !claude.unix.requiresPTY {
+		t.Fatal("claude-code unix installer should require PTY")
+	}
+	if claude.windows == nil || !claude.windows.requiresPTY {
+		t.Fatal("claude-code windows installer should require PTY")
+	}
+	if claude.uninstallUnix != nil && claude.uninstallUnix.requiresPTY {
+		t.Fatal("claude-code unix uninstaller should not require PTY")
+	}
+	if claude.uninstallWin != nil && claude.uninstallWin.requiresPTY {
+		t.Fatal("claude-code windows uninstaller should not require PTY")
+	}
+}
+
+func TestDetectInstalledBinaryPathFallsBackToCommonDirs(t *testing.T) {
+	homeDir := t.TempDir()
+	t.Setenv("HOME", homeDir)
+	t.Setenv("PATH", "")
+
+	binDir := filepath.Join(homeDir, ".local", "bin")
+	if err := os.MkdirAll(binDir, 0o755); err != nil {
+		t.Fatalf("mkdir bin dir: %v", err)
+	}
+	binaryPath := filepath.Join(binDir, "claude")
+	if err := os.WriteFile(binaryPath, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatalf("write binary: %v", err)
+	}
+
+	got, ok := detectInstalledBinaryPath("claude")
+	if !ok {
+		t.Fatal("detectInstalledBinaryPath should find claude in ~/.local/bin")
+	}
+	if got != binaryPath {
+		t.Fatalf("detectInstalledBinaryPath = %q, want %q", got, binaryPath)
+	}
+}
 
 func TestSummarizeFailureLogsPrefersExplicitError(t *testing.T) {
 	lines := []string{

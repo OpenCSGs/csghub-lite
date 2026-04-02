@@ -18,6 +18,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/charmbracelet/x/xpty"
+
 	"github.com/opencsgs/csghub-lite/internal/config"
 	"github.com/opencsgs/csghub-lite/pkg/api"
 )
@@ -27,6 +29,8 @@ const (
 	progressModeIndeterminate = "indeterminate"
 	mirrorBaseURL             = "https://git-devops.opencsg.com/opensource/apps/-/raw/main"
 	installTimeout            = 20 * time.Minute
+	installerPTYCols          = 120
+	installerPTYRows          = 36
 )
 
 //go:embed scripts/*
@@ -36,6 +40,7 @@ type scriptSource struct {
 	mirrorURL    string
 	embeddedPath string
 	args         []string
+	requiresPTY  bool
 }
 
 type appSpec struct {
@@ -119,11 +124,13 @@ func appSpecs() []appSpec {
 				mirrorURL:    mirrorBaseURL + "/claude-code/install.sh",
 				embeddedPath: "scripts/claude-code-install.sh",
 				args:         []string{"latest"},
+				requiresPTY:  true,
 			},
 			windows: &scriptSource{
 				mirrorURL:    mirrorBaseURL + "/claude-code/install.ps1",
 				embeddedPath: "scripts/claude-code-install.ps1",
 				args:         []string{"-Target", "latest"},
+				requiresPTY:  true,
 			},
 			uninstallUnix: &scriptSource{
 				embeddedPath: "scripts/claude-code-uninstall.sh",
@@ -135,7 +142,7 @@ func appSpecs() []appSpec {
 		{
 			id:           "open-code",
 			binaryName:   "opencode",
-			installMode:  "npm",
+			installMode:  "script",
 			progressMode: progressModePercent,
 			supported:    true,
 			versionArgs:  []string{"--version"},
@@ -179,7 +186,7 @@ func appSpecs() []appSpec {
 		{
 			id:           "codex",
 			binaryName:   "codex",
-			installMode:  "npm",
+			installMode:  "script",
 			progressMode: progressModePercent,
 			supported:    true,
 			versionArgs:  []string{"--version"},
@@ -427,31 +434,7 @@ func (m *Manager) runAction(ctx context.Context, spec appSpec, action string) {
 	}
 	cmd = exec.CommandContext(ctx, cmd.Path, cmd.Args[1:]...)
 	cmd.Env = append(os.Environ(), cmd.Env...)
-
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		m.failAction(spec, action, err.Error())
-		return
-	}
-	stderr, err := cmd.StderrPipe()
-	if err != nil {
-		m.failAction(spec, action, err.Error())
-		return
-	}
-
-	if err := cmd.Start(); err != nil {
-		m.failAction(spec, action, err.Error())
-		return
-	}
-	m.appendLog(spec.id, logFile, fmt.Sprintf("INFO: running %s", strings.Join(cmd.Args, " ")))
-
-	var wg sync.WaitGroup
-	wg.Add(2)
-	go m.consumeOutput(&wg, spec.id, stdout, logFile)
-	go m.consumeOutput(&wg, spec.id, stderr, logFile)
-	wg.Wait()
-
-	if err := cmd.Wait(); err != nil {
+	if err := m.runScriptCommand(ctx, spec.id, source, cmd, logFile); err != nil {
 		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
 			m.failAction(spec, action, fmt.Sprintf("%s timed out after %s", runnerName, installTimeout))
 			return
@@ -485,6 +468,70 @@ func (m *Manager) runAction(ctx context.Context, spec appSpec, action string) {
 
 	m.completeInstall(spec, installPath, version)
 	m.appendLog(spec.id, logFile, "INFO: installation complete")
+}
+
+func installerPTYEnv() []string {
+	return []string{
+		"TERM=xterm-256color",
+		"COLORTERM=truecolor",
+		"FORCE_COLOR=1",
+		"CLICOLOR=1",
+		"TERM_PROGRAM=csghub-lite",
+	}
+}
+
+func (m *Manager) runScriptCommand(ctx context.Context, appID string, source *scriptSource, cmd *exec.Cmd, logFile *os.File) error {
+	if source != nil && source.requiresPTY {
+		cmd.Env = append(cmd.Env, installerPTYEnv()...)
+		return m.runScriptCommandWithPTY(ctx, appID, cmd, logFile)
+	}
+	return m.runScriptCommandWithPipes(appID, cmd, logFile)
+}
+
+func (m *Manager) runScriptCommandWithPipes(appID string, cmd *exec.Cmd, logFile *os.File) error {
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return err
+	}
+	stderr, err := cmd.StderrPipe()
+	if err != nil {
+		return err
+	}
+
+	if err := cmd.Start(); err != nil {
+		return err
+	}
+	m.appendLog(appID, logFile, fmt.Sprintf("INFO: running %s", strings.Join(cmd.Args, " ")))
+
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go m.consumeOutput(&wg, appID, stdout, logFile)
+	go m.consumeOutput(&wg, appID, stderr, logFile)
+	waitErr := cmd.Wait()
+	wg.Wait()
+	return waitErr
+}
+
+func (m *Manager) runScriptCommandWithPTY(ctx context.Context, appID string, cmd *exec.Cmd, logFile *os.File) error {
+	pty, err := xpty.NewPty(installerPTYCols, installerPTYRows)
+	if err != nil {
+		return fmt.Errorf("creating pseudo-terminal: %w", err)
+	}
+
+	if err := pty.Start(cmd); err != nil {
+		_ = pty.Close()
+		return fmt.Errorf("starting command in pseudo-terminal: %w", err)
+	}
+	m.appendLog(appID, logFile, fmt.Sprintf("INFO: running %s", strings.Join(cmd.Args, " ")))
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go m.consumeOutput(&wg, appID, pty, logFile)
+
+	waitErr := xpty.WaitProcess(ctx, cmd)
+	_ = pty.Close()
+	wg.Wait()
+	return waitErr
 }
 
 func (m *Manager) consumeOutput(wg *sync.WaitGroup, appID string, r io.Reader, logFile *os.File) {
@@ -811,8 +858,8 @@ func detectInstalled(ctx context.Context, spec appSpec) (string, string, bool) {
 	if spec.binaryName == "" {
 		return "", "", false
 	}
-	path, err := exec.LookPath(spec.binaryName)
-	if err != nil {
+	path, ok := detectInstalledBinaryPath(spec.binaryName)
+	if !ok {
 		return "", "", false
 	}
 	version := path
@@ -825,6 +872,66 @@ func detectInstalled(ctx context.Context, spec appSpec) (string, string, bool) {
 		}
 	}
 	return path, version, true
+}
+
+func detectInstalledBinaryPath(binaryName string) (string, bool) {
+	if path, err := exec.LookPath(binaryName); err == nil {
+		return path, true
+	}
+	for _, dir := range commonInstallerBinDirs() {
+		if path, ok := lookupBinaryInDir(dir, binaryName); ok {
+			return path, true
+		}
+	}
+	return "", false
+}
+
+func commonInstallerBinDirs() []string {
+	home, _ := os.UserHomeDir()
+	dirs := []string{"/opt/homebrew/bin", "/usr/local/bin"}
+	if home != "" {
+		dirs = append([]string{
+			filepath.Join(home, "bin"),
+			filepath.Join(home, ".local", "bin"),
+		}, dirs...)
+	}
+	if runtime.GOOS == "windows" {
+		if appData := os.Getenv("APPDATA"); appData != "" {
+			dirs = append([]string{filepath.Join(appData, "npm")}, dirs...)
+		}
+	}
+	return uniqueNonEmptyPaths(dirs)
+}
+
+func lookupBinaryInDir(dir, name string) (string, bool) {
+	exts := []string{""}
+	if runtime.GOOS == "windows" {
+		exts = []string{"", ".exe", ".cmd", ".bat", ".ps1"}
+	}
+	for _, ext := range exts {
+		path := filepath.Join(dir, name+ext)
+		info, err := os.Stat(path)
+		if err == nil && !info.IsDir() {
+			return path, true
+		}
+	}
+	return "", false
+}
+
+func uniqueNonEmptyPaths(items []string) []string {
+	seen := make(map[string]struct{}, len(items))
+	unique := make([]string, 0, len(items))
+	for _, item := range items {
+		if item == "" {
+			continue
+		}
+		if _, ok := seen[item]; ok {
+			continue
+		}
+		seen[item] = struct{}{}
+		unique = append(unique, item)
+	}
+	return unique
 }
 
 func (m *Manager) logPath(appID string) string {

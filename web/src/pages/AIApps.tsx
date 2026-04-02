@@ -488,7 +488,7 @@ function LiveLogsDrawer({
   const requestPending = pendingInstall || pendingUninstall;
   const canOpenChat = canOpenAIApp(app, state);
   const canSelectModel = canSelectAIAppModel(app);
-  const showProgressSummary = !state.disabled && state.status !== "installed";
+  const showProgressSummary = !state.disabled && isWorking;
   const [models, setModels] = useState<ModelInfo[]>([]);
   const [modelsLoading, setModelsLoading] = useState(false);
   const [selectedModel, setSelectedModel] = useState("");
