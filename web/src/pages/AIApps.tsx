@@ -842,7 +842,7 @@ function LiveLogsDrawer({
                 {pendingOpen ? t("aiApps.opening") : t("aiApps.open")}
               </button>
             )}
-            {!state.disabled && !isWorking && state.status === "installed" && (
+            {!state.disabled && !isWorking && state.status === "installed" && state.managed && (
               <button
                 onClick={onUninstall}
                 disabled={requestPending}
@@ -855,7 +855,7 @@ function LiveLogsDrawer({
                 {pendingUninstall ? t("aiApps.status.uninstalling") : t("aiApps.uninstall")}
               </button>
             )}
-            {!state.disabled && !isWorking && (
+            {!state.disabled && !isWorking && (state.status !== "installed" || state.managed) && (
               <button
                 onClick={onInstall}
                 disabled={requestPending}
@@ -937,6 +937,7 @@ function mergeAppStates(remoteApps: RemoteAIAppInfo[]) {
       phase: remote.phase || prev.phase,
       progressMode: remote.progress_mode,
       progress: typeof remote.progress === "number" ? remote.progress : prev.progress,
+      managed: remote.managed,
       supported: remote.supported,
       disabled: remote.disabled,
       installPath: remote.install_path,
@@ -1030,6 +1031,9 @@ function drawerNotice(state: AIAppRuntimeState): string {
   }
   if (state.status === "installing") {
     return `${t("aiApps.installRunning")}: ${phaseLabel(state.phase)}`;
+  }
+  if (state.status === "installed" && !state.managed) {
+    return t("aiApps.installedExternalReady");
   }
   if (state.status === "installed") {
     return t("aiApps.installedReady");

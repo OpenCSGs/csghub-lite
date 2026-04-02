@@ -186,11 +186,11 @@ type DatasetTagsResponse struct {
 }
 
 type DatasetSearchResponse struct {
-	Query   string        `json:"query"`
-	Limit   int           `json:"limit"`
-	Offset  int           `json:"offset"`
-	Total   int           `json:"total"`
-	HasMore bool          `json:"has_more"`
+	Query    string        `json:"query"`
+	Limit    int           `json:"limit"`
+	Offset   int           `json:"offset"`
+	Total    int           `json:"total"`
+	HasMore  bool          `json:"has_more"`
 	Datasets []DatasetInfo `json:"datasets"`
 }
 
@@ -241,6 +241,7 @@ type AIAppOpenRequest = AIAppActionRequest
 type AIAppInfo struct {
 	ID             string    `json:"id"`
 	Installed      bool      `json:"installed"`
+	Managed        bool      `json:"managed"`
 	Supported      bool      `json:"supported"`
 	Disabled       bool      `json:"disabled"`
 	Status         string    `json:"status"`

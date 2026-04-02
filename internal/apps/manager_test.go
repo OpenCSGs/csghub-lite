@@ -1,8 +1,10 @@
 package apps
 
 import (
+	"context"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 )
 
@@ -34,18 +36,11 @@ func TestAppSpecsRequirePTYForClaudeInstall(t *testing.T) {
 }
 
 func TestDetectInstalledBinaryPathFallsBackToCommonDirs(t *testing.T) {
-	homeDir := t.TempDir()
-	t.Setenv("HOME", homeDir)
+	homeDir := setTempHome(t)
 	t.Setenv("PATH", "")
 
 	binDir := filepath.Join(homeDir, ".local", "bin")
-	if err := os.MkdirAll(binDir, 0o755); err != nil {
-		t.Fatalf("mkdir bin dir: %v", err)
-	}
-	binaryPath := filepath.Join(binDir, "claude")
-	if err := os.WriteFile(binaryPath, []byte("#!/bin/sh\n"), 0o755); err != nil {
-		t.Fatalf("write binary: %v", err)
-	}
+	binaryPath := writeFakeBinary(t, binDir, "claude")
 
 	got, ok := detectInstalledBinaryPath("claude")
 	if !ok {
@@ -53,6 +48,183 @@ func TestDetectInstalledBinaryPathFallsBackToCommonDirs(t *testing.T) {
 	}
 	if got != binaryPath {
 		t.Fatalf("detectInstalledBinaryPath = %q, want %q", got, binaryPath)
+	}
+}
+
+func TestNewManagerMarksPreexistingInstallAsExternal(t *testing.T) {
+	homeDir := setTempHome(t)
+	t.Setenv("PATH", "")
+
+	binDir := filepath.Join(homeDir, ".local", "bin")
+	binaryPath := writeFakeBinary(t, binDir, "claude")
+
+	mgr := NewManager(nil)
+	info, err := mgr.Get(context.Background(), "claude-code")
+	if err != nil {
+		t.Fatalf("Get returned error: %v", err)
+	}
+	if !info.Installed {
+		t.Fatal("expected claude-code to be detected as installed")
+	}
+	if info.Managed {
+		t.Fatal("expected preexisting install to stay unmanaged")
+	}
+	if info.Status != "installed" {
+		t.Fatalf("status = %q, want installed", info.Status)
+	}
+	if info.InstallPath != binaryPath {
+		t.Fatalf("install path = %q, want %q", info.InstallPath, binaryPath)
+	}
+}
+
+func TestRefreshAllMarksManagedInstallFromMarker(t *testing.T) {
+	homeDir := setTempHome(t)
+	t.Setenv("PATH", "")
+
+	binDir := filepath.Join(homeDir, ".local", "bin")
+	writeFakeBinary(t, binDir, "claude")
+
+	mgr := NewManager(nil)
+	if err := mgr.markManagedInstall("claude-code"); err != nil {
+		t.Fatalf("mark managed install: %v", err)
+	}
+	if err := mgr.RefreshAll(context.Background()); err != nil {
+		t.Fatalf("RefreshAll returned error: %v", err)
+	}
+
+	info, err := mgr.Get(context.Background(), "claude-code")
+	if err != nil {
+		t.Fatalf("Get returned error: %v", err)
+	}
+	if !info.Installed {
+		t.Fatal("expected claude-code to remain installed")
+	}
+	if !info.Managed {
+		t.Fatal("expected managed marker to be reflected in app state")
+	}
+}
+
+func TestInstallReturnsExistingExternalAppWithoutRunningInstaller(t *testing.T) {
+	homeDir := setTempHome(t)
+	t.Setenv("PATH", "")
+
+	binDir := filepath.Join(homeDir, ".local", "bin")
+	writeFakeBinary(t, binDir, "claude")
+
+	mgr := NewManager(nil)
+	info, err := mgr.Install("claude-code")
+	if err != nil {
+		t.Fatalf("Install returned error: %v", err)
+	}
+	if !info.Installed {
+		t.Fatal("expected existing app to remain installed")
+	}
+	if info.Managed {
+		t.Fatal("expected existing external app to stay unmanaged")
+	}
+	if info.Status != "installed" {
+		t.Fatalf("status = %q, want installed", info.Status)
+	}
+	if _, err := os.Stat(info.LogPath); !os.IsNotExist(err) {
+		t.Fatalf("expected installer not to create a log file, stat err = %v", err)
+	}
+	if state := mgr.states["claude-code"]; state != nil && state.running {
+		t.Fatal("expected installer to short-circuit for unmanaged existing app")
+	}
+}
+
+func TestNewManagerBackfillsLegacyManagedClaudeInstall(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("legacy Claude launcher backfill is covered on Unix-style installs")
+	}
+
+	homeDir := setTempHome(t)
+	t.Setenv("PATH", "")
+
+	runtimeDir := filepath.Join(homeDir, ".local", "share", "claude", "versions", "test-version")
+	runtimePath := writeFakeBinary(t, runtimeDir, "claude")
+	launcherDir := filepath.Join(homeDir, ".local", "bin")
+	if err := os.MkdirAll(launcherDir, 0o755); err != nil {
+		t.Fatalf("mkdir launcher dir: %v", err)
+	}
+	launcherPath := filepath.Join(launcherDir, "claude")
+	if err := os.Symlink(runtimePath, launcherPath); err != nil {
+		t.Fatalf("create launcher symlink: %v", err)
+	}
+
+	mgr := NewManager(nil)
+	info, err := mgr.Get(context.Background(), "claude-code")
+	if err != nil {
+		t.Fatalf("Get returned error: %v", err)
+	}
+	if !info.Installed {
+		t.Fatal("expected legacy Claude install to be detected")
+	}
+	if !info.Managed {
+		t.Fatal("expected legacy Claude install to be backfilled as managed")
+	}
+	if info.InstallPath != launcherPath {
+		t.Fatalf("install path = %q, want %q", info.InstallPath, launcherPath)
+	}
+	if _, err := os.Stat(mgr.managedMarkerPath("claude-code")); err != nil {
+		t.Fatalf("expected managed marker to be backfilled: %v", err)
+	}
+}
+
+func TestNewManagerBackfillsLegacyManagedOpenClawLauncher(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("legacy OpenClaw launcher backfill is currently Unix-specific")
+	}
+
+	homeDir := setTempHome(t)
+	t.Setenv("PATH", "")
+
+	targetDir := filepath.Join(homeDir, "mock-bin")
+	targetPath := writeFakeBinary(t, targetDir, "openclaw")
+	launcherPath := writeOpenClawLauncher(t, filepath.Join(homeDir, "bin"), targetPath)
+
+	mgr := NewManager(nil)
+	info, err := mgr.Get(context.Background(), "openclaw")
+	if err != nil {
+		t.Fatalf("Get returned error: %v", err)
+	}
+	if !info.Installed {
+		t.Fatal("expected legacy OpenClaw launcher to be detected")
+	}
+	if !info.Managed {
+		t.Fatal("expected legacy OpenClaw launcher to be backfilled as managed")
+	}
+	if info.InstallPath != launcherPath {
+		t.Fatalf("install path = %q, want %q", info.InstallPath, launcherPath)
+	}
+	if _, err := os.Stat(mgr.managedMarkerPath("openclaw")); err != nil {
+		t.Fatalf("expected managed marker to be backfilled: %v", err)
+	}
+}
+
+func TestNewManagerKeepsHomeBinOpenClawBinaryUnmanaged(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("home bin launcher distinction is Unix-specific")
+	}
+
+	homeDir := setTempHome(t)
+	t.Setenv("PATH", "")
+
+	binaryPath := writeFakeBinary(t, filepath.Join(homeDir, "bin"), "openclaw")
+
+	mgr := NewManager(nil)
+	info, err := mgr.Get(context.Background(), "openclaw")
+	if err != nil {
+		t.Fatalf("Get returned error: %v", err)
+	}
+	if !info.Installed {
+		t.Fatal("expected OpenClaw binary to be detected as installed")
+	}
+	if info.Managed {
+		t.Fatal("expected plain home-bin OpenClaw binary to remain unmanaged")
+	}
+	if info.InstallPath != binaryPath {
+		t.Fatalf("install path = %q, want %q", info.InstallPath, binaryPath)
 	}
 }
 
@@ -94,4 +266,51 @@ func TestStripLogTimestamp(t *testing.T) {
 	if got != want {
 		t.Fatalf("stripLogTimestamp = %q, want %q", got, want)
 	}
+}
+
+func setTempHome(t *testing.T) string {
+	t.Helper()
+
+	homeDir := t.TempDir()
+	t.Setenv("HOME", homeDir)
+	t.Setenv("USERPROFILE", homeDir)
+	if runtime.GOOS == "windows" {
+		t.Setenv("APPDATA", filepath.Join(homeDir, "AppData", "Roaming"))
+	}
+	return homeDir
+}
+
+func writeFakeBinary(t *testing.T, dir, name string) string {
+	t.Helper()
+
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatalf("mkdir bin dir: %v", err)
+	}
+
+	commandPath := filepath.Join(dir, name)
+	content := "#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then echo test-version; fi\nexit 0\n"
+	if runtime.GOOS == "windows" {
+		commandPath = filepath.Join(dir, name+".cmd")
+		content = "@echo off\r\nif \"%1\"==\"--version\" echo test-version\r\nexit /b 0\r\n"
+	}
+	if err := os.WriteFile(commandPath, []byte(content), 0o755); err != nil {
+		t.Fatalf("write fake binary: %v", err)
+	}
+	return commandPath
+}
+
+func writeOpenClawLauncher(t *testing.T, dir, targetPath string) string {
+	t.Helper()
+
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatalf("mkdir launcher dir: %v", err)
+	}
+	launcherPath := filepath.Join(dir, "openclaw")
+	content := "#!/usr/bin/env bash\n" +
+		"export PATH=\"" + filepath.Dir(targetPath) + ":$PATH\"\n" +
+		"exec \"" + targetPath + "\" \"$@\"\n"
+	if err := os.WriteFile(launcherPath, []byte(content), 0o755); err != nil {
+		t.Fatalf("write launcher: %v", err)
+	}
+	return launcherPath
 }

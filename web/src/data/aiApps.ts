@@ -36,6 +36,7 @@ export interface AIAppRuntimeState {
   phase: string;
   progressMode: AIAppProgressMode;
   progress?: number;
+  managed: boolean;
   supported: boolean;
   disabled: boolean;
   liveLogsReady: boolean;
@@ -337,6 +338,7 @@ export const initialAIAppStates = aiAppsCatalog.reduce<Record<string, AIAppRunti
     phase: app.status === "disabled" ? "docker_disabled" : "ready",
     progressMode: app.progressMode,
     progress: app.status === "disabled" ? 0 : undefined,
+    managed: false,
     supported: app.installMode !== "docker",
     disabled: app.installMode === "docker",
     liveLogsReady: app.liveLogsReady,

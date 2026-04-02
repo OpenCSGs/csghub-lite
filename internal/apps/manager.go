@@ -73,6 +73,13 @@ type Manager struct {
 	states map[string]*appState
 }
 
+type installDetectionState struct {
+	installPath string
+	version     string
+	installed   bool
+	managed     bool
+}
+
 func NewManager(cfg *config.Config) *Manager {
 	m := &Manager{
 		cfg: cfg,
@@ -262,36 +269,7 @@ func (m *Manager) RefreshAll(ctx context.Context) error {
 			continue
 		}
 
-		installPath, version, installed := detectInstalled(ctx, spec)
-		st.info.Installed = installed
-		st.info.InstallPath = installPath
-		st.info.Version = version
-		st.info.ProgressMode = spec.progressMode
-		st.info.UpdatedAt = time.Now()
-
-		if installed {
-			st.info.Status = "installed"
-			if st.info.Phase == "uninstall_failed" && st.info.LastError != "" {
-				st.info.Phase = "uninstall_failed"
-			} else {
-				st.info.Phase = "installed"
-				st.info.LastError = ""
-			}
-			st.info.Progress = 100
-			continue
-		}
-
-		if st.info.Status == "failed" {
-			if st.info.Phase == "" {
-				st.info.Phase = "failed"
-			}
-			st.info.Progress = 0
-			continue
-		}
-
-		st.info.Status = "idle"
-		st.info.Phase = "ready"
-		st.info.Progress = 0
+		m.refreshStateLocked(ctx, spec, st)
 	}
 	return nil
 }
@@ -316,12 +294,18 @@ func (m *Manager) startAction(appID, action string) (api.AIAppInfo, error) {
 		m.mu.Unlock()
 		return info, errors.New("app is disabled")
 	}
+	m.refreshStateLocked(context.Background(), spec, st)
 	if st.running {
 		info := cloneInfo(st.info)
 		m.mu.Unlock()
 		return info, nil
 	}
-	if action == "uninstall" && !st.info.Installed {
+	if action == "install" && st.info.Installed && !st.info.Managed {
+		info := cloneInfo(st.info)
+		m.mu.Unlock()
+		return info, nil
+	}
+	if action == "uninstall" && (!st.info.Installed || !st.info.Managed) {
 		info := cloneInfo(st.info)
 		m.mu.Unlock()
 		return info, nil
@@ -593,10 +577,12 @@ func (m *Manager) completeInstall(spec appSpec, installPath, version string) {
 	}
 	st.running = false
 	st.cancel = nil
+	_ = m.markManagedInstall(spec.id)
 	st.info.Status = "installed"
 	st.info.Phase = "installed"
 	st.info.Progress = 100
 	st.info.Installed = true
+	st.info.Managed = true
 	st.info.InstallPath = installPath
 	st.info.Version = version
 	st.info.LastError = ""
@@ -612,10 +598,12 @@ func (m *Manager) completeUninstall(spec appSpec) {
 	}
 	st.running = false
 	st.cancel = nil
+	_ = m.clearManagedInstallMarker(spec.id)
 	st.info.Status = "idle"
 	st.info.Phase = "ready"
 	st.info.Progress = 0
 	st.info.Installed = false
+	st.info.Managed = false
 	st.info.InstallPath = ""
 	st.info.Version = ""
 	st.info.LastError = ""
@@ -623,7 +611,7 @@ func (m *Manager) completeUninstall(spec appSpec) {
 }
 
 func (m *Manager) failAction(spec appSpec, action, errMsg string) {
-	installPath, version, installed := detectInstalled(context.Background(), spec)
+	detected := m.detectInstallState(context.Background(), spec)
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	st := m.states[spec.id]
@@ -633,33 +621,37 @@ func (m *Manager) failAction(spec appSpec, action, errMsg string) {
 	st.running = false
 	st.cancel = nil
 	if action == "uninstall" {
-		if installed {
+		if detected.installed {
 			st.info.Status = "installed"
 			st.info.Phase = "uninstall_failed"
 			st.info.Progress = 100
 			st.info.Installed = true
-			st.info.InstallPath = installPath
-			st.info.Version = version
+			st.info.Managed = detected.managed
+			st.info.InstallPath = detected.installPath
+			st.info.Version = detected.version
 		} else {
 			st.info.Status = "failed"
 			st.info.Phase = "uninstall_failed"
 			st.info.Progress = 0
 			st.info.Installed = false
+			st.info.Managed = false
 			st.info.InstallPath = ""
 			st.info.Version = ""
 		}
-	} else if installed {
+	} else if detected.installed {
 		st.info.Status = "installed"
 		st.info.Phase = "installed"
 		st.info.Progress = 100
 		st.info.Installed = true
-		st.info.InstallPath = installPath
-		st.info.Version = version
+		st.info.Managed = detected.managed
+		st.info.InstallPath = detected.installPath
+		st.info.Version = detected.version
 	} else {
 		st.info.Status = "failed"
 		st.info.Phase = "failed"
 		st.info.Progress = 0
 		st.info.Installed = false
+		st.info.Managed = false
 		st.info.InstallPath = ""
 		st.info.Version = ""
 	}
@@ -932,6 +924,229 @@ func uniqueNonEmptyPaths(items []string) []string {
 		unique = append(unique, item)
 	}
 	return unique
+}
+
+func (m *Manager) refreshStateLocked(ctx context.Context, spec appSpec, st *appState) {
+	detected := m.detectInstallState(ctx, spec)
+	st.info.Installed = detected.installed
+	st.info.Managed = detected.managed
+	st.info.InstallPath = detected.installPath
+	st.info.Version = detected.version
+	st.info.ProgressMode = spec.progressMode
+	st.info.UpdatedAt = time.Now()
+
+	if detected.installed {
+		st.info.Status = "installed"
+		if st.info.Phase == "uninstall_failed" && st.info.LastError != "" {
+			st.info.Phase = "uninstall_failed"
+		} else {
+			st.info.Phase = "installed"
+			st.info.LastError = ""
+		}
+		st.info.Progress = 100
+		return
+	}
+
+	if st.info.Status == "failed" {
+		if st.info.Phase == "" {
+			st.info.Phase = "failed"
+		}
+		st.info.Progress = 0
+		return
+	}
+
+	st.info.Status = "idle"
+	st.info.Phase = "ready"
+	st.info.Progress = 0
+}
+
+func (m *Manager) detectInstallState(ctx context.Context, spec appSpec) installDetectionState {
+	installPath, version, installed := detectInstalled(ctx, spec)
+	if !installed {
+		_ = m.clearManagedInstallMarker(spec.id)
+		return installDetectionState{}
+	}
+	managed := m.hasManagedInstallMarker(spec.id)
+	if !managed && inferLegacyManagedInstall(spec, installPath) {
+		managed = true
+		_ = m.markManagedInstall(spec.id)
+	}
+	return installDetectionState{
+		installPath: installPath,
+		version:     version,
+		installed:   true,
+		managed:     managed,
+	}
+}
+
+func inferLegacyManagedInstall(spec appSpec, installPath string) bool {
+	switch spec.id {
+	case "claude-code":
+		return looksLikeLegacyRuntimeInstall(installPath, spec.binaryName, "claude")
+	case "open-code":
+		return looksLikeLegacyRuntimeInstall(installPath, spec.binaryName, "opencode")
+	case "codex":
+		return looksLikeLegacyRuntimeInstall(installPath, spec.binaryName, "codex")
+	case "openclaw":
+		return looksLikeLegacyOpenClawInstall(installPath)
+	default:
+		return false
+	}
+}
+
+func looksLikeLegacyRuntimeInstall(installPath, binaryName, runtimeDir string) bool {
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" || installPath == "" {
+		return false
+	}
+
+	launcherPath := filepath.Join(home, ".local", "bin", launcherBinaryName(binaryName))
+	if !samePath(installPath, launcherPath) {
+		return false
+	}
+
+	runtimeRoot := filepath.Join(home, ".local", "share", runtimeDir, "versions")
+	if resolvedPath, err := filepath.EvalSymlinks(installPath); err == nil && pathWithinBase(resolvedPath, runtimeRoot) {
+		return true
+	}
+
+	_, ok := findLegacyRuntimeBinary(runtimeRoot, binaryName)
+	return ok
+}
+
+func findLegacyRuntimeBinary(runtimeRoot, binaryName string) (string, bool) {
+	entries, err := os.ReadDir(runtimeRoot)
+	if err != nil {
+		return "", false
+	}
+
+	name := launcherBinaryName(binaryName)
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		candidate := filepath.Join(runtimeRoot, entry.Name(), name)
+		info, err := os.Stat(candidate)
+		if err == nil && !info.IsDir() {
+			return candidate, true
+		}
+	}
+	return "", false
+}
+
+func looksLikeLegacyOpenClawInstall(installPath string) bool {
+	if runtime.GOOS == "windows" || installPath == "" {
+		return false
+	}
+
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		return false
+	}
+
+	candidates := []string{
+		filepath.Join(home, "bin", "openclaw"),
+		filepath.Join(home, ".local", "bin", "openclaw"),
+	}
+	matchedLauncher := false
+	for _, candidate := range candidates {
+		if samePath(installPath, candidate) {
+			matchedLauncher = true
+			break
+		}
+	}
+	if !matchedLauncher {
+		return false
+	}
+
+	data, err := os.ReadFile(installPath)
+	if err != nil {
+		return false
+	}
+	lines := strings.Split(strings.ReplaceAll(string(data), "\r\n", "\n"), "\n")
+	if len(lines) < 3 {
+		return false
+	}
+
+	line1 := strings.TrimSpace(lines[0])
+	line2 := strings.TrimSpace(lines[1])
+	line3 := strings.TrimSpace(lines[2])
+	if line1 != "#!/usr/bin/env bash" {
+		return false
+	}
+	if !strings.HasPrefix(line2, `export PATH="`) || !strings.HasSuffix(line2, `:$PATH"`) {
+		return false
+	}
+	if !strings.HasPrefix(line3, `exec "`) || !strings.HasSuffix(line3, `" "$@"`) {
+		return false
+	}
+
+	target := strings.TrimSuffix(strings.TrimPrefix(line3, `exec "`), `" "$@"`)
+	if target == "" || samePath(target, installPath) {
+		return false
+	}
+	info, err := os.Stat(target)
+	return err == nil && !info.IsDir()
+}
+
+func launcherBinaryName(binaryName string) string {
+	if runtime.GOOS == "windows" {
+		return binaryName + ".exe"
+	}
+	return binaryName
+}
+
+func samePath(left, right string) bool {
+	if left == "" || right == "" {
+		return false
+	}
+
+	left = filepath.Clean(left)
+	right = filepath.Clean(right)
+	if runtime.GOOS == "windows" {
+		return strings.EqualFold(left, right)
+	}
+	return left == right
+}
+
+func pathWithinBase(target, base string) bool {
+	if target == "" || base == "" {
+		return false
+	}
+	rel, err := filepath.Rel(base, target)
+	if err != nil {
+		return false
+	}
+	return rel == "." || (rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)))
+}
+
+func (m *Manager) managedMarkerPath(appID string) string {
+	home, err := config.AppHome()
+	if err != nil {
+		return filepath.Join(os.TempDir(), appID+".installed")
+	}
+	return filepath.Join(home, "apps", "managed", appID+".installed")
+}
+
+func (m *Manager) hasManagedInstallMarker(appID string) bool {
+	_, err := os.Stat(m.managedMarkerPath(appID))
+	return err == nil
+}
+
+func (m *Manager) markManagedInstall(appID string) error {
+	path := m.managedMarkerPath(appID)
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	return os.WriteFile(path, []byte("managed\n"), 0o644)
+}
+
+func (m *Manager) clearManagedInstallMarker(appID string) error {
+	err := os.Remove(m.managedMarkerPath(appID))
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	return err
 }
 
 func (m *Manager) logPath(appID string) string {

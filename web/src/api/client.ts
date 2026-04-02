@@ -74,6 +74,7 @@ export interface SystemInfo {
 export interface AIAppInfo {
   id: string;
   installed: boolean;
+  managed: boolean;
   supported: boolean;
   disabled: boolean;
   status: "idle" | "installing" | "uninstalling" | "installed" | "failed" | "disabled";

@@ -54,7 +54,7 @@ func (s *Server) openAIAppURL(ctx context.Context, appID, modelID, workDir strin
 }
 
 func (s *Server) openClawChatURL(ctx context.Context, modelID string) (string, error) {
-	binary, err := exec.LookPath("openclaw")
+	binary, err := resolveAIAppLaunchBinary([]string{"openclaw"})
 	if err != nil {
 		return "", fmt.Errorf("OpenClaw is installed, but its launch command was not found on PATH")
 	}
