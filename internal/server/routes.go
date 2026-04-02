@@ -18,6 +18,7 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("POST /api/chat", s.handleChat)
 
 	mux.HandleFunc("GET /api/datasets", s.handleDatasetTags)
+	mux.HandleFunc("GET /api/datasets/search", s.handleDatasetSearch)
 	mux.HandleFunc("POST /api/datasets/show", s.handleDatasetShow)
 	mux.HandleFunc("POST /api/datasets/files", s.handleDatasetFiles)
 	mux.HandleFunc("POST /api/datasets/pull", s.handleDatasetPull)

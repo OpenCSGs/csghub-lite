@@ -563,6 +563,12 @@ export async function getDatasetTags(): Promise<DatasetInfo[]> {
   return data.datasets || [];
 }
 
+export async function searchDatasets(query: string, limit = 20, offset = 0): Promise<{ datasets: DatasetInfo[]; total: number; has_more: boolean }> {
+  const params = new URLSearchParams({ q: query, limit: String(limit), offset: String(offset) });
+  const data = await fetchJSON<{ datasets: DatasetInfo[]; total: number; has_more: boolean }>(`/api/datasets/search?${params}`);
+  return { datasets: data.datasets || [], total: data.total || 0, has_more: data.has_more || false };
+}
+
 export function pullDataset(
   dataset: string,
   onProgress: (p: PullProgress) => void,

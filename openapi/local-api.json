@@ -569,6 +569,65 @@
         }
       }
     },
+    "/api/datasets/search": {
+      "get": {
+        "tags": [
+          "Datasets"
+        ],
+        "summary": "Search local datasets",
+        "operationId": "searchDatasets",
+        "parameters": [
+          {
+            "name": "q",
+            "in": "query",
+            "description": "Search query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Maximum number of results (default: 20, max: 100)",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 20,
+              "maximum": 100
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "description": "Number of results to skip",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Search results.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DatasetSearchResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      }
+    },
     "/api/datasets/show": {
       "post": {
         "tags": [
@@ -2472,6 +2531,46 @@
           "datasets"
         ],
         "properties": {
+          "datasets": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DatasetInfo"
+            }
+          }
+        }
+      },
+      "DatasetSearchResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "query",
+          "limit",
+          "offset",
+          "total",
+          "has_more",
+          "datasets"
+        ],
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "Search query"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Maximum number of results"
+          },
+          "offset": {
+            "type": "integer",
+            "description": "Number of results skipped"
+          },
+          "total": {
+            "type": "integer",
+            "description": "Total number of matching datasets"
+          },
+          "has_more": {
+            "type": "boolean",
+            "description": "Whether there are more results available"
+          },
           "datasets": {
             "type": "array",
             "items": {

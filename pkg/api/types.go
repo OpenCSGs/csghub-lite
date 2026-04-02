@@ -185,6 +185,15 @@ type DatasetTagsResponse struct {
 	Datasets []DatasetInfo `json:"datasets"`
 }
 
+type DatasetSearchResponse struct {
+	Query   string        `json:"query"`
+	Limit   int           `json:"limit"`
+	Offset  int           `json:"offset"`
+	Total   int           `json:"total"`
+	HasMore bool          `json:"has_more"`
+	Datasets []DatasetInfo `json:"datasets"`
+}
+
 type DatasetShowResponse struct {
 	Details DatasetInfo `json:"details"`
 	Files   []string    `json:"files,omitempty"`

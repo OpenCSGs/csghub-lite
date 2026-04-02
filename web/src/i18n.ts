@@ -199,7 +199,7 @@ const en: Record<string, string> = {
 
   // Settings
   "nav.settings": "Settings",
-  "nav.apiDocs": "API Docs",
+  "nav.apiDocs": "API",
   "nav.help": "Help",
   "settings.title": "Settings",
   "settings.subtitle": "This page offers a unified settings hub for the product.",
@@ -267,6 +267,9 @@ const en: Record<string, string> = {
   "ds.minutesAgo": "{0} minutes ago",
   "ds.hoursAgo": "{0} hours ago",
   "ds.daysAgo": "{0} days ago",
+  "ds.search": "Search datasets...",
+  "ds.searching": "Searching...",
+  "ds.results": "{0} results",
 
   // Chat
   "chat.newChat": "New Chat",
@@ -484,7 +487,7 @@ const zh: Record<string, string> = {
 
   // Settings
   "nav.settings": "设置",
-  "nav.apiDocs": "API 文档",
+  "nav.apiDocs": "API",
   "nav.help": "帮助",
   "settings.title": "设置",
   "settings.subtitle": "此页面提供产品的统一设置中心。",
@@ -552,6 +555,9 @@ const zh: Record<string, string> = {
   "ds.minutesAgo": "{0} 分钟前",
   "ds.hoursAgo": "{0} 小时前",
   "ds.daysAgo": "{0} 天前",
+  "ds.search": "搜索数据集...",
+  "ds.searching": "搜索中...",
+  "ds.results": "{0} 个结果",
 
   // Chat
   "chat.newChat": "新对话",

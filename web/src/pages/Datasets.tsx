@@ -1,22 +1,32 @@
 import { useEffect } from "preact/hooks";
 import { signal } from "@preact/signals";
-import { getDatasetTags, getDatasetFiles, deleteDataset } from "../api/client";
+import { getDatasetTags, searchDatasets, getDatasetFiles, deleteDataset } from "../api/client";
 import type { DatasetInfo, DatasetFileEntry } from "../api/client";
 import { t, locale } from "../i18n";
 
 type View = { kind: "list" } | { kind: "detail"; dataset: string; path: string };
 
 const allDatasets = signal<DatasetInfo[]>([]);
+const searchQuery = signal("");
 const sortField = signal<"name" | "size" | "modified_at">("name");
 const sortAsc = signal(true);
 const currentView = signal<View>({ kind: "list" });
 const fileEntries = signal<DatasetFileEntry[]>([]);
 const filesLoading = signal(false);
+const datasetsLoading = signal(false);
 
 function loadDatasets() {
-  getDatasetTags()
-    .then((d) => (allDatasets.value = d))
-    .catch(() => {});
+  datasetsLoading.value = true;
+  const query = searchQuery.value.trim();
+  const promise = query ? searchDatasets(query, 100, 0) : getDatasetTags();
+  promise
+    .then((result) => {
+      allDatasets.value = Array.isArray(result) ? result : result.datasets;
+    })
+    .catch(() => {})
+    .finally(() => {
+      datasetsLoading.value = false;
+    });
 }
 
 function sortedDatasets(): DatasetInfo[] {
@@ -56,6 +66,13 @@ export function Datasets() {
     };
   }, []);
 
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      loadDatasets();
+    }, searchQuery.value.trim() ? 250 : 0);
+    return () => clearTimeout(timer);
+  }, [searchQuery.value]);
+
   if (currentView.value.kind === "detail") {
     return <DatasetDetail dataset={currentView.value.dataset} path={currentView.value.path} />;
   }
@@ -93,7 +110,25 @@ function DatasetList() {
         <p class="text-gray-500 text-sm mt-1">{t("ds.subtitle")}</p>
       </div>
 
-      <div class="mt-6 bg-white rounded-xl border border-gray-200 overflow-hidden">
+      <div class="flex items-center gap-4 mt-6 mb-6">
+        <div class="relative flex-1 min-w-[260px]">
+          <svg class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-4.35-4.35m1.85-5.15a7 7 0 11-14 0 7 7 0 0114 0z" />
+          </svg>
+          <input
+            type="text"
+            value={searchQuery.value}
+            onInput={(e) => (searchQuery.value = (e.currentTarget as HTMLInputElement).value)}
+            placeholder={t("ds.search")}
+            class="w-full pl-10 pr-24 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+          />
+          <span class="absolute right-3 top-1/2 -translate-y-1/2 text-[11px] font-medium text-gray-400 bg-gray-50 px-2 py-0.5 rounded-full">
+            {datasetsLoading.value ? t("ds.searching") : t("ds.results", datasets.length)}
+          </span>
+        </div>
+      </div>
+
+      <div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
         <table class="w-full text-sm">
           <thead>
             <tr class="border-b border-gray-100 text-left text-gray-500 bg-gray-50">

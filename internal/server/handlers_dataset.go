@@ -5,6 +5,9 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"sort"
+	"strconv"
+	"strings"
 	"sync"
 
 	"github.com/opencsgs/csghub-lite/internal/csghub"
@@ -144,4 +147,115 @@ func (s *Server) handleDatasetDelete(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
+}
+
+const (
+	defaultDatasetSearchLimit = 20
+	maxDatasetSearchLimit     = 100
+)
+
+// GET /api/datasets/search -- search local datasets
+func (s *Server) handleDatasetSearch(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-cache")
+
+	query := strings.TrimSpace(r.URL.Query().Get("q"))
+
+	limit, err := parseDatasetSearchLimit(r.URL.Query().Get("limit"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	offset, err := parseDatasetSearchOffset(r.URL.Query().Get("offset"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	datasets, err := s.datasetManager.List()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	sort.SliceStable(datasets, func(i, j int) bool {
+		left := strings.TrimSpace(datasets[i].FullName())
+		right := strings.TrimSpace(datasets[j].FullName())
+		if datasets[i].DownloadedAt.Equal(datasets[j].DownloadedAt) {
+			return left < right
+		}
+		return datasets[i].DownloadedAt.After(datasets[j].DownloadedAt)
+	})
+
+	var filtered []api.DatasetInfo
+	for _, d := range datasets {
+		info := api.DatasetInfo{
+			Name:       d.FullName(),
+			Dataset:    d.FullName(),
+			Size:       d.Size,
+			Files:      len(d.Files),
+			ModifiedAt: d.DownloadedAt,
+		}
+		if !matchesDatasetSearch(info, query) {
+			continue
+		}
+		filtered = append(filtered, info)
+	}
+
+	total := len(filtered)
+	if offset > total {
+		offset = total
+	}
+	end := offset + limit
+	if end > total {
+		end = total
+	}
+
+	writeJSON(w, http.StatusOK, api.DatasetSearchResponse{
+		Query:    query,
+		Limit:    limit,
+		Offset:   offset,
+		Total:    total,
+		HasMore:  end < total,
+		Datasets: filtered[offset:end],
+	})
+}
+
+func matchesDatasetSearch(item api.DatasetInfo, query string) bool {
+	query = strings.TrimSpace(query)
+	if query == "" {
+		return true
+	}
+	query = strings.ToLower(query)
+	fields := []string{item.Name, item.Dataset}
+	for _, f := range fields {
+		if strings.Contains(strings.ToLower(f), query) {
+			return true
+		}
+	}
+	return false
+}
+
+func parseDatasetSearchLimit(s string) (int, error) {
+	if s == "" {
+		return defaultDatasetSearchLimit, nil
+	}
+	n, err := strconv.Atoi(s)
+	if err != nil || n < 1 {
+		return 0, fmt.Errorf("limit must be a positive integer, got %q", s)
+	}
+	if n > maxDatasetSearchLimit {
+		n = maxDatasetSearchLimit
+	}
+	return n, nil
+}
+
+func parseDatasetSearchOffset(s string) (int, error) {
+	if s == "" {
+		return 0, nil
+	}
+	n, err := strconv.Atoi(s)
+	if err != nil || n < 0 {
+		return 0, fmt.Errorf("offset must be a non-negative integer, got %q", s)
+	}
+	return n, nil
 }
