@@ -191,6 +191,115 @@
         }
       }
     },
+    "/api/models/{namespace}/{name}/manifest": {
+      "get": {
+        "tags": [
+          "Models"
+        ],
+        "summary": "Get a local model download manifest",
+        "operationId": "getModelManifest",
+        "parameters": [
+          {
+            "name": "namespace",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Local model metadata with downloadable files.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModelManifestResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      }
+    },
+    "/api/models/{namespace}/{name}/files/{path...}": {
+      "get": {
+        "tags": [
+          "Models"
+        ],
+        "summary": "Download a cached local model file",
+        "description": "Downloads a cached model file and supports HTTP Range requests for resumable downloads. HEAD requests are also supported.",
+        "operationId": "downloadModelFile",
+        "parameters": [
+          {
+            "name": "namespace",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "path...",
+            "in": "path",
+            "required": true,
+            "description": "Slash-separated relative path to the cached file within the model directory.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The requested file.",
+            "content": {
+              "application/octet-stream": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          },
+          "206": {
+            "description": "Partial file content for a range request.",
+            "content": {
+              "application/octet-stream": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      }
+    },
     "/api/ps": {
       "get": {
         "tags": [
@@ -624,6 +733,115 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          }
+        }
+      }
+    },
+    "/api/datasets/{namespace}/{name}/manifest": {
+      "get": {
+        "tags": [
+          "Datasets"
+        ],
+        "summary": "Get a local dataset download manifest",
+        "operationId": "getDatasetManifest",
+        "parameters": [
+          {
+            "name": "namespace",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Local dataset metadata with downloadable files.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DatasetManifestResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      }
+    },
+    "/api/datasets/{namespace}/{name}/files/{path...}": {
+      "get": {
+        "tags": [
+          "Datasets"
+        ],
+        "summary": "Download a cached local dataset file",
+        "description": "Downloads a cached dataset file and supports HTTP Range requests for resumable downloads. HEAD requests are also supported.",
+        "operationId": "downloadDatasetFile",
+        "parameters": [
+          {
+            "name": "namespace",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "path...",
+            "in": "path",
+            "required": true,
+            "description": "Slash-separated relative path to the cached file within the dataset directory.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The requested file.",
+            "content": {
+              "application/octet-stream": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          },
+          "206": {
+            "description": "Partial file content for a range request.",
+            "content": {
+              "application/octet-stream": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
           }
         }
       }
@@ -2443,6 +2661,51 @@
           }
         }
       },
+      "ModelFileEntry": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "path",
+          "size",
+          "download_url"
+        ],
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "size": {
+            "type": "integer"
+          },
+          "sha256": {
+            "type": "string"
+          },
+          "lfs": {
+            "type": "boolean"
+          },
+          "download_url": {
+            "type": "string"
+          }
+        }
+      },
+      "ModelManifestResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "details",
+          "files"
+        ],
+        "properties": {
+          "details": {
+            "$ref": "#/components/schemas/ModelInfo"
+          },
+          "files": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ModelFileEntry"
+            }
+          }
+        }
+      },
       "DatasetPullRequest": {
         "type": "object",
         "additionalProperties": false,
@@ -2521,6 +2784,12 @@
           "modified_at": {
             "type": "string",
             "format": "date-time"
+          },
+          "description": {
+            "type": "string"
+          },
+          "license": {
+            "type": "string"
           }
         }
       },
@@ -2641,6 +2910,51 @@
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/DatasetFileEntry"
+            }
+          }
+        }
+      },
+      "DatasetDownloadFile": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "path",
+          "size",
+          "download_url"
+        ],
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "size": {
+            "type": "integer"
+          },
+          "sha256": {
+            "type": "string"
+          },
+          "lfs": {
+            "type": "boolean"
+          },
+          "download_url": {
+            "type": "string"
+          }
+        }
+      },
+      "DatasetManifestResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "details",
+          "files"
+        ],
+        "properties": {
+          "details": {
+            "$ref": "#/components/schemas/DatasetInfo"
+          },
+          "files": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DatasetDownloadFile"
             }
           }
         }

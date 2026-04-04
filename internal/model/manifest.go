@@ -62,6 +62,7 @@ func FindMMProj(modelDir string) string {
 
 // SaveManifest writes a model manifest to disk.
 func SaveManifest(baseDir string, m *LocalModel) error {
+	normalizeLocalModel(m)
 	mpath := ManifestPath(baseDir, m.Namespace, m.Name)
 	if err := os.MkdirAll(filepath.Dir(mpath), 0o755); err != nil {
 		return err
@@ -84,6 +85,7 @@ func LoadManifest(baseDir, namespace, name string) (*LocalModel, error) {
 	if err := json.Unmarshal(data, &m); err != nil {
 		return nil, err
 	}
+	normalizeLocalModel(&m)
 	return &m, nil
 }
 

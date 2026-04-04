@@ -11,6 +11,7 @@ import (
 	"sync"
 
 	"github.com/opencsgs/csghub-lite/internal/csghub"
+	"github.com/opencsgs/csghub-lite/internal/dataset"
 	"github.com/opencsgs/csghub-lite/pkg/api"
 )
 
@@ -24,13 +25,7 @@ func (s *Server) handleDatasetTags(w http.ResponseWriter, r *http.Request) {
 
 	var infos []api.DatasetInfo
 	for _, d := range datasets {
-		infos = append(infos, api.DatasetInfo{
-			Name:       d.FullName(),
-			Dataset:    d.FullName(),
-			Size:       d.Size,
-			Files:      len(d.Files),
-			ModifiedAt: d.DownloadedAt,
-		})
+		infos = append(infos, localDatasetInfo(d))
 	}
 
 	writeJSON(w, http.StatusOK, api.DatasetTagsResponse{Datasets: infos})
@@ -51,14 +46,8 @@ func (s *Server) handleDatasetShow(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, api.DatasetShowResponse{
-		Details: api.DatasetInfo{
-			Name:       ld.FullName(),
-			Dataset:    ld.FullName(),
-			Size:       ld.Size,
-			Files:      len(ld.Files),
-			ModifiedAt: ld.DownloadedAt,
-		},
-		Files: ld.Files,
+		Details: localDatasetInfo(ld),
+		Files:   ld.Files,
 	})
 }
 
@@ -188,13 +177,7 @@ func (s *Server) handleDatasetSearch(w http.ResponseWriter, r *http.Request) {
 
 	var filtered []api.DatasetInfo
 	for _, d := range datasets {
-		info := api.DatasetInfo{
-			Name:       d.FullName(),
-			Dataset:    d.FullName(),
-			Size:       d.Size,
-			Files:      len(d.Files),
-			ModifiedAt: d.DownloadedAt,
-		}
+		info := localDatasetInfo(d)
 		if !matchesDatasetSearch(info, query) {
 			continue
 		}
@@ -258,4 +241,16 @@ func parseDatasetSearchOffset(s string) (int, error) {
 		return 0, fmt.Errorf("offset must be a non-negative integer, got %q", s)
 	}
 	return n, nil
+}
+
+func localDatasetInfo(d *dataset.LocalDataset) api.DatasetInfo {
+	return api.DatasetInfo{
+		Name:        d.FullName(),
+		Dataset:     d.FullName(),
+		Size:        d.Size,
+		Files:       len(d.Files),
+		ModifiedAt:  d.DownloadedAt,
+		Description: strings.TrimSpace(d.Description),
+		License:     strings.TrimSpace(d.License),
+	}
 }

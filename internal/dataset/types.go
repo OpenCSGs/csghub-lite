@@ -7,13 +7,21 @@ import (
 )
 
 type LocalDataset struct {
-	Namespace    string    `json:"namespace"`
-	Name         string    `json:"name"`
-	Size         int64     `json:"size"`
-	Files        []string  `json:"files"`
-	DownloadedAt time.Time `json:"downloaded_at"`
-	Description  string    `json:"description,omitempty"`
-	License      string    `json:"license,omitempty"`
+	Namespace    string             `json:"namespace"`
+	Name         string             `json:"name"`
+	Size         int64              `json:"size"`
+	Files        []string           `json:"files"`
+	FileEntries  []LocalDatasetFile `json:"file_entries,omitempty"`
+	DownloadedAt time.Time          `json:"downloaded_at"`
+	Description  string             `json:"description,omitempty"`
+	License      string             `json:"license,omitempty"`
+}
+
+type LocalDatasetFile struct {
+	Path   string `json:"path"`
+	Size   int64  `json:"size"`
+	SHA256 string `json:"sha256,omitempty"`
+	LFS    bool   `json:"lfs,omitempty"`
 }
 
 func (d *LocalDataset) FullName() string {

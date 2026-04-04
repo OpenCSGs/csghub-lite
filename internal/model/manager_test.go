@@ -1,6 +1,8 @@
 package model
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -77,6 +79,49 @@ func TestManager_Get_InvalidID(t *testing.T) {
 	_, err := mgr.Get("invalid")
 	if err == nil {
 		t.Error("expected error for invalid model ID")
+	}
+}
+
+func TestManager_GetWithFileEntries_BackfillsAndPersists(t *testing.T) {
+	dir := t.TempDir()
+	cfg := &config.Config{ModelDir: dir}
+	mgr := NewManager(cfg)
+
+	modelDir := ModelDir(dir, "test", "model")
+	if err := os.MkdirAll(filepath.Join(modelDir, "weights"), 0o755); err != nil {
+		t.Fatalf("mkdir weights: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(modelDir, "weights", "model.gguf"), []byte("gguf"), 0o644); err != nil {
+		t.Fatalf("write model file: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(modelDir, "config.json"), []byte("{}"), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	lm := &LocalModel{
+		Namespace: "test",
+		Name:      "model",
+		Format:    FormatGGUF,
+		Files:     []string{"model.gguf", "config.json"},
+	}
+	if err := SaveManifest(dir, lm); err != nil {
+		t.Fatalf("save manifest: %v", err)
+	}
+
+	got, err := mgr.GetWithFileEntries("test/model")
+	if err != nil {
+		t.Fatalf("GetWithFileEntries error: %v", err)
+	}
+	if len(got.FileEntries) != 2 {
+		t.Fatalf("file_entries len = %d, want 2", len(got.FileEntries))
+	}
+
+	reloaded, err := LoadManifest(dir, "test", "model")
+	if err != nil {
+		t.Fatalf("reload manifest: %v", err)
+	}
+	if len(reloaded.FileEntries) != 2 {
+		t.Fatalf("persisted file_entries len = %d, want 2", len(reloaded.FileEntries))
 	}
 }
 

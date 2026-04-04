@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/opencsgs/csghub-lite/internal/config"
@@ -45,9 +46,26 @@ func (m *Manager) Pull(ctx context.Context, modelID string, progress csghub.Snap
 	}
 
 	var fileNames []string
+	var fileEntries []LocalModelFile
 	var totalSize int64
 	for _, f := range downloadedFiles {
-		fileNames = append(fileNames, f.Name)
+		relPath := cleanLocalModelPath(filepath.ToSlash(f.Path))
+		if relPath == "" {
+			relPath = cleanLocalModelPath(f.Name)
+		}
+		if relPath == "" {
+			continue
+		}
+		fileNames = append(fileNames, relPath)
+		entry := LocalModelFile{
+			Path: relPath,
+			Size: f.Size,
+			LFS:  f.LFS,
+		}
+		if f.LFSSHA256 != "" {
+			entry.SHA256 = f.LFSSHA256
+		}
+		fileEntries = append(fileEntries, entry)
 		totalSize += f.Size
 	}
 
@@ -57,6 +75,7 @@ func (m *Manager) Pull(ctx context.Context, modelID string, progress csghub.Snap
 		Format:       DetectFormat(fileNames),
 		Size:         totalSize,
 		Files:        fileNames,
+		FileEntries:  fileEntries,
 		DownloadedAt: time.Now(),
 		Description:  info.Description,
 		License:      info.License,
@@ -100,6 +119,31 @@ func (m *Manager) Get(modelID string) (*LocalModel, error) {
 		return nil, err
 	}
 	return LoadManifest(m.cfg.ModelDir, namespace, name)
+}
+
+// GetWithFileEntries returns a local model with file-level metadata filled in.
+func (m *Manager) GetWithFileEntries(modelID string) (*LocalModel, error) {
+	lm, err := m.Get(modelID)
+	if err != nil {
+		return nil, err
+	}
+
+	modelDir, err := m.ModelPath(modelID)
+	if err != nil {
+		return nil, err
+	}
+
+	changed, err := EnsureLocalModelFiles(modelDir, lm)
+	if err != nil {
+		return nil, fmt.Errorf("ensuring file entries: %w", err)
+	}
+	if changed {
+		if err := SaveManifest(m.cfg.ModelDir, lm); err != nil {
+			return nil, fmt.Errorf("saving manifest: %w", err)
+		}
+	}
+
+	return lm, nil
 }
 
 // Remove deletes a locally downloaded model.

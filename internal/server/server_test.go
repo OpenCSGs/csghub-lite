@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -20,7 +21,8 @@ func newTestServer(t *testing.T) *Server {
 	cfg := &config.Config{
 		ServerURL:  "https://hub.opencsg.com",
 		ListenAddr: ":0",
-		ModelDir:   dir,
+		ModelDir:   filepath.Join(dir, "models"),
+		DatasetDir: filepath.Join(dir, "datasets"),
 	}
 	s := New(cfg, "test")
 	s.cloud = cloud.NewService("")
@@ -304,6 +306,12 @@ func TestRoutes(t *testing.T) {
 		{"GET", "/"},
 		{"GET", "/api/tags"},
 		{"GET", "/api/models/search"},
+		{"GET", "/api/models/test/model/manifest"},
+		{"GET", "/api/models/test/model/files/model.gguf"},
+		{"GET", "/api/datasets"},
+		{"GET", "/api/datasets/search"},
+		{"GET", "/api/datasets/test/data/manifest"},
+		{"GET", "/api/datasets/test/data/files/file.txt"},
 		{"POST", "/api/show"},
 		{"POST", "/api/pull"},
 		{"DELETE", "/api/delete"},

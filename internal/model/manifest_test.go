@@ -1,6 +1,7 @@
 package model
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -64,6 +65,47 @@ func TestLoadManifest_NotFound(t *testing.T) {
 	_, err := LoadManifest(dir, "nonexistent", "model")
 	if err == nil {
 		t.Error("expected error for non-existent manifest")
+	}
+}
+
+func TestLoadManifest_NormalizesFileEntries(t *testing.T) {
+	dir := t.TempDir()
+	mpath := ManifestPath(dir, "OpenCSG", "normalized")
+	if err := os.MkdirAll(filepath.Dir(mpath), 0o755); err != nil {
+		t.Fatalf("mkdir manifest dir: %v", err)
+	}
+
+	raw := map[string]any{
+		"namespace": "OpenCSG",
+		"name":      "normalized",
+		"format":    "gguf",
+		"size":      42,
+		"files":     []string{},
+		"file_entries": []map[string]any{
+			{"path": "./weights/model.gguf", "size": 42},
+			{"path": "weights/model.gguf", "size": 42},
+		},
+	}
+	data, err := json.Marshal(raw)
+	if err != nil {
+		t.Fatalf("marshal manifest: %v", err)
+	}
+	if err := os.WriteFile(mpath, data, 0o644); err != nil {
+		t.Fatalf("write manifest: %v", err)
+	}
+
+	loaded, err := LoadManifest(dir, "OpenCSG", "normalized")
+	if err != nil {
+		t.Fatalf("LoadManifest error: %v", err)
+	}
+	if len(loaded.FileEntries) != 1 {
+		t.Fatalf("file_entries len = %d, want 1", len(loaded.FileEntries))
+	}
+	if loaded.FileEntries[0].Path != "weights/model.gguf" {
+		t.Fatalf("entry path = %q, want weights/model.gguf", loaded.FileEntries[0].Path)
+	}
+	if len(loaded.Files) != 1 || loaded.Files[0] != "weights/model.gguf" {
+		t.Fatalf("files = %#v, want normalized file path", loaded.Files)
 	}
 }
 

@@ -36,6 +36,10 @@ function isCloudModel(model: Pick<ModelInfo, "source">): boolean {
   return model.source === "cloud";
 }
 
+function modelDetailHref(modelID: string): string {
+  return `/library/detail/${encodeURIComponent(modelID)}`;
+}
+
 async function loadModels() {
   const requestID = ++loadModelsRequestID;
   modelsLoading.value = true;
@@ -213,7 +217,11 @@ export function Library() {
             ) : (
               filtered.value.map((m) => (
                 <tr key={m.name} class="border-b border-gray-50 hover:bg-gray-50/50">
-                  <td class="px-4 py-3 font-medium text-gray-900">{m.name}</td>
+                  <td class="px-4 py-3">
+                    <a href={modelDetailHref(m.model)} class="font-medium text-indigo-600 hover:text-indigo-800 hover:underline break-all">
+                      {m.name}
+                    </a>
+                  </td>
                   <td class="px-4 py-3">
                     <span
                       class={`inline-block px-2 py-0.5 rounded text-xs font-medium ${
@@ -232,11 +240,8 @@ export function Library() {
                     {new Date(m.modified_at).toLocaleDateString("en-US", { day: "numeric", month: "long" })}
                   </td>
                   <td class="px-4 py-3">
-                    <div class="flex items-center justify-end gap-3">
-                      <button
-                        onClick={() => handleDelete(m.name)}
-                        class="text-gray-500 hover:text-red-600 text-sm transition-colors"
-                      >
+                    <div class="flex items-center justify-end gap-3 flex-wrap">
+                      <button onClick={() => handleDelete(m.name)} class="text-gray-500 hover:text-red-600 text-sm transition-colors">
                         {t("lib.delete")}
                       </button>
                       {isRunning(m.name) ? (

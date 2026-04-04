@@ -1,7 +1,7 @@
-import { useEffect } from "preact/hooks";
+import { useEffect, useRef, useState } from "preact/hooks";
 import { signal } from "@preact/signals";
-import { getDatasetTags, searchDatasets, getDatasetFiles, deleteDataset } from "../api/client";
-import type { DatasetInfo, DatasetFileEntry } from "../api/client";
+import { getDatasetTags, searchDatasets, getDatasetFiles, deleteDataset, getDatasetManifest } from "../api/client";
+import type { DatasetInfo, DatasetFileEntry, DatasetManifestResponse, DatasetDownloadFile } from "../api/client";
 import { t, locale } from "../i18n";
 
 type View = { kind: "list" } | { kind: "detail"; dataset: string; path: string };
@@ -148,7 +148,14 @@ function DatasetList() {
             ) : (
               datasets.map((d) => (
                 <tr key={d.name} class="border-b border-gray-50 hover:bg-gray-50/50">
-                  <td class="px-4 py-3 font-medium text-gray-900">{d.name}</td>
+                  <td class="px-4 py-3">
+                    <button
+                      onClick={() => handleDetails(d.name)}
+                      class="font-medium text-indigo-600 hover:text-indigo-800 hover:underline break-all text-left"
+                    >
+                      {d.name}
+                    </button>
+                  </td>
                   <td class="px-4 py-3">
                     <span class="bg-indigo-50 text-indigo-700 px-2 py-0.5 rounded text-xs font-medium">
                       {fmtSize(d.size)}
@@ -159,17 +166,8 @@ function DatasetList() {
                   </td>
                   <td class="px-4 py-3">
                     <div class="flex items-center justify-end gap-3">
-                      <button
-                        onClick={() => handleDelete(d.name)}
-                        class="text-gray-500 hover:text-red-600 text-sm transition-colors"
-                      >
+                      <button onClick={() => handleDelete(d.name)} class="text-gray-500 hover:text-red-600 text-sm transition-colors">
                         {t("ds.delete")}
-                      </button>
-                      <button
-                        onClick={() => handleDetails(d.name)}
-                        class="inline-flex items-center justify-center px-3 py-1 text-xs rounded bg-indigo-600 text-white hover:bg-indigo-700 transition-colors font-medium"
-                      >
-                        {t("ds.details")}
                       </button>
                     </div>
                   </td>
@@ -184,9 +182,34 @@ function DatasetList() {
 }
 
 function DatasetDetail({ dataset, path }: { dataset: string; path: string }) {
+  const [manifest, setManifest] = useState<DatasetManifestResponse | null>(null);
+  const [detailError, setDetailError] = useState("");
+  const [copiedKey, setCopiedKey] = useState("");
+  const copyResetRef = useRef<number | null>(null);
+
   useEffect(() => {
     loadFiles(dataset, path);
   }, [dataset, path]);
+
+  useEffect(() => {
+    setManifest(null);
+    setDetailError("");
+    getDatasetManifest(dataset)
+      .then((data) => {
+        setManifest(data);
+      })
+      .catch((err: any) => {
+        setDetailError(err?.message || t("ds.failedLoadDetail"));
+      });
+  }, [dataset]);
+
+  useEffect(() => {
+    return () => {
+      if (copyResetRef.current !== null) {
+        window.clearTimeout(copyResetRef.current);
+      }
+    };
+  }, []);
 
   const navigateTo = (subPath: string) => {
     currentView.value = { kind: "detail", dataset, path: subPath };
@@ -203,6 +226,27 @@ function DatasetDetail({ dataset, path }: { dataset: string; path: string }) {
   };
 
   const breadcrumbs = buildBreadcrumbs(dataset, path);
+  const manifestURL = buildDatasetManifestURL(dataset);
+  const manifestCurl = buildCurlCommand(manifestURL);
+  const exampleFile = manifest?.files?.[0];
+  const exampleCurl = exampleFile ? buildDatasetFileCurlCommand(exampleFile) : "";
+  const fileMetaMap = new Map((manifest?.files || []).map((file) => [file.path, file]));
+
+  const handleCopy = async (key: string, value: string) => {
+    try {
+      await navigator.clipboard.writeText(value);
+      setCopiedKey(key);
+      if (copyResetRef.current !== null) {
+        window.clearTimeout(copyResetRef.current);
+      }
+      copyResetRef.current = window.setTimeout(() => {
+        setCopiedKey("");
+        copyResetRef.current = null;
+      }, 1500);
+    } catch {
+      // Ignore clipboard failures.
+    }
+  };
 
   return (
     <div class="p-8 max-w-5xl mx-auto">
@@ -210,13 +254,96 @@ function DatasetDetail({ dataset, path }: { dataset: string; path: string }) {
         <button
           onClick={goBack}
           class="w-8 h-8 flex items-center justify-center rounded-full hover:bg-gray-200 transition-colors text-gray-600"
+          aria-label={t("ds.back")}
+          title={t("ds.back")}
         >
           <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
             <path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7" />
           </svg>
         </button>
-        <h1 class="text-xl font-bold text-gray-900">{dataset}</h1>
+        <div class="min-w-0">
+          <h1 class="text-xl font-bold text-gray-900 break-all">{dataset}</h1>
+          <p class="text-sm text-gray-500 mt-1">{t("ds.detailSubtitle")}</p>
+        </div>
       </div>
+
+      {detailError && (
+        <div class="mb-4 flex items-start gap-2 bg-red-50 border border-red-200 text-red-700 text-sm px-4 py-3 rounded-lg">
+          <svg class="w-4 h-4 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+          </svg>
+          <span class="whitespace-pre-line flex-1">{detailError}</span>
+        </div>
+      )}
+
+      {manifest && (
+        <div class="space-y-6 mb-6">
+          <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+            <SummaryTile label={t("ds.fileSize")} value={fmtSize(manifest.details.size)} />
+            <SummaryTile label={t("ds.fileCount")} value={String(manifest.files.length)} />
+            <SummaryTile label={t("ds.updated")} value={fmtDate(manifest.details.modified_at)} />
+            <SummaryTile label={t("ds.licenseLabel")} value={manifest.details.license || t("ds.notAvailable")} />
+          </div>
+
+          {(manifest.details.description || manifest.details.license) && (
+            <section class="bg-white rounded-xl border border-gray-200 p-5 space-y-3">
+              {manifest.details.description && (
+                <div>
+                  <h2 class="text-sm font-semibold text-gray-900 mb-1">{t("ds.description")}</h2>
+                  <p class="text-sm text-gray-600 whitespace-pre-wrap">{manifest.details.description}</p>
+                </div>
+              )}
+              {manifest.details.license && (
+                <div class="text-sm text-gray-600">
+                  <span class="font-semibold text-gray-900 mr-2">{t("ds.licenseLabel")}</span>
+                  <span>{manifest.details.license}</span>
+                </div>
+              )}
+            </section>
+          )}
+
+          <section class="bg-white rounded-xl border border-gray-200 p-5 space-y-4">
+            <div>
+              <h2 class="text-lg font-semibold text-gray-900">{t("ds.downloadMethods")}</h2>
+              <p class="text-sm text-gray-500 mt-1">{t("ds.downloadHint")}</p>
+            </div>
+
+            <div>
+              <div class="flex items-center justify-between gap-3 flex-wrap mb-2">
+                <span class="text-sm font-medium text-gray-700">{t("ds.manifestUrl")}</span>
+                <button
+                  onClick={() => void handleCopy("manifest-url", manifestURL)}
+                  class={`text-xs transition-colors flex items-center gap-1 ${
+                    copiedKey === "manifest-url" ? "text-green-600" : "text-gray-500 hover:text-indigo-600"
+                  }`}
+                >
+                  {copiedKey === "manifest-url" ? t("dash.copied") : t("ds.copyUrl")}
+                </button>
+              </div>
+              <div class="rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 text-sm text-gray-700 font-mono break-all">
+                {manifestURL}
+              </div>
+            </div>
+
+            <div class="grid grid-cols-1 xl:grid-cols-2 gap-4">
+              <CodeBlock
+                title={t("ds.manifestCurl")}
+                code={manifestCurl}
+                copied={copiedKey === "manifest-curl"}
+                onCopy={() => void handleCopy("manifest-curl", manifestCurl)}
+              />
+              {exampleFile && (
+                <CodeBlock
+                  title={t("ds.fileCurl")}
+                  code={exampleCurl}
+                  copied={copiedKey === "example-curl"}
+                  onCopy={() => void handleCopy("example-curl", exampleCurl)}
+                />
+              )}
+            </div>
+          </section>
+        </div>
+      )}
 
       {path && (
         <div class="flex items-center gap-1 mb-4 text-sm text-gray-500">
@@ -245,45 +372,87 @@ function DatasetDetail({ dataset, path }: { dataset: string; path: string }) {
               <th class="px-4 py-3 font-medium">{t("ds.name")}</th>
               <th class="px-4 py-3 font-medium text-right">{t("ds.size")}</th>
               <th class="px-4 py-3 font-medium text-right">{t("ds.dateModified")}</th>
+              <th class="px-4 py-3 font-medium text-right">{t("ds.operation")}</th>
             </tr>
           </thead>
           <tbody>
             {filesLoading.value ? (
               <tr>
-                <td colSpan={3} class="text-center py-12 text-gray-400">
+                <td colSpan={4} class="text-center py-12 text-gray-400">
                   {t("ds.loadingFiles")}
                 </td>
               </tr>
             ) : fileEntries.value.length === 0 ? (
               <tr>
-                <td colSpan={3} class="text-center py-12 text-gray-400">
+                <td colSpan={4} class="text-center py-12 text-gray-400">
                   {t("ds.noFiles")}
                 </td>
               </tr>
             ) : (
-              fileEntries.value.map((f) => (
-                <tr key={f.name} class="border-b border-gray-50 hover:bg-gray-50/50">
-                  <td class="px-4 py-3">
-                    <div class="flex items-center gap-2">
-                      {f.is_dir ? <FolderIcon /> : <FileIcon />}
-                      {f.is_dir ? (
-                        <button
-                          onClick={() => navigateTo(path ? `${path}/${f.name}` : f.name)}
-                          class="text-indigo-600 hover:text-indigo-800 hover:underline font-medium"
-                        >
-                          {f.name}
-                        </button>
-                      ) : (
-                        <span class="text-gray-900">{f.name}</span>
-                      )}
-                    </div>
-                  </td>
-                  <td class="px-4 py-3 text-right text-gray-500">
-                    {f.is_dir ? "—" : fmtSizeDetailed(f.size)}
-                  </td>
-                  <td class="px-4 py-3 text-right text-gray-500">{fmtRelativeTime(f.modified_at)}</td>
-                </tr>
-              ))
+              fileEntries.value.map((f) => {
+                const relPath = path ? `${path}/${f.name}` : f.name;
+                const fileMeta = fileMetaMap.get(relPath);
+                const fileURL = fileMeta ? absoluteURL(fileMeta.download_url) : buildDatasetFileURL(dataset, relPath);
+                const fileCurl = fileMeta ? buildDatasetFileCurlCommand(fileMeta) : buildDatasetFileCurlCommand({
+                  path: relPath,
+                  size: f.size,
+                  download_url: fileURL,
+                });
+                return (
+                  <tr key={f.name} class="border-b border-gray-50 hover:bg-gray-50/50">
+                    <td class="px-4 py-3">
+                      <div class="flex items-start gap-2">
+                        <div class="pt-0.5">{f.is_dir ? <FolderIcon /> : <FileIcon />}</div>
+                        <div class="min-w-0">
+                          {f.is_dir ? (
+                            <button
+                              onClick={() => navigateTo(relPath)}
+                              class="text-indigo-600 hover:text-indigo-800 hover:underline font-medium break-all text-left"
+                            >
+                              {f.name}
+                            </button>
+                          ) : (
+                            <div class="text-gray-900 break-all">{f.name}</div>
+                          )}
+                          {!f.is_dir && fileMeta?.sha256 && (
+                            <div class="mt-1 font-mono text-[11px] text-gray-500 break-all">
+                              {t("ds.sha256")}: {fileMeta.sha256}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </td>
+                    <td class="px-4 py-3 text-right text-gray-500">
+                      {f.is_dir ? "—" : fmtSizeDetailed(f.size)}
+                    </td>
+                    <td class="px-4 py-3 text-right text-gray-500">{fmtRelativeTime(f.modified_at)}</td>
+                    <td class="px-4 py-3">
+                      <div class="flex items-center justify-end gap-3 flex-wrap">
+                        {!f.is_dir && (
+                          <>
+                            <button
+                              onClick={() => void handleCopy(`url:${relPath}`, fileURL)}
+                              class={`text-sm transition-colors ${
+                                copiedKey === `url:${relPath}` ? "text-green-600" : "text-gray-500 hover:text-indigo-600"
+                              }`}
+                            >
+                              {copiedKey === `url:${relPath}` ? t("dash.copied") : t("ds.copyUrl")}
+                            </button>
+                            <button
+                              onClick={() => void handleCopy(`curl:${relPath}`, fileCurl)}
+                              class={`text-sm transition-colors ${
+                                copiedKey === `curl:${relPath}` ? "text-green-600" : "text-gray-500 hover:text-indigo-600"
+                              }`}
+                            >
+                              {copiedKey === `curl:${relPath}` ? t("dash.copied") : t("ds.copyCurl")}
+                            </button>
+                          </>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })
             )}
           </tbody>
         </table>
@@ -321,6 +490,44 @@ function SortHeader({
   );
 }
 
+function CodeBlock({
+  title,
+  code,
+  copied,
+  onCopy,
+}: {
+  title: string;
+  code: string;
+  copied: boolean;
+  onCopy: () => void;
+}) {
+  return (
+    <div>
+      <div class="flex items-center justify-between mb-2">
+        <span class="text-sm font-medium text-gray-700">{title}</span>
+        <button
+          onClick={onCopy}
+          class={`text-xs transition-colors flex items-center gap-1 ${copied ? "text-green-600" : "text-gray-500 hover:text-indigo-600"}`}
+        >
+          {copied ? t("dash.copied") : t("ds.copyCommand")}
+        </button>
+      </div>
+      <pre class="bg-gray-900 text-gray-100 rounded-lg p-4 text-xs leading-5 overflow-x-auto font-mono whitespace-pre-wrap break-all">
+        {code}
+      </pre>
+    </div>
+  );
+}
+
+function SummaryTile({ label, value }: { label: string; value: string }) {
+  return (
+    <div class="rounded-xl border border-gray-200 bg-white px-4 py-3">
+      <div class="text-xs font-medium uppercase tracking-wide text-gray-400">{label}</div>
+      <div class="mt-1 text-sm font-semibold text-gray-900 break-words">{value}</div>
+    </div>
+  );
+}
+
 function FolderIcon() {
   return (
     <svg class="w-4 h-4 text-indigo-500 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
@@ -355,6 +562,55 @@ function buildBreadcrumbs(dataset: string, path: string) {
   return crumbs;
 }
 
+function buildDatasetManifestURL(dataset: string): string {
+  const parts = splitDatasetID(dataset);
+  if (!parts) {
+    return absoluteURL(`/api/datasets/${encodeURIComponent(dataset)}/manifest`);
+  }
+  return absoluteURL(`/api/datasets/${encodeURIComponent(parts.namespace)}/${encodeURIComponent(parts.name)}/manifest`);
+}
+
+function buildDatasetFileURL(dataset: string, relPath: string): string {
+  const parts = splitDatasetID(dataset);
+  if (!parts) {
+    return absoluteURL(`/api/datasets/${encodeURIComponent(dataset)}/files/${encodeURIComponent(relPath)}`);
+  }
+  const segments = relPath.split("/").filter(Boolean).map((segment) => encodeURIComponent(segment));
+  return absoluteURL(`/api/datasets/${encodeURIComponent(parts.namespace)}/${encodeURIComponent(parts.name)}/files/${segments.join("/")}`);
+}
+
+function buildCurlCommand(url: string): string {
+  return `curl ${shellQuote(url)}`;
+}
+
+function buildDatasetFileCurlCommand(file: Pick<DatasetDownloadFile, "path" | "download_url" | "size">): string {
+  const fileURL = absoluteURL(file.download_url);
+  const targetPath = shellQuote(file.path);
+  return `mkdir -p "$(dirname -- ${targetPath})" && curl -L -C - ${shellQuote(fileURL)} -o ${targetPath}`;
+}
+
+function absoluteURL(path: string): string {
+  if (typeof window === "undefined") {
+    return path;
+  }
+  return new URL(path, window.location.origin).toString();
+}
+
+function splitDatasetID(dataset: string): { namespace: string; name: string } | null {
+  const slash = dataset.indexOf("/");
+  if (slash <= 0 || slash === dataset.length - 1) {
+    return null;
+  }
+  return {
+    namespace: dataset.slice(0, slash),
+    name: dataset.slice(slash + 1),
+  };
+}
+
+function shellQuote(value: string): string {
+  return "'" + value.replace(/'/g, `'\"'\"'`) + "'";
+}
+
 function fmtSize(bytes: number): string {
   if (bytes === 0) return "0 B";
   const gb = bytes / (1024 * 1024 * 1024);
@@ -387,4 +643,13 @@ function fmtRelativeTime(dateStr: string): string {
   if (diffHours < 24) return t("ds.hoursAgo", diffHours);
   const diffDays = Math.floor(diffHours / 24);
   return t("ds.daysAgo", diffDays);
+}
+
+function fmtDate(dateStr: string): string {
+  const language = locale.value === "zh" ? "zh-CN" : "en-US";
+  return new Date(dateStr).toLocaleString(language, {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+  });
 }

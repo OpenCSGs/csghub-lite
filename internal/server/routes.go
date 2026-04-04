@@ -8,6 +8,8 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("GET /api/health", s.handleHealth)
 	mux.HandleFunc("GET /api/tags", s.handleTags)
 	mux.HandleFunc("GET /api/models/search", s.handleLocalModelSearch)
+	mux.HandleFunc("GET /api/models/{namespace}/{name}/manifest", s.handleModelManifest)
+	mux.HandleFunc("GET /api/models/{namespace}/{name}/files/{path...}", s.handleModelFile)
 	mux.HandleFunc("GET /api/ps", s.handlePs)
 	mux.HandleFunc("POST /api/show", s.handleShow)
 	mux.HandleFunc("POST /api/pull", s.handlePull)
@@ -19,6 +21,8 @@ func (s *Server) routes() http.Handler {
 
 	mux.HandleFunc("GET /api/datasets", s.handleDatasetTags)
 	mux.HandleFunc("GET /api/datasets/search", s.handleDatasetSearch)
+	mux.HandleFunc("GET /api/datasets/{namespace}/{name}/manifest", s.handleDatasetManifest)
+	mux.HandleFunc("GET /api/datasets/{namespace}/{name}/files/{path...}", s.handleDatasetFile)
 	mux.HandleFunc("POST /api/datasets/show", s.handleDatasetShow)
 	mux.HandleFunc("POST /api/datasets/files", s.handleDatasetFiles)
 	mux.HandleFunc("POST /api/datasets/pull", s.handleDatasetPull)

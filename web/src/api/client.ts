@@ -31,6 +31,19 @@ export interface RunningModel {
   expires_at: string;
 }
 
+export interface ModelFileEntry {
+  path: string;
+  size: number;
+  sha256?: string;
+  lfs?: boolean;
+  download_url: string;
+}
+
+export interface ModelManifestResponse {
+  details: ModelInfo;
+  files: ModelFileEntry[];
+}
+
 export interface MarketplaceModel {
   id: number;
   name: string;
@@ -227,6 +240,23 @@ export async function searchLocalModels(params?: {
   if (typeof params?.offset === "number") query.set("offset", String(params.offset));
   const url = query.toString() ? `/api/models/search?${query}` : "/api/models/search";
   return fetchJSON<LocalModelSearchResponse>(url);
+}
+
+function splitModelID(model: string): { namespace: string; name: string } {
+  const trimmed = model.trim();
+  const slash = trimmed.indexOf("/");
+  if (slash <= 0 || slash === trimmed.length - 1) {
+    throw new Error(`Invalid model ID: ${model}`);
+  }
+  return {
+    namespace: trimmed.slice(0, slash),
+    name: trimmed.slice(slash + 1),
+  };
+}
+
+export async function getModelManifest(model: string): Promise<ModelManifestResponse> {
+  const { namespace, name } = splitModelID(model);
+  return fetchJSON<ModelManifestResponse>(`/api/models/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}/manifest`);
 }
 
 export async function getPs(): Promise<RunningModel[]> {
@@ -557,6 +587,21 @@ export interface DatasetInfo {
   size: number;
   files: number;
   modified_at: string;
+  description?: string;
+  license?: string;
+}
+
+export interface DatasetDownloadFile {
+  path: string;
+  size: number;
+  sha256?: string;
+  lfs?: boolean;
+  download_url: string;
+}
+
+export interface DatasetManifestResponse {
+  details: DatasetInfo;
+  files: DatasetDownloadFile[];
 }
 
 export async function getDatasetTags(): Promise<DatasetInfo[]> {
@@ -568,6 +613,11 @@ export async function searchDatasets(query: string, limit = 20, offset = 0): Pro
   const params = new URLSearchParams({ q: query, limit: String(limit), offset: String(offset) });
   const data = await fetchJSON<{ datasets: DatasetInfo[]; total: number; has_more: boolean }>(`/api/datasets/search?${params}`);
   return { datasets: data.datasets || [], total: data.total || 0, has_more: data.has_more || false };
+}
+
+export async function getDatasetManifest(dataset: string): Promise<DatasetManifestResponse> {
+  const { namespace, name } = splitModelID(dataset);
+  return fetchJSON<DatasetManifestResponse>(`/api/datasets/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}/manifest`);
 }
 
 export function pullDataset(

@@ -45,9 +45,26 @@ func (m *Manager) Pull(ctx context.Context, datasetID string, progress csghub.Sn
 	}
 
 	var fileNames []string
+	var fileEntries []LocalDatasetFile
 	var totalSize int64
 	for _, f := range downloadedFiles {
-		fileNames = append(fileNames, f.Name)
+		relPath := cleanLocalDatasetPath(filepath.ToSlash(f.Path))
+		if relPath == "" {
+			relPath = cleanLocalDatasetPath(f.Name)
+		}
+		if relPath == "" {
+			continue
+		}
+		fileNames = append(fileNames, relPath)
+		entry := LocalDatasetFile{
+			Path: relPath,
+			Size: f.Size,
+			LFS:  f.LFS,
+		}
+		if f.LFSSHA256 != "" {
+			entry.SHA256 = f.LFSSHA256
+		}
+		fileEntries = append(fileEntries, entry)
 		if f.Size > 0 {
 			totalSize += f.Size
 		} else {
@@ -63,6 +80,7 @@ func (m *Manager) Pull(ctx context.Context, datasetID string, progress csghub.Sn
 		Name:         name,
 		Size:         totalSize,
 		Files:        fileNames,
+		FileEntries:  fileEntries,
 		DownloadedAt: time.Now(),
 		Description:  info.Description,
 		License:      info.License,
@@ -104,6 +122,30 @@ func (m *Manager) Get(datasetID string) (*LocalDataset, error) {
 		return nil, err
 	}
 	return LoadManifest(m.cfg.DatasetDir, namespace, name)
+}
+
+func (m *Manager) GetWithFileEntries(datasetID string) (*LocalDataset, error) {
+	ld, err := m.Get(datasetID)
+	if err != nil {
+		return nil, err
+	}
+
+	datasetDir, err := m.DatasetPath(datasetID)
+	if err != nil {
+		return nil, err
+	}
+
+	changed, err := EnsureLocalDatasetFiles(datasetDir, ld)
+	if err != nil {
+		return nil, fmt.Errorf("ensuring file entries: %w", err)
+	}
+	if changed {
+		if err := SaveManifest(m.cfg.DatasetDir, ld); err != nil {
+			return nil, fmt.Errorf("saving manifest: %w", err)
+		}
+	}
+
+	return ld, nil
 }
 
 func (m *Manager) Remove(datasetID string) error {

@@ -84,6 +84,19 @@ type ShowResponse struct {
 	Details   ModelInfo `json:"details"`
 }
 
+type ModelFileEntry struct {
+	Path        string `json:"path"`
+	Size        int64  `json:"size"`
+	SHA256      string `json:"sha256,omitempty"`
+	LFS         bool   `json:"lfs,omitempty"`
+	DownloadURL string `json:"download_url"`
+}
+
+type ModelManifestResponse struct {
+	Details ModelInfo        `json:"details"`
+	Files   []ModelFileEntry `json:"files"`
+}
+
 type PullResponse struct {
 	Status    string `json:"status"`
 	Digest    string `json:"digest,omitempty"`
@@ -174,11 +187,13 @@ type DatasetShowRequest struct {
 // -- Dataset response types --
 
 type DatasetInfo struct {
-	Name       string    `json:"name"`
-	Dataset    string    `json:"dataset"`
-	Size       int64     `json:"size"`
-	Files      int       `json:"files"`
-	ModifiedAt time.Time `json:"modified_at"`
+	Name        string    `json:"name"`
+	Dataset     string    `json:"dataset"`
+	Size        int64     `json:"size"`
+	Files       int       `json:"files"`
+	ModifiedAt  time.Time `json:"modified_at"`
+	Description string    `json:"description,omitempty"`
+	License     string    `json:"license,omitempty"`
 }
 
 type DatasetTagsResponse struct {
@@ -215,6 +230,19 @@ type DatasetFilesResponse struct {
 	Dataset string             `json:"dataset"`
 	Path    string             `json:"path"`
 	Entries []DatasetFileEntry `json:"entries"`
+}
+
+type DatasetDownloadFile struct {
+	Path        string `json:"path"`
+	Size        int64  `json:"size"`
+	SHA256      string `json:"sha256,omitempty"`
+	LFS         bool   `json:"lfs,omitempty"`
+	DownloadURL string `json:"download_url"`
+}
+
+type DatasetManifestResponse struct {
+	Details DatasetInfo           `json:"details"`
+	Files   []DatasetDownloadFile `json:"files"`
 }
 
 type DatasetPullResponse struct {
