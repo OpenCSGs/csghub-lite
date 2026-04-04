@@ -32,6 +32,36 @@ warn() { printf "${YELLOW}[WARN]${NC} %s\n" "$1"; }
 error() { printf "${RED}[ERROR]${NC} %s\n" "$1" >&2; exit 1; }
 step() { printf "${CYAN}[%s/%s]${NC} %s\n" "$1" "$2" "$3"; }
 
+privileged_prefix() {
+    if [ "$(id -u)" = "0" ]; then
+        printf ""
+    elif command -v sudo >/dev/null 2>&1; then
+        printf "sudo "
+    else
+        printf ""
+    fi
+}
+
+run_privileged() {
+    if [ "$(id -u)" = "0" ]; then
+        "$@"
+    elif command -v sudo >/dev/null 2>&1; then
+        sudo "$@"
+    else
+        error "This step requires root privileges, but sudo is not available. Re-run as root or install sudo."
+    fi
+}
+
+try_run_privileged() {
+    if [ "$(id -u)" = "0" ]; then
+        "$@"
+    elif command -v sudo >/dev/null 2>&1; then
+        sudo "$@"
+    else
+        return 1
+    fi
+}
+
 detect_os() {
     case "$(uname -s)" in
         Linux)  echo "linux" ;;
@@ -151,9 +181,9 @@ install_enterprise_license() {
         mv "$_license_tmp" "$_license_path"
         chmod 0644 "$_license_path"
     else
-        info "Requires sudo to install enterprise license to ${_install_dir}"
-        sudo mv "$_license_tmp" "$_license_path"
-        sudo chmod 0644 "$_license_path"
+        info "Requires root privileges to install enterprise license to ${_install_dir}"
+        run_privileged mv "$_license_tmp" "$_license_path"
+        run_privileged chmod 0644 "$_license_path"
     fi
 
     info "Installed enterprise license to ${_license_path}"
@@ -320,7 +350,7 @@ cleanup_previous_binary() {
         return 0
     fi
     warn "Previous installation remains at ${_old_bin}"
-    warn "Remove it later if you no longer need it: sudo rm -f ${_old_bin}"
+    warn "Remove it later if you no longer need it: $(privileged_prefix)rm -f ${_old_bin}"
 }
 
 get_latest_version() {
@@ -510,11 +540,11 @@ install_llama_server() {
         done
         mv "$_llama_bin" "$_llama_dir/"
     else
-        info "Requires sudo to install llama-server."
+        info "Requires root privileges to install llama-server."
         find "$_tmpdir" \( -type f -o -type l \) \( -name "*.dylib" -o -name "*.so" -o -name "*.so.*" \) | while read -r _lib; do
-            sudo mv "$_lib" "$_llama_dir/"
+            run_privileged mv "$_lib" "$_llama_dir/"
         done
-        sudo mv "$_llama_bin" "$_llama_dir/"
+        run_privileged mv "$_llama_bin" "$_llama_dir/"
     fi
 
     # Fix @rpath on macOS so llama-server can find co-located dylibs
@@ -525,7 +555,7 @@ install_llama_server() {
             if [ -w "$_llama_installed" ]; then
                 install_name_tool -add_rpath @executable_path "$_llama_installed" 2>/dev/null || true
             else
-                sudo install_name_tool -add_rpath @executable_path "$_llama_installed" 2>/dev/null || true
+                try_run_privileged install_name_tool -add_rpath @executable_path "$_llama_installed" 2>/dev/null || true
             fi
         fi
     fi
@@ -538,13 +568,13 @@ install_llama_server() {
             if [ "${CSGHUB_LITE_AUTO_INSTALL_PATCHELF:-1}" = "1" ]; then
                 if command -v apt-get >/dev/null 2>&1; then
                     info "Installing patchelf (apt) so llama-server can load co-located .so..."
-                    sudo apt-get update -qq && sudo apt-get install -y patchelf >/dev/null 2>&1 || true
+                    try_run_privileged apt-get update -qq >/dev/null 2>&1 && try_run_privileged apt-get install -y patchelf >/dev/null 2>&1 || true
                 elif command -v dnf >/dev/null 2>&1; then
                     info "Installing patchelf (dnf) so llama-server can load co-located .so..."
-                    sudo dnf install -y patchelf >/dev/null 2>&1 || true
+                    try_run_privileged dnf install -y patchelf >/dev/null 2>&1 || true
                 elif command -v yum >/dev/null 2>&1; then
                     info "Installing patchelf (yum) so llama-server can load co-located .so..."
-                    sudo yum install -y patchelf >/dev/null 2>&1 || true
+                    try_run_privileged yum install -y patchelf >/dev/null 2>&1 || true
                 fi
             fi
         fi
@@ -552,7 +582,7 @@ install_llama_server() {
             if [ -w "$_llama_installed" ]; then
                 patchelf --set-rpath '$ORIGIN' "$_llama_installed" 2>/dev/null || true
             else
-                sudo patchelf --set-rpath '$ORIGIN' "$_llama_installed" 2>/dev/null || true
+                try_run_privileged patchelf --set-rpath '$ORIGIN' "$_llama_installed" 2>/dev/null || true
             fi
             info "patchelf: llama-server uses RUNPATH \$ORIGIN (co-located .so)."
         elif [ -f "$_llama_installed" ]; then
@@ -744,8 +774,8 @@ main() {
     if [ -w "$INSTALL_DIR" ]; then
         mv "$BINARY_PATH" "$TARGET"
     else
-        info "Requires sudo to install to ${INSTALL_DIR}"
-        sudo mv "$BINARY_PATH" "$TARGET"
+        info "Requires root privileges to install to ${INSTALL_DIR}"
+        run_privileged mv "$BINARY_PATH" "$TARGET"
     fi
     rm -rf "$TMPDIR"
     install_enterprise_license "$INSTALL_DIR"
