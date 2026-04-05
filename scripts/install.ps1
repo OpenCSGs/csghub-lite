@@ -396,11 +396,38 @@ function Check-PythonOptional {
     }
 }
 
+function Test-CsghubLiteServerRunning {
+    param([string]$BinaryPath)
+
+    $nativeErrorPrefVar = Get-Variable -Name PSNativeCommandUseErrorActionPreference -Scope Global -ErrorAction SilentlyContinue
+    $nativeErrorPrefOriginal = $null
+    if ($nativeErrorPrefVar) {
+        $nativeErrorPrefOriginal = $nativeErrorPrefVar.Value
+        Set-Variable -Name PSNativeCommandUseErrorActionPreference -Scope Global -Value $false
+    }
+
+    $exitCode = 1
+    try {
+        try {
+            & $BinaryPath ps *> $null
+        } catch {
+            # A stopped server should not turn the installer probe into a terminating error.
+        }
+        if ($null -ne $LASTEXITCODE) {
+            $exitCode = $LASTEXITCODE
+        }
+        return ($exitCode -eq 0)
+    } finally {
+        if ($nativeErrorPrefVar) {
+            Set-Variable -Name PSNativeCommandUseErrorActionPreference -Scope Global -Value $nativeErrorPrefOriginal
+        }
+    }
+}
+
 function Start-CsghubLiteServer {
     param([string]$BinaryPath)
 
-    & $BinaryPath ps *> $null
-    if ($LASTEXITCODE -eq 0) {
+    if (Test-CsghubLiteServerRunning -BinaryPath $BinaryPath) {
         Info "csghub-lite server is already running."
         $script:ServerStartStatus = "running"
         return
@@ -414,8 +441,7 @@ function Start-CsghubLiteServer {
     }
 
     Start-Sleep -Seconds 1
-    & $BinaryPath ps *> $null
-    if ($LASTEXITCODE -eq 0) {
+    if (Test-CsghubLiteServerRunning -BinaryPath $BinaryPath) {
         Info "Started csghub-lite server in background."
         $script:ServerStartStatus = "started"
     } else {
