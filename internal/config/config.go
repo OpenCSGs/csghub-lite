@@ -24,6 +24,10 @@ func (c *Config) DisplayURL() string {
 	return c.ServerURL
 }
 
+func (c *Config) StorageDir() string {
+	return StorageDir(c.ModelDir, c.DatasetDir)
+}
+
 type Config struct {
 	ServerURL            string            `json:"server_url"`
 	Token                string            `json:"token,omitempty"`
@@ -47,20 +51,61 @@ func AppHome() (string, error) {
 	return filepath.Join(home, AppDir), nil
 }
 
+func DefaultStorageDir() (string, error) {
+	return AppHome()
+}
+
 func DefaultModelDir() (string, error) {
-	home, err := AppHome()
+	home, err := DefaultStorageDir()
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(home, ModelsDir), nil
+	return ModelDirForStorage(home), nil
 }
 
 func DefaultDatasetDir() (string, error) {
-	home, err := AppHome()
+	home, err := DefaultStorageDir()
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(home, DatasetsDir), nil
+	return DatasetDirForStorage(home), nil
+}
+
+func ModelDirForStorage(storageDir string) string {
+	return filepath.Join(filepath.Clean(storageDir), ModelsDir)
+}
+
+func DatasetDirForStorage(storageDir string) string {
+	return filepath.Join(filepath.Clean(storageDir), DatasetsDir)
+}
+
+func StorageDir(modelDir, datasetDir string) string {
+	modelDir = cleanConfigPath(modelDir)
+	datasetDir = cleanConfigPath(datasetDir)
+
+	if modelDir != "" && datasetDir != "" && filepath.Dir(modelDir) == filepath.Dir(datasetDir) {
+		return filepath.Dir(modelDir)
+	}
+	if modelDir != "" && filepath.Base(modelDir) == ModelsDir {
+		return filepath.Dir(modelDir)
+	}
+	if datasetDir != "" && filepath.Base(datasetDir) == DatasetsDir {
+		return filepath.Dir(datasetDir)
+	}
+	if modelDir != "" {
+		return filepath.Dir(modelDir)
+	}
+	if datasetDir != "" {
+		return filepath.Dir(datasetDir)
+	}
+	return ""
+}
+
+func cleanConfigPath(path string) string {
+	if path == "" {
+		return ""
+	}
+	return filepath.Clean(path)
 }
 
 func ConfigPath() (string, error) {

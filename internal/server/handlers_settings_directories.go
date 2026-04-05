@@ -23,7 +23,7 @@ func (s *Server) handleSettingsDirectories(w http.ResponseWriter, r *http.Reques
 
 	targetPath := strings.TrimSpace(req.Path)
 	if targetPath == "" {
-		targetPath = s.cfg.ModelDir
+		targetPath = s.cfg.StorageDir()
 	}
 
 	absPath, err := filepath.Abs(targetPath)

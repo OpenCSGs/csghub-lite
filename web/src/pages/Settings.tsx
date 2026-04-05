@@ -17,7 +17,9 @@ const contextLengthSteps = [4096, 8192, 16384, 32768, 65536, 131072, 262144];
 const contextLengthLabels = ["4k", "8k", "16k", "32k", "64k", "128k", "256k"];
 const contextStorageKey = "csghub.chat.num_ctx";
 
-const modelLocation = signal("");
+const storageLocation = signal("");
+const modelDirectory = signal("");
+const datasetDirectory = signal("");
 const appVersion = signal("");
 const contextIndex = signal(1);
 const cloudAuth = signal<CloudAuthStatus | null>(null);
@@ -25,13 +27,13 @@ const cloudTokenInput = signal("");
 const cloudAuthError = signal("");
 const isClearingCloudToken = signal(false);
 const isSavingCloudToken = signal(false);
-const isSavingModelDir = signal(false);
-const modelDirInput = signal("");
-const modelDirError = signal("");
-const isBrowsingModelDir = signal(false);
-const isModelDirPickerOpen = signal(false);
-const modelDirBrowser = signal<LocalDirectoryBrowseResponse | null>(null);
-const modelDirBrowserError = signal("");
+const isSavingStorageDir = signal(false);
+const storageDirInput = signal("");
+const storageDirError = signal("");
+const isBrowsingStorageDir = signal(false);
+const isStorageDirPickerOpen = signal(false);
+const storageDirBrowser = signal<LocalDirectoryBrowseResponse | null>(null);
+const storageDirBrowserError = signal("");
 
 function loadContextIndex(): number {
   try {
@@ -61,8 +63,10 @@ function resetDefaults() {
 }
 
 function applySettings(data: AppSettings) {
-  modelLocation.value = data.model_dir || "";
-  modelDirInput.value = data.model_dir || "";
+  storageLocation.value = data.storage_dir || "";
+  storageDirInput.value = data.storage_dir || "";
+  modelDirectory.value = data.model_dir || "";
+  datasetDirectory.value = data.dataset_dir || "";
   appVersion.value = data.version || "";
 }
 
@@ -70,7 +74,7 @@ function fetchSettings() {
   getSettings()
     .then((data) => {
       applySettings(data);
-      modelDirError.value = "";
+      storageDirError.value = "";
     })
     .catch(() => {});
 }
@@ -93,48 +97,48 @@ function openExternal(url?: string) {
   }
 }
 
-async function saveModelDir() {
-  const newDir = modelDirInput.value.trim();
+async function saveStorageDir() {
+  const newDir = storageDirInput.value.trim();
   if (!newDir) return;
 
-  isSavingModelDir.value = true;
-  modelDirError.value = "";
+  isSavingStorageDir.value = true;
+  storageDirError.value = "";
   try {
-    const data = await saveSettings({ model_dir: newDir });
+    const data = await saveSettings({ storage_dir: newDir });
     applySettings(data);
   } catch (err: any) {
-    modelDirError.value = err?.message || t("settings.modelDirSaveFailed");
+    storageDirError.value = err?.message || t("settings.storageDirSaveFailed");
   } finally {
-    isSavingModelDir.value = false;
+    isSavingStorageDir.value = false;
   }
 }
 
-async function browseModelDir(path?: string) {
-  isBrowsingModelDir.value = true;
-  modelDirBrowserError.value = "";
+async function browseStorageDir(path?: string) {
+  isBrowsingStorageDir.value = true;
+  storageDirBrowserError.value = "";
   try {
-    modelDirBrowser.value = await browseLocalDirectories(path);
+    storageDirBrowser.value = await browseLocalDirectories(path);
   } catch (err: any) {
-    modelDirBrowserError.value = err?.message || t("settings.directoryBrowseFailed");
+    storageDirBrowserError.value = err?.message || t("settings.directoryBrowseFailed");
   } finally {
-    isBrowsingModelDir.value = false;
+    isBrowsingStorageDir.value = false;
   }
 }
 
-function openModelDirPicker() {
-  isModelDirPickerOpen.value = true;
-  void browseModelDir(modelLocation.value || modelDirInput.value);
+function openStorageDirPicker() {
+  isStorageDirPickerOpen.value = true;
+  void browseStorageDir(storageLocation.value || storageDirInput.value);
 }
 
-function closeModelDirPicker() {
-  isModelDirPickerOpen.value = false;
-  modelDirBrowserError.value = "";
+function closeStorageDirPicker() {
+  isStorageDirPickerOpen.value = false;
+  storageDirBrowserError.value = "";
 }
 
-function selectModelDir(path: string) {
-  modelDirInput.value = path;
-  modelDirError.value = "";
-  closeModelDirPicker();
+function selectStorageDir(path: string) {
+  storageDirInput.value = path;
+  storageDirError.value = "";
+  closeStorageDirPicker();
 }
 
 function cloudUserLabel(status: CloudAuthStatus | null): string {
@@ -211,7 +215,7 @@ export function Settings() {
       <h1 class="text-2xl font-bold text-gray-900">{t("settings.title")}</h1>
       <p class="text-gray-500 text-sm mt-1 mb-10">{t("settings.subtitle")}</p>
 
-      {/* Model location */}
+      {/* Storage location */}
       <div class="mb-10">
         <div class="flex items-center gap-2 mb-1">
           <svg class="w-5 h-5 text-gray-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
@@ -225,26 +229,30 @@ export function Settings() {
             type="text"
             spellcheck={false}
             class="flex-1 rounded-lg border border-gray-200 px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
-            value={modelDirInput.value}
-            onInput={(e) => (modelDirInput.value = (e.target as HTMLInputElement).value)}
+            value={storageDirInput.value}
+            onInput={(e) => (storageDirInput.value = (e.target as HTMLInputElement).value)}
           />
           <button
-            onClick={openModelDirPicker}
-            disabled={isBrowsingModelDir.value}
+            onClick={openStorageDirPicker}
+            disabled={isBrowsingStorageDir.value}
             class="px-4 py-2 border border-gray-200 rounded-lg text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-60 disabled:cursor-not-allowed transition-colors"
           >
-            {isBrowsingModelDir.value ? "..." : t("settings.browse")}
+            {isBrowsingStorageDir.value ? "..." : t("settings.browse")}
           </button>
           <button
-            onClick={() => void saveModelDir()}
-            disabled={isSavingModelDir.value || !modelDirInput.value.trim() || modelDirInput.value.trim() === modelLocation.value}
+            onClick={() => void saveStorageDir()}
+            disabled={isSavingStorageDir.value || !storageDirInput.value.trim() || storageDirInput.value.trim() === storageLocation.value}
             class="px-4 py-2 border border-indigo-200 rounded-lg text-sm text-indigo-700 hover:bg-indigo-50 disabled:opacity-60 disabled:cursor-not-allowed transition-colors"
           >
-            {isSavingModelDir.value ? "..." : t("settings.save")}
+            {isSavingStorageDir.value ? "..." : t("settings.save")}
           </button>
         </div>
-        {modelDirError.value && (
-          <p class="mt-3 ml-7 text-sm text-red-600">{modelDirError.value}</p>
+        <div class="ml-7 mt-3 space-y-1 text-xs text-gray-500">
+          <p>{t("settings.modelsPath", modelDirectory.value || "...")}</p>
+          <p>{t("settings.datasetsPath", datasetDirectory.value || "...")}</p>
+        </div>
+        {storageDirError.value && (
+          <p class="mt-3 ml-7 text-sm text-red-600">{storageDirError.value}</p>
         )}
       </div>
 
@@ -440,13 +448,13 @@ export function Settings() {
       </div>
 
       <DirectoryPickerDialog
-        open={isModelDirPickerOpen.value}
-        loading={isBrowsingModelDir.value}
-        data={modelDirBrowser.value}
-        error={modelDirBrowserError.value}
-        onClose={closeModelDirPicker}
-        onBrowse={(path) => void browseModelDir(path)}
-        onSelect={selectModelDir}
+        open={isStorageDirPickerOpen.value}
+        loading={isBrowsingStorageDir.value}
+        data={storageDirBrowser.value}
+        error={storageDirBrowserError.value}
+        onClose={closeStorageDirPicker}
+        onBrowse={(path) => void browseStorageDir(path)}
+        onSelect={selectStorageDir}
       />
     </div>
   );

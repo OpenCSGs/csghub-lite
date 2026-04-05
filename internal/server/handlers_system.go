@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"strconv"
 	"strings"
@@ -16,6 +17,7 @@ import (
 
 	"github.com/opencsgs/csghub-lite/internal/config"
 	"github.com/opencsgs/csghub-lite/internal/hardware"
+	"github.com/opencsgs/csghub-lite/pkg/api"
 )
 
 // float2 is a float64 that marshals to JSON with at most 2 decimal places.
@@ -49,38 +51,62 @@ type gpuInfo struct {
 
 // GET /api/settings -- application settings (version, model directory, etc.)
 func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]string{
-		"version":   s.version,
-		"model_dir": s.cfg.ModelDir,
-	})
+	writeJSON(w, http.StatusOK, currentSettingsResponse(s.cfg, s.version))
 }
 
 // POST /api/settings -- update application settings (e.g., model directory)
 func (s *Server) handleSettingsUpdate(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		ModelDir string `json:"model_dir"`
-	}
+	var req api.SettingsUpdateRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		writeError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
 
-	if req.ModelDir != "" {
-		if err := os.MkdirAll(req.ModelDir, 0o755); err != nil {
-			http.Error(w, "Invalid model directory: "+err.Error(), http.StatusBadRequest)
+	var updated bool
+	storageDir := strings.TrimSpace(req.StorageDir)
+	if storageDir != "" {
+		storageDir = filepath.Clean(storageDir)
+		s.cfg.ModelDir = config.ModelDirForStorage(storageDir)
+		s.cfg.DatasetDir = config.DatasetDirForStorage(storageDir)
+		updated = true
+	} else {
+		modelDir := strings.TrimSpace(req.ModelDir)
+		datasetDir := strings.TrimSpace(req.DatasetDir)
+		if modelDir != "" {
+			s.cfg.ModelDir = filepath.Clean(modelDir)
+			updated = true
+		}
+		if datasetDir != "" {
+			s.cfg.DatasetDir = filepath.Clean(datasetDir)
+			updated = true
+		}
+	}
+
+	if updated {
+		if err := os.MkdirAll(s.cfg.ModelDir, 0o755); err != nil {
+			writeError(w, http.StatusBadRequest, "invalid model directory: "+err.Error())
 			return
 		}
-		s.cfg.ModelDir = req.ModelDir
+		if err := os.MkdirAll(s.cfg.DatasetDir, 0o755); err != nil {
+			writeError(w, http.StatusBadRequest, "invalid dataset directory: "+err.Error())
+			return
+		}
 		if err := config.Save(s.cfg); err != nil {
-			http.Error(w, "Failed to save config: "+err.Error(), http.StatusInternalServerError)
+			writeError(w, http.StatusInternalServerError, "failed to save config: "+err.Error())
 			return
 		}
 	}
 
-	writeJSON(w, http.StatusOK, map[string]string{
-		"version":   s.version,
-		"model_dir": s.cfg.ModelDir,
-	})
+	writeJSON(w, http.StatusOK, currentSettingsResponse(s.cfg, s.version))
+}
+
+func currentSettingsResponse(cfg *config.Config, version string) api.SettingsResponse {
+	return api.SettingsResponse{
+		Version:    version,
+		StorageDir: cfg.StorageDir(),
+		ModelDir:   cfg.ModelDir,
+		DatasetDir: cfg.DatasetDir,
+	}
 }
 
 // GET /api/system -- system resource information

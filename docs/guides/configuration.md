@@ -9,9 +9,12 @@
   "server_url": "https://hub.opencsg.com",
   "token": "",
   "listen_addr": ":11435",
-  "model_dir": "/Users/user/.csghub-lite/models"
+  "model_dir": "/Users/user/.csghub-lite/models",
+  "dataset_dir": "/Users/user/.csghub-lite/datasets"
 }
 ```
+
+说明：CLI 和 Web 设置页提供 `storage_dir` 这个便捷配置项。设置它时，csghub-lite 会自动把模型和数据集目录展开为 `model_dir` 与 `dataset_dir`。
 
 ## 配置项详解
 
@@ -63,16 +66,32 @@ csghub-lite config set listen_addr 127.0.0.1:11435
 csghub-lite serve --listen :9090
 ```
 
-### model_dir
+### storage_dir
 
-本地模型的存储目录。
+模型和数据集共用的本地存储根目录。
 
-- 默认值: `~/.csghub-lite/models`
-- 目录结构: `<model_dir>/<namespace>/<name>/`
+- 默认值: `~/.csghub-lite`
+- 目录结构:
+  - 模型: `<storage_dir>/models/<namespace>/<name>/`
+  - 数据集: `<storage_dir>/datasets/<namespace>/<name>/`
 
 ```bash
 # 使用大容量磁盘
-csghub-lite config set model_dir /data/llm-models
+csghub-lite config set storage_dir /data/csghub-lite
+```
+
+### model_dir / dataset_dir
+
+这两个是实际生效的模型目录和数据集目录，通常由 `storage_dir` 自动派生：
+
+- `model_dir = <storage_dir>/models`
+- `dataset_dir = <storage_dir>/datasets`
+
+如果确实需要，也可以单独覆盖：
+
+```bash
+csghub-lite config set model_dir /data/models
+csghub-lite config set dataset_dir /data/datasets
 ```
 
 ## 管理命令
@@ -83,6 +102,7 @@ csghub-lite config show
 
 # 获取单个配置
 csghub-lite config get server_url
+csghub-lite config get storage_dir
 
 # 设置配置
 csghub-lite config set server_url https://my-csghub.example.com
@@ -93,12 +113,13 @@ csghub-lite config set server_url https://my-csghub.example.com
 ```
 ~/.csghub-lite/
 ├── config.json                    # 配置文件
-└── models/                        # 模型存储目录
-    └── Qwen/
-        └── Qwen3-0.6B-GGUF/
-            ├── manifest.json      # 模型元信息
-            ├── Qwen3-0.6B-Q8_0.gguf
-            ├── README.md
-            ├── LICENSE
-            └── ...
+├── models/                        # 模型存储目录
+│   └── Qwen/
+│       └── Qwen3-0.6B-GGUF/
+│           ├── manifest.json      # 模型元信息
+│           ├── Qwen3-0.6B-Q8_0.gguf
+│           ├── README.md
+│           ├── LICENSE
+│           └── ...
+└── datasets/                      # 数据集存储目录
 ```

@@ -32,20 +32,27 @@ csghub-lite config set <key> <value>
 
 | Key | 默认值 | 说明 |
 |-----|--------|------|
+| `storage_dir` | `~/.csghub-lite` | 模型和数据集共用的本地存储根目录，推荐优先设置 |
 | `server_url` | `https://hub.opencsg.com` | CSGHub 平台地址 |
-| `model_dir` | `~/.csghub-lite/models` | 本地模型存储目录 |
+| `model_dir` | `~/.csghub-lite/models` | 实际模型存储目录，通常由 `storage_dir` 自动派生 |
+| `dataset_dir` | `~/.csghub-lite/datasets` | 实际数据集存储目录，通常由 `storage_dir` 自动派生 |
 | `listen_addr` | `:11435` | API 服务监听地址 |
 | `token` | （空） | CSGHub 访问令牌 |
 
 ## 配置文件
 
-配置文件位于 `~/.csghub-lite/config.json`，JSON 格式：
+配置文件位于 `~/.csghub-lite/config.json`。
+
+CLI 和 Web 设置页提供 `storage_dir` 这个便捷键；保存时会把它展开为配置文件里的 `model_dir` 和 `dataset_dir`。
+
+JSON 示例：
 
 ```json
 {
   "server_url": "https://hub.opencsg.com",
   "listen_addr": ":11435",
-  "model_dir": "/Users/user/.csghub-lite/models"
+  "model_dir": "/Users/user/.csghub-lite/models",
+  "dataset_dir": "/Users/user/.csghub-lite/datasets"
 }
 ```
 
@@ -58,8 +65,15 @@ csghub-lite config show
 # 切换到私有化部署
 csghub-lite config set server_url https://my-csghub.example.com
 
-# 修改模型存储路径
+# 修改公共存储根目录（推荐）
+csghub-lite config set storage_dir /data/csghub-lite
+
+# 查看公共存储根目录
+csghub-lite config get storage_dir
+
+# 如有需要，也可以单独覆盖模型或数据集目录
 csghub-lite config set model_dir /data/models
+csghub-lite config set dataset_dir /data/datasets
 
 # 修改 API 端口
 csghub-lite config set listen_addr :8080

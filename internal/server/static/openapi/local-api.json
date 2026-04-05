@@ -1200,7 +1200,7 @@
                 "$ref": "#/components/schemas/SettingsUpdateRequest"
               },
               "example": {
-                "model_dir": "/data/models"
+                "storage_dir": "/data/csghub-lite"
               }
             }
           }
@@ -1237,7 +1237,7 @@
                 "$ref": "#/components/schemas/DirectoryBrowseRequest"
               },
               "example": {
-                "path": "/Users/user/.csghub-lite/models"
+                "path": "/Users/user/.csghub-lite"
               }
             }
           }
@@ -2241,13 +2241,21 @@
         "additionalProperties": false,
         "required": [
           "version",
-          "model_dir"
+          "storage_dir",
+          "model_dir",
+          "dataset_dir"
         ],
         "properties": {
           "version": {
             "type": "string"
           },
+          "storage_dir": {
+            "type": "string"
+          },
           "model_dir": {
+            "type": "string"
+          },
+          "dataset_dir": {
             "type": "string"
           }
         }
@@ -2255,11 +2263,14 @@
       "SettingsUpdateRequest": {
         "type": "object",
         "additionalProperties": false,
-        "required": [
-          "model_dir"
-        ],
         "properties": {
+          "storage_dir": {
+            "type": "string"
+          },
           "model_dir": {
+            "type": "string"
+          },
+          "dataset_dir": {
             "type": "string"
           }
         }

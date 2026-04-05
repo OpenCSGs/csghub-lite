@@ -253,12 +253,16 @@ type DatasetPullResponse struct {
 }
 
 type SettingsResponse struct {
-	Version  string `json:"version"`
-	ModelDir string `json:"model_dir"`
+	Version    string `json:"version"`
+	StorageDir string `json:"storage_dir"`
+	ModelDir   string `json:"model_dir"`
+	DatasetDir string `json:"dataset_dir"`
 }
 
 type SettingsUpdateRequest struct {
-	ModelDir string `json:"model_dir"`
+	StorageDir string `json:"storage_dir,omitempty"`
+	ModelDir   string `json:"model_dir,omitempty"`
+	DatasetDir string `json:"dataset_dir,omitempty"`
 }
 
 type DirectoryBrowseRequest struct {

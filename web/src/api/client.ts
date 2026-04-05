@@ -86,7 +86,9 @@ export interface SystemInfo {
 
 export interface AppSettings {
   version: string;
+  storage_dir: string;
   model_dir: string;
+  dataset_dir: string;
 }
 
 export interface LocalDirectoryEntry {
@@ -290,7 +292,7 @@ export async function getSettings(): Promise<AppSettings> {
   return fetchJSON<AppSettings>("/api/settings");
 }
 
-export async function saveSettings(patch: { model_dir: string }): Promise<AppSettings> {
+export async function saveSettings(patch: { storage_dir?: string; model_dir?: string; dataset_dir?: string }): Promise<AppSettings> {
   return fetchJSON<AppSettings>("/api/settings", {
     method: "POST",
     headers: { "Content-Type": "application/json" },

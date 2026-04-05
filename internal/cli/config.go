@@ -2,10 +2,15 @@ package cli
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
 
 	"github.com/opencsgs/csghub-lite/internal/config"
 	"github.com/spf13/cobra"
 )
+
+const supportedConfigKeys = "server_url, storage_dir, model_dir, dataset_dir, listen_addr, token"
 
 func newConfigCmd() *cobra.Command {
 	cmd := &cobra.Command{
@@ -20,7 +25,7 @@ func newConfigCmd() *cobra.Command {
 func newConfigSetCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "set KEY VALUE",
-		Short: "Set a configuration value (server_url, model_dir, listen_addr)",
+		Short: "Set a configuration value",
 		Args:  cobra.ExactArgs(2),
 		RunE:  runConfigSet,
 	}
@@ -49,23 +54,54 @@ func runConfigSet(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("loading config: %w", err)
 	}
 
-	key, value := args[0], args[1]
+	key, value := strings.TrimSpace(args[0]), args[1]
 	switch key {
 	case "server_url":
-		cfg.ServerURL = value
+		cfg.ServerURL = strings.TrimSpace(value)
+	case "storage_dir":
+		dir, err := requiredPathValue(value)
+		if err != nil {
+			return fmt.Errorf("invalid storage_dir: %w", err)
+		}
+		cfg.ModelDir = config.ModelDirForStorage(dir)
+		cfg.DatasetDir = config.DatasetDirForStorage(dir)
+		if err := ensureDir(cfg.ModelDir); err != nil {
+			return fmt.Errorf("creating model directory: %w", err)
+		}
+		if err := ensureDir(cfg.DatasetDir); err != nil {
+			return fmt.Errorf("creating dataset directory: %w", err)
+		}
 	case "model_dir":
-		cfg.ModelDir = value
+		dir, err := requiredPathValue(value)
+		if err != nil {
+			return fmt.Errorf("invalid model_dir: %w", err)
+		}
+		cfg.ModelDir = dir
+		if err := ensureDir(cfg.ModelDir); err != nil {
+			return fmt.Errorf("creating model directory: %w", err)
+		}
+	case "dataset_dir":
+		dir, err := requiredPathValue(value)
+		if err != nil {
+			return fmt.Errorf("invalid dataset_dir: %w", err)
+		}
+		cfg.DatasetDir = dir
+		if err := ensureDir(cfg.DatasetDir); err != nil {
+			return fmt.Errorf("creating dataset directory: %w", err)
+		}
 	case "listen_addr":
-		cfg.ListenAddr = value
+		cfg.ListenAddr = strings.TrimSpace(value)
+	case "token":
+		cfg.Token = strings.TrimSpace(value)
 	default:
-		return fmt.Errorf("unknown config key %q (valid: server_url, model_dir, listen_addr)", key)
+		return fmt.Errorf("unknown config key %q (valid: %s)", key, supportedConfigKeys)
 	}
 
 	if err := config.Save(cfg); err != nil {
 		return fmt.Errorf("saving config: %w", err)
 	}
 
-	fmt.Printf("Set %s = %s\n", key, value)
+	fmt.Printf("Set %s = %s\n", key, displayConfigValue(cfg, key))
 	return nil
 }
 
@@ -79,18 +115,18 @@ func runConfigGet(cmd *cobra.Command, args []string) error {
 	switch key {
 	case "server_url":
 		fmt.Println(cfg.ServerURL)
+	case "storage_dir":
+		fmt.Println(cfg.StorageDir())
 	case "model_dir":
 		fmt.Println(cfg.ModelDir)
+	case "dataset_dir":
+		fmt.Println(cfg.DatasetDir)
 	case "listen_addr":
 		fmt.Println(cfg.ListenAddr)
 	case "token":
-		if cfg.Token != "" {
-			fmt.Println(cfg.Token[:4] + "****")
-		} else {
-			fmt.Println("(not set)")
-		}
+		fmt.Println(maskedToken(cfg.Token))
 	default:
-		return fmt.Errorf("unknown config key %q", key)
+		return fmt.Errorf("unknown config key %q (valid: %s)", key, supportedConfigKeys)
 	}
 	return nil
 }
@@ -102,12 +138,51 @@ func runConfigShow(cmd *cobra.Command, args []string) error {
 	}
 
 	fmt.Printf("server_url:  %s\n", cfg.ServerURL)
+	fmt.Printf("storage_dir: %s\n", cfg.StorageDir())
 	fmt.Printf("model_dir:   %s\n", cfg.ModelDir)
+	fmt.Printf("dataset_dir: %s\n", cfg.DatasetDir)
 	fmt.Printf("listen_addr: %s\n", cfg.ListenAddr)
-	if cfg.Token != "" {
-		fmt.Printf("token:       %s****\n", cfg.Token[:4])
-	} else {
-		fmt.Println("token:       (not set)")
-	}
+	fmt.Printf("token:       %s\n", maskedToken(cfg.Token))
 	return nil
+}
+
+func requiredPathValue(value string) (string, error) {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		return "", fmt.Errorf("path cannot be empty")
+	}
+	return filepath.Clean(trimmed), nil
+}
+
+func ensureDir(path string) error {
+	return os.MkdirAll(path, 0o755)
+}
+
+func maskedToken(token string) string {
+	if token == "" {
+		return "(not set)"
+	}
+	if len(token) <= 4 {
+		return token + "****"
+	}
+	return token[:4] + "****"
+}
+
+func displayConfigValue(cfg *config.Config, key string) string {
+	switch key {
+	case "storage_dir":
+		return cfg.StorageDir()
+	case "model_dir":
+		return cfg.ModelDir
+	case "dataset_dir":
+		return cfg.DatasetDir
+	case "listen_addr":
+		return cfg.ListenAddr
+	case "server_url":
+		return cfg.ServerURL
+	case "token":
+		return maskedToken(cfg.Token)
+	default:
+		return ""
+	}
 }

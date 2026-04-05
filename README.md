@@ -128,10 +128,14 @@ If the local server is running, you can also open the interactive API docs in yo
 
 Configuration is stored at `~/.csghub-lite/config.json`.
 
+The CLI and Web UI expose a convenience `storage_dir` setting. When you set it, csghub-lite expands it into the persisted `model_dir` and `dataset_dir`.
+
 | Key | Default | Description |
 |---|---|---|
+| `storage_dir` | `~/.csghub-lite` | Shared local storage root for models and datasets |
 | `server_url` | `https://hub.opencsg.com` | CSGHub platform URL |
-| `model_dir` | `~/.csghub-lite/models` | Local model storage directory |
+| `model_dir` | `~/.csghub-lite/models` | Effective local model storage directory |
+| `dataset_dir` | `~/.csghub-lite/datasets` | Effective local dataset storage directory |
 | `listen_addr` | `:11435` | API server listen address |
 | `token` | (none) | CSGHub access token |
 

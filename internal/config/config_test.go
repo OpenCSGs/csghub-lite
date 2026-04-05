@@ -131,3 +131,34 @@ func TestAppHome(t *testing.T) {
 		t.Errorf("AppHome() = %q, want absolute path", home)
 	}
 }
+
+func TestStorageDir(t *testing.T) {
+	root := filepath.Join(string(filepath.Separator), "tmp", "csghub-lite")
+	modelDir := filepath.Join(root, "models")
+	datasetDir := filepath.Join(root, "datasets")
+
+	if got := StorageDir(modelDir, datasetDir); got != root {
+		t.Fatalf("StorageDir(%q, %q) = %q, want %q", modelDir, datasetDir, got, root)
+	}
+}
+
+func TestStorageDirFallbacksToModelParent(t *testing.T) {
+	modelDir := filepath.Join(string(filepath.Separator), "data", "custom-model-cache")
+	datasetDir := filepath.Join(string(filepath.Separator), "other", "dataset-cache")
+	want := filepath.Dir(modelDir)
+
+	if got := StorageDir(modelDir, datasetDir); got != want {
+		t.Fatalf("StorageDir(%q, %q) = %q, want %q", modelDir, datasetDir, got, want)
+	}
+}
+
+func TestStorageSubdirsForRoot(t *testing.T) {
+	root := filepath.Join(string(filepath.Separator), "srv", "csghub-data")
+
+	if got := ModelDirForStorage(root); got != filepath.Join(root, ModelsDir) {
+		t.Fatalf("ModelDirForStorage(%q) = %q", root, got)
+	}
+	if got := DatasetDirForStorage(root); got != filepath.Join(root, DatasetsDir) {
+		t.Fatalf("DatasetDirForStorage(%q) = %q", root, got)
+	}
+}
