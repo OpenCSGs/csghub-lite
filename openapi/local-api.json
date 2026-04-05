@@ -1185,6 +1185,81 @@
             }
           }
         }
+      },
+      "post": {
+        "tags": [
+          "System"
+        ],
+        "summary": "Update application settings",
+        "operationId": "updateSettings",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SettingsUpdateRequest"
+              },
+              "example": {
+                "model_dir": "/data/models"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated application settings.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SettingsResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          }
+        }
+      }
+    },
+    "/api/settings/directories": {
+      "post": {
+        "tags": [
+          "System"
+        ],
+        "summary": "Browse local directories",
+        "operationId": "browseSettingsDirectories",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DirectoryBrowseRequest"
+              },
+              "example": {
+                "path": "/Users/user/.csghub-lite/models"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Browsable subdirectories and navigation roots for the requested directory.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DirectoryBrowseResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
       }
     },
     "/api/cloud/auth": {
@@ -2104,6 +2179,63 @@
           }
         }
       },
+      "DirectoryBrowseRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "path": {
+            "type": "string"
+          }
+        }
+      },
+      "DirectoryEntry": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "name",
+          "path"
+        ],
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          }
+        }
+      },
+      "DirectoryBrowseResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "current_path",
+          "roots",
+          "entries"
+        ],
+        "properties": {
+          "current_path": {
+            "type": "string"
+          },
+          "parent_path": {
+            "type": "string"
+          },
+          "home_path": {
+            "type": "string"
+          },
+          "roots": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "entries": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DirectoryEntry"
+            }
+          }
+        }
+      },
       "SettingsResponse": {
         "type": "object",
         "additionalProperties": false,
@@ -2115,6 +2247,18 @@
           "version": {
             "type": "string"
           },
+          "model_dir": {
+            "type": "string"
+          }
+        }
+      },
+      "SettingsUpdateRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "model_dir"
+        ],
+        "properties": {
           "model_dir": {
             "type": "string"
           }

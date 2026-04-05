@@ -19,6 +19,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/opencsgs/csghub-lite/internal/hardware"
 )
 
 const (
@@ -669,7 +671,7 @@ func (e *llamaEngine) ModelName() string {
 }
 
 func hasGPU() bool {
-	if _, err := exec.LookPath("nvidia-smi"); err == nil {
+	if _, err := hardware.ResolveNVIDIASMI(); err == nil {
 		return true
 	}
 	if runtime.GOOS == "linux" {

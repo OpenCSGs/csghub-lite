@@ -9,11 +9,13 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"runtime"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/opencsgs/csghub-lite/internal/config"
+	"github.com/opencsgs/csghub-lite/internal/hardware"
 )
 
 // float2 is a float64 that marshals to JSON with at most 2 decimal places.
@@ -47,6 +49,34 @@ type gpuInfo struct {
 
 // GET /api/settings -- application settings (version, model directory, etc.)
 func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]string{
+		"version":   s.version,
+		"model_dir": s.cfg.ModelDir,
+	})
+}
+
+// POST /api/settings -- update application settings (e.g., model directory)
+func (s *Server) handleSettingsUpdate(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		ModelDir string `json:"model_dir"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	if req.ModelDir != "" {
+		if err := os.MkdirAll(req.ModelDir, 0o755); err != nil {
+			http.Error(w, "Invalid model directory: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+		s.cfg.ModelDir = req.ModelDir
+		if err := config.Save(s.cfg); err != nil {
+			http.Error(w, "Failed to save config: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+	}
+
 	writeJSON(w, http.StatusOK, map[string]string{
 		"version":   s.version,
 		"model_dir": s.cfg.ModelDir,
@@ -188,7 +218,7 @@ func getGPUInfo(systemMemoryTotal uint64) gpuInfo {
 }
 
 func getNVIDIAGPUInfo(systemMemoryTotal uint64) (gpuInfo, bool) {
-	binary, err := resolveNVIDIASMI()
+	binary, err := hardware.ResolveNVIDIASMI()
 	if err != nil {
 		return gpuInfo{}, false
 	}
@@ -204,33 +234,6 @@ func getNVIDIAGPUInfo(systemMemoryTotal uint64) (gpuInfo, bool) {
 		info.VRAMTotal = systemMemoryTotal
 	}
 	return info, ok
-}
-
-func resolveNVIDIASMI() (string, error) {
-	if path, err := exec.LookPath("nvidia-smi"); err == nil {
-		return path, nil
-	}
-
-	candidates := []string{
-		"/usr/bin/nvidia-smi",
-		"/usr/local/nvidia/bin/nvidia-smi",
-		"/opt/nvidia/bin/nvidia-smi",
-	}
-	if runtime.GOOS == "windows" {
-		if programFiles := os.Getenv("ProgramFiles"); programFiles != "" {
-			candidates = append(candidates, filepath.Join(programFiles, "NVIDIA Corporation", "NVSMI", "nvidia-smi.exe"))
-		}
-		if programFilesX86 := os.Getenv("ProgramFiles(x86)"); programFilesX86 != "" {
-			candidates = append(candidates, filepath.Join(programFilesX86, "NVIDIA Corporation", "NVSMI", "nvidia-smi.exe"))
-		}
-	}
-
-	for _, candidate := range candidates {
-		if _, err := os.Stat(candidate); err == nil {
-			return candidate, nil
-		}
-	}
-	return "", exec.ErrNotFound
 }
 
 func parseNVIDIASMIOutput(out []byte) (gpuInfo, bool) {

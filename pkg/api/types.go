@@ -252,6 +252,32 @@ type DatasetPullResponse struct {
 	Completed int64  `json:"completed,omitempty"`
 }
 
+type SettingsResponse struct {
+	Version  string `json:"version"`
+	ModelDir string `json:"model_dir"`
+}
+
+type SettingsUpdateRequest struct {
+	ModelDir string `json:"model_dir"`
+}
+
+type DirectoryBrowseRequest struct {
+	Path string `json:"path,omitempty"`
+}
+
+type DirectoryEntry struct {
+	Name string `json:"name"`
+	Path string `json:"path"`
+}
+
+type DirectoryBrowseResponse struct {
+	CurrentPath string           `json:"current_path"`
+	ParentPath  string           `json:"parent_path,omitempty"`
+	HomePath    string           `json:"home_path,omitempty"`
+	Roots       []string         `json:"roots"`
+	Entries     []DirectoryEntry `json:"entries"`
+}
+
 // -- AI Apps request/response types --
 
 type AIAppActionRequest struct {

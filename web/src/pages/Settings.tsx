@@ -1,9 +1,17 @@
 import { signal } from "@preact/signals";
 import { useEffect } from "preact/hooks";
+import { DirectoryPickerDialog } from "../components/DirectoryPickerDialog";
 import { t, locale, setLocale } from "../i18n";
 import type { Locale } from "../i18n";
-import { clearCloudToken, getCloudAuthStatus, saveCloudToken } from "../api/client";
-import type { CloudAuthStatus } from "../api/client";
+import {
+  browseLocalDirectories,
+  clearCloudToken,
+  getCloudAuthStatus,
+  getSettings,
+  saveCloudToken,
+  saveSettings,
+} from "../api/client";
+import type { AppSettings, CloudAuthStatus, LocalDirectoryBrowseResponse } from "../api/client";
 
 const contextLengthSteps = [4096, 8192, 16384, 32768, 65536, 131072, 262144];
 const contextLengthLabels = ["4k", "8k", "16k", "32k", "64k", "128k", "256k"];
@@ -17,6 +25,13 @@ const cloudTokenInput = signal("");
 const cloudAuthError = signal("");
 const isClearingCloudToken = signal(false);
 const isSavingCloudToken = signal(false);
+const isSavingModelDir = signal(false);
+const modelDirInput = signal("");
+const modelDirError = signal("");
+const isBrowsingModelDir = signal(false);
+const isModelDirPickerOpen = signal(false);
+const modelDirBrowser = signal<LocalDirectoryBrowseResponse | null>(null);
+const modelDirBrowserError = signal("");
 
 function loadContextIndex(): number {
   try {
@@ -45,12 +60,17 @@ function resetDefaults() {
   fetchSettings();
 }
 
+function applySettings(data: AppSettings) {
+  modelLocation.value = data.model_dir || "";
+  modelDirInput.value = data.model_dir || "";
+  appVersion.value = data.version || "";
+}
+
 function fetchSettings() {
-  fetch("/api/settings")
-    .then((r) => r.json())
-    .then((data: { version: string; model_dir: string }) => {
-      modelLocation.value = data.model_dir || "";
-      appVersion.value = data.version || "";
+  getSettings()
+    .then((data) => {
+      applySettings(data);
+      modelDirError.value = "";
     })
     .catch(() => {});
 }
@@ -71,6 +91,50 @@ function openExternal(url?: string) {
   if (url) {
     window.open(url, "_blank", "noopener,noreferrer");
   }
+}
+
+async function saveModelDir() {
+  const newDir = modelDirInput.value.trim();
+  if (!newDir) return;
+
+  isSavingModelDir.value = true;
+  modelDirError.value = "";
+  try {
+    const data = await saveSettings({ model_dir: newDir });
+    applySettings(data);
+  } catch (err: any) {
+    modelDirError.value = err?.message || t("settings.modelDirSaveFailed");
+  } finally {
+    isSavingModelDir.value = false;
+  }
+}
+
+async function browseModelDir(path?: string) {
+  isBrowsingModelDir.value = true;
+  modelDirBrowserError.value = "";
+  try {
+    modelDirBrowser.value = await browseLocalDirectories(path);
+  } catch (err: any) {
+    modelDirBrowserError.value = err?.message || t("settings.directoryBrowseFailed");
+  } finally {
+    isBrowsingModelDir.value = false;
+  }
+}
+
+function openModelDirPicker() {
+  isModelDirPickerOpen.value = true;
+  void browseModelDir(modelLocation.value || modelDirInput.value);
+}
+
+function closeModelDirPicker() {
+  isModelDirPickerOpen.value = false;
+  modelDirBrowserError.value = "";
+}
+
+function selectModelDir(path: string) {
+  modelDirInput.value = path;
+  modelDirError.value = "";
+  closeModelDirPicker();
 }
 
 function cloudUserLabel(status: CloudAuthStatus | null): string {
@@ -156,11 +220,32 @@ export function Settings() {
           <span class="font-semibold text-gray-900">{t("settings.modelLocation")}</span>
         </div>
         <p class="text-sm text-gray-500 mb-3 ml-7">{t("settings.modelLocationDesc")}</p>
-        <div class="ml-7">
-          <span class="inline-block px-4 py-2.5 border border-gray-200 rounded-lg text-sm text-gray-500 bg-gray-50 select-all">
-            {modelLocation.value || "..."}
-          </span>
+        <div class="ml-7 flex flex-col sm:flex-row gap-3">
+          <input
+            type="text"
+            spellcheck={false}
+            class="flex-1 rounded-lg border border-gray-200 px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            value={modelDirInput.value}
+            onInput={(e) => (modelDirInput.value = (e.target as HTMLInputElement).value)}
+          />
+          <button
+            onClick={openModelDirPicker}
+            disabled={isBrowsingModelDir.value}
+            class="px-4 py-2 border border-gray-200 rounded-lg text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-60 disabled:cursor-not-allowed transition-colors"
+          >
+            {isBrowsingModelDir.value ? "..." : t("settings.browse")}
+          </button>
+          <button
+            onClick={() => void saveModelDir()}
+            disabled={isSavingModelDir.value || !modelDirInput.value.trim() || modelDirInput.value.trim() === modelLocation.value}
+            class="px-4 py-2 border border-indigo-200 rounded-lg text-sm text-indigo-700 hover:bg-indigo-50 disabled:opacity-60 disabled:cursor-not-allowed transition-colors"
+          >
+            {isSavingModelDir.value ? "..." : t("settings.save")}
+          </button>
         </div>
+        {modelDirError.value && (
+          <p class="mt-3 ml-7 text-sm text-red-600">{modelDirError.value}</p>
+        )}
       </div>
 
       {/* Context length */}
@@ -353,6 +438,16 @@ export function Settings() {
           {t("settings.resetDefaults")}
         </button>
       </div>
+
+      <DirectoryPickerDialog
+        open={isModelDirPickerOpen.value}
+        loading={isBrowsingModelDir.value}
+        data={modelDirBrowser.value}
+        error={modelDirBrowserError.value}
+        onClose={closeModelDirPicker}
+        onBrowse={(path) => void browseModelDir(path)}
+        onSelect={selectModelDir}
+      />
     </div>
   );
 }

@@ -101,6 +101,30 @@ function Ensure-PathContains([string]$dir) {
     }
 }
 
+function Resolve-NVIDIASMI {
+    $cmd = Get-Command "nvidia-smi" -ErrorAction SilentlyContinue
+    if ($cmd) {
+        return $cmd.Source
+    }
+
+    $candidates = @()
+    if ($env:ProgramFiles) {
+        $candidates += Join-Path $env:ProgramFiles "NVIDIA Corporation\NVSMI\nvidia-smi.exe"
+    }
+    $programFilesX86 = ${env:ProgramFiles(x86)}
+    if ($programFilesX86) {
+        $candidates += Join-Path $programFilesX86 "NVIDIA Corporation\NVSMI\nvidia-smi.exe"
+    }
+
+    foreach ($candidate in $candidates) {
+        if (Test-Path -LiteralPath $candidate -PathType Leaf) {
+            return $candidate
+        }
+    }
+
+    return $null
+}
+
 function Install-EnterpriseLicense([string]$dir) {
     if ($env:EE -ne "1") { return }
 
@@ -249,7 +273,8 @@ function Install-LlamaServer {
         return
     }
 
-    $hasCuda = [bool](Get-Command "nvidia-smi" -ErrorAction SilentlyContinue)
+    $nvidiaSmi = Resolve-NVIDIASMI
+    $hasCuda = [bool]$nvidiaSmi
 
     # Build ordered list of candidate assets (best match first)
     $candidates = @()

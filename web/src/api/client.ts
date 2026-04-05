@@ -84,6 +84,24 @@ export interface SystemInfo {
   gpu_shared_memory: boolean;
 }
 
+export interface AppSettings {
+  version: string;
+  model_dir: string;
+}
+
+export interface LocalDirectoryEntry {
+  name: string;
+  path: string;
+}
+
+export interface LocalDirectoryBrowseResponse {
+  current_path: string;
+  parent_path?: string;
+  home_path?: string;
+  roots: string[];
+  entries: LocalDirectoryEntry[];
+}
+
 export interface AIAppInfo {
   id: string;
   installed: boolean;
@@ -266,6 +284,26 @@ export async function getPs(): Promise<RunningModel[]> {
 
 export async function getCloudAuthStatus(): Promise<CloudAuthStatus> {
   return fetchJSON<CloudAuthStatus>("/api/cloud/auth");
+}
+
+export async function getSettings(): Promise<AppSettings> {
+  return fetchJSON<AppSettings>("/api/settings");
+}
+
+export async function saveSettings(patch: { model_dir: string }): Promise<AppSettings> {
+  return fetchJSON<AppSettings>("/api/settings", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(patch),
+  });
+}
+
+export async function browseLocalDirectories(path?: string): Promise<LocalDirectoryBrowseResponse> {
+  return fetchJSON<LocalDirectoryBrowseResponse>("/api/settings/directories", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ path: path || "" }),
+  });
 }
 
 export async function saveCloudToken(token: string): Promise<CloudAuthStatus> {

@@ -40,6 +40,8 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("GET /api/marketplace/datasets", s.handleMarketplaceDatasets)
 	mux.HandleFunc("GET /api/system", s.handleSystem)
 	mux.HandleFunc("GET /api/settings", s.handleSettings)
+	mux.HandleFunc("POST /api/settings", s.handleSettingsUpdate)
+	mux.HandleFunc("POST /api/settings/directories", s.handleSettingsDirectories)
 	mux.HandleFunc("GET /api/cloud/auth", s.handleCloudAuthStatus)
 	mux.HandleFunc("POST /api/cloud/auth/token", s.handleCloudAuthTokenSave)
 	mux.HandleFunc("DELETE /api/cloud/auth/token", s.handleCloudAuthTokenDelete)
