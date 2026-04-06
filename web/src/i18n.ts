@@ -363,7 +363,7 @@ const en: Record<string, string> = {
 const zh: Record<string, string> = {
   // Nav
   "nav.dashboard": "仪表盘",
-  "nav.marketplace": "模型市场",
+  "nav.marketplace": "市场",
   "nav.library": "模型库",
   "nav.chat": "对话",
   "nav.aiApps": "应用",
@@ -400,7 +400,7 @@ const zh: Record<string, string> = {
   "dash.copied": "已复制!",
 
   // Marketplace
-  "mp.title": "模型市场",
+  "mp.title": "市场",
   "mp.subtitle": "模型应用市场，支持快速加载和使用。",
   "mp.models": "模型",
   "mp.datasets": "数据集",
@@ -594,7 +594,7 @@ const zh: Record<string, string> = {
   "lib.fileSize": "文件大小",
   "lib.dateTime": "日期时间",
   "lib.operation": "操作",
-  "lib.noModels": "未找到模型。请从模型市场拉取模型。",
+  "lib.noModels": "未找到模型。请从市场拉取模型。",
   "lib.noSearchResults": "没有匹配当前搜索条件的模型。",
   "lib.delete": "删除",
   "lib.deleteConfirm": "确定删除模型 \"{0}\" 吗？",
@@ -635,7 +635,7 @@ const zh: Record<string, string> = {
   "ds.fileSize": "文件大小",
   "ds.dateTime": "日期时间",
   "ds.operation": "操作",
-  "ds.noDatasets": "未找到数据集。请从模型市场拉取数据集。",
+  "ds.noDatasets": "未找到数据集。请从市场拉取数据集。",
   "ds.delete": "删除",
   "ds.deleteConfirm": "确定删除数据集 \"{0}\" 吗？",
   "ds.name": "名称",
