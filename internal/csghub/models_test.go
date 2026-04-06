@@ -18,6 +18,15 @@ func TestListModels(t *testing.T) {
 		if q.Get("search") != "qwen" {
 			t.Errorf("search = %q, want %q", q.Get("search"), "qwen")
 		}
+		if q.Get("tag_category") != "framework" {
+			t.Errorf("tag_category = %q, want %q", q.Get("tag_category"), "framework")
+		}
+		if q.Get("tag_name") != "gguf" {
+			t.Errorf("tag_name = %q, want %q", q.Get("tag_name"), "gguf")
+		}
+		if q.Get("framework") != "" {
+			t.Errorf("framework = %q, want empty", q.Get("framework"))
+		}
 		if q.Get("page") != "2" {
 			t.Errorf("page = %q, want %q", q.Get("page"), "2")
 		}
@@ -33,8 +42,10 @@ func TestListModels(t *testing.T) {
 
 	c := NewClient(server.URL, "")
 	models, total, err := c.ListModels(context.Background(), ModelListParams{
-		Search: "qwen",
-		Page:   2,
+		Search:      "qwen",
+		TagCategory: "framework",
+		TagName:     "gguf",
+		Page:        2,
 	})
 	if err != nil {
 		t.Fatalf("ListModels error: %v", err)

@@ -91,6 +91,27 @@ func TestQuantRankFromRepoPath(t *testing.T) {
 	}
 }
 
+func TestQuantLabel(t *testing.T) {
+	if g := QuantLabel("Qwen3-0.6B-Q8_0.gguf"); g != "Q8_0" {
+		t.Fatalf("QuantLabel = %q, want Q8_0", g)
+	}
+	if g := QuantLabel("model.gguf"); g != "" {
+		t.Fatalf("QuantLabel = %q, want empty", g)
+	}
+}
+
+func TestQuantLabelFromRepoPath(t *testing.T) {
+	if g := QuantLabelFromRepoPath("Q4_K_M/model.gguf"); g != "Q4_K_M" {
+		t.Fatalf("QuantLabelFromRepoPath(dir) = %q, want Q4_K_M", g)
+	}
+	if g := QuantLabelFromRepoPath("Q8_0/legacy-Q4_0.gguf"); g != "Q4_0" {
+		t.Fatalf("QuantLabelFromRepoPath(filename wins) = %q, want Q4_0", g)
+	}
+	if g := QuantLabelFromRepoPath("weights/model.gguf"); g != "" {
+		t.Fatalf("QuantLabelFromRepoPath = %q, want empty", g)
+	}
+}
+
 func TestFilterWeightGGUFFiles_nestedDirs(t *testing.T) {
 	entries := []FileEntry{
 		{Path: "Q4_0/model.gguf", Name: "model.gguf"},

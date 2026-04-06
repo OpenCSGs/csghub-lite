@@ -25,6 +25,15 @@ func (c *Client) ListModels(ctx context.Context, params ModelListParams) ([]Mode
 	if params.Source != "" {
 		q.Set("source", params.Source)
 	}
+	if params.Framework != "" {
+		q.Set("framework", params.Framework)
+	}
+	if params.TagCategory != "" {
+		q.Set("tag_category", params.TagCategory)
+	}
+	if params.TagName != "" {
+		q.Set("tag_name", params.TagName)
+	}
 
 	path := "/api/v1/models"
 	if encoded := q.Encode(); encoded != "" {

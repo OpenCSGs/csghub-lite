@@ -49,6 +49,22 @@ type gpuInfo struct {
 	SharedMemory   bool
 }
 
+type windowsCPUInfoPayload struct {
+	Processors []windowsProcessorInfo `json:"Processors"`
+	TotalUsage *float64               `json:"TotalUsage"`
+}
+
+type windowsProcessorInfo struct {
+	Name           string   `json:"Name"`
+	LoadPercentage *float64 `json:"LoadPercentage"`
+	MaxClockSpeed  float64  `json:"MaxClockSpeed"`
+}
+
+type windowsMemoryInfo struct {
+	TotalVisibleMemorySize uint64 `json:"TotalVisibleMemorySize"`
+	FreePhysicalMemory     uint64 `json:"FreePhysicalMemory"`
+}
+
 // GET /api/settings -- application settings (version, model directory, etc.)
 func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, currentSettingsResponse(s.cfg, s.version))
@@ -185,6 +201,11 @@ func getCPUInfo() (usage float64, clock string) {
 				}
 			}
 		}
+	case "windows":
+		out, err := runPowerShellCommand(`$processors = @(Get-CimInstance Win32_Processor -ErrorAction SilentlyContinue | Select-Object Name, LoadPercentage, MaxClockSpeed); $total = Get-CimInstance Win32_PerfFormattedData_PerfOS_Processor -ErrorAction SilentlyContinue | Where-Object { $_.Name -eq '_Total' } | Select-Object -ExpandProperty PercentProcessorTime -ErrorAction SilentlyContinue; [pscustomobject]@{ Processors = $processors; TotalUsage = $total } | ConvertTo-Json -Compress -Depth 3`)
+		if err == nil {
+			usage, clock = parseWindowsCPUInfo(out)
+		}
 	}
 	return
 }
@@ -229,8 +250,92 @@ func getRAMInfo() (used, total uint64, info string) {
 			total = memTotal
 			used = memTotal - memAvail
 		}
+	case "windows":
+		out, err := runPowerShellCommand(`Get-CimInstance Win32_OperatingSystem -ErrorAction SilentlyContinue | Select-Object TotalVisibleMemorySize, FreePhysicalMemory | ConvertTo-Json -Compress`)
+		if err == nil {
+			used, total, info = parseWindowsRAMInfo(out)
+		}
 	}
 	return
+}
+
+func runPowerShellCommand(script string) ([]byte, error) {
+	powershell, err := exec.LookPath("powershell")
+	if err != nil {
+		return nil, err
+	}
+	script = "[Console]::OutputEncoding = New-Object System.Text.UTF8Encoding $false; " + script
+	return exec.Command(
+		powershell,
+		"-NoProfile",
+		"-NonInteractive",
+		"-ExecutionPolicy",
+		"Bypass",
+		"-Command",
+		script,
+	).Output()
+}
+
+func parseWindowsCPUInfo(out []byte) (usage float64, clock string) {
+	var payload windowsCPUInfoPayload
+	if err := json.Unmarshal(out, &payload); err != nil {
+		return 0, ""
+	}
+
+	var loadTotal float64
+	var loadCount int
+	for _, processor := range payload.Processors {
+		if clock == "" {
+			clock = strings.TrimSpace(processor.Name)
+			if clock == "" && processor.MaxClockSpeed > 0 {
+				clock = formatProcessorClockMHz(processor.MaxClockSpeed)
+			}
+		}
+		if processor.LoadPercentage != nil {
+			loadTotal += *processor.LoadPercentage
+			loadCount++
+		}
+	}
+
+	if payload.TotalUsage != nil {
+		return normalizeUsagePercent(*payload.TotalUsage), clock
+	}
+	if loadCount > 0 {
+		return normalizeUsagePercent(loadTotal / float64(loadCount)), clock
+	}
+	return 0, clock
+}
+
+func parseWindowsRAMInfo(out []byte) (used, total uint64, info string) {
+	var payload windowsMemoryInfo
+	if err := json.Unmarshal(out, &payload); err != nil {
+		return 0, 0, ""
+	}
+
+	total = payload.TotalVisibleMemorySize * 1024
+	free := payload.FreePhysicalMemory * 1024
+	if free > total {
+		free = total
+	}
+	used = total - free
+	return used, total, ""
+}
+
+func formatProcessorClockMHz(speedMHz float64) string {
+	if speedMHz <= 0 {
+		return ""
+	}
+	return fmt.Sprintf("%.2f GHz", speedMHz/1000)
+}
+
+func normalizeUsagePercent(value float64) float64 {
+	switch {
+	case value < 0:
+		value = 0
+	case value > 100:
+		value = 100
+	}
+	return math.Round(value*100) / 100
 }
 
 func getGPUInfo(systemMemoryTotal uint64) gpuInfo {

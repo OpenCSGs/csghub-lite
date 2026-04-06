@@ -101,6 +101,45 @@ func TestParseMemoryString(t *testing.T) {
 	}
 }
 
+func TestParseWindowsCPUInfoUsesTotalUsage(t *testing.T) {
+	out := []byte(`{"Processors":[{"Name":"AMD Ryzen 7 8845HS","LoadPercentage":12,"MaxClockSpeed":3800}],"TotalUsage":37}`)
+
+	usage, clock := parseWindowsCPUInfo(out)
+	if usage != 37 {
+		t.Fatalf("unexpected CPU usage: %v", usage)
+	}
+	if clock != "AMD Ryzen 7 8845HS" {
+		t.Fatalf("unexpected CPU clock label: %q", clock)
+	}
+}
+
+func TestParseWindowsCPUInfoFallsBackToProcessorAverage(t *testing.T) {
+	out := []byte(`{"Processors":[{"Name":"","LoadPercentage":10,"MaxClockSpeed":3000},{"Name":"","LoadPercentage":20,"MaxClockSpeed":3000}],"TotalUsage":null}`)
+
+	usage, clock := parseWindowsCPUInfo(out)
+	if usage != 15 {
+		t.Fatalf("unexpected fallback CPU usage: %v", usage)
+	}
+	if clock != "3.00 GHz" {
+		t.Fatalf("unexpected fallback CPU clock label: %q", clock)
+	}
+}
+
+func TestParseWindowsRAMInfo(t *testing.T) {
+	out := []byte(`{"TotalVisibleMemorySize":16711400,"FreePhysicalMemory":6412340}`)
+
+	used, total, info := parseWindowsRAMInfo(out)
+	if total != 16711400*1024 {
+		t.Fatalf("unexpected total memory: %d", total)
+	}
+	if used != (16711400-6412340)*1024 {
+		t.Fatalf("unexpected used memory: %d", used)
+	}
+	if info != "" {
+		t.Fatalf("unexpected RAM info label: %q", info)
+	}
+}
+
 func TestMemoryFieldUnsupported(t *testing.T) {
 	cases := []string{"N/A", "Not Supported", "not supported"}
 	for _, input := range cases {

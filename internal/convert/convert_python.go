@@ -18,6 +18,33 @@ import (
 // once per URL (e.g. GitLab mirror). When unset, the copy embedded in the binary is used
 // (no GitHub access required at runtime).
 
+const pythonDepsInstallArgs = "torch safetensors gguf transformers"
+
+func pythonInstallHint() string {
+	switch runtime.GOOS {
+	case "darwin":
+		return "  brew install python"
+	case "windows":
+		return "  winget install -e --id Python.Python.3.12\n" +
+			"  If `winget` is unavailable, download Python from https://python.org and enable `Add Python to PATH` during setup."
+	default:
+		return "  sudo apt update && sudo apt install -y python3 python3-pip    # Debian / Ubuntu\n" +
+			"  sudo dnf install -y python3 python3-pip                           # Fedora / RHEL / Rocky"
+	}
+}
+
+func pythonDepsInstallHint() string {
+	return fmt.Sprintf(
+		"  pip3 install %s\n"+
+			"  If `pip3` is unavailable, try:\n"+
+			"    python3 -m pip install %s\n"+
+			"    py -m pip install %s (Windows)",
+		pythonDepsInstallArgs,
+		pythonDepsInstallArgs,
+		pythonDepsInstallArgs,
+	)
+}
+
 func converterCacheDir() string {
 	home, _ := os.UserHomeDir()
 	return filepath.Join(home, ".csghub-lite", "tools")
@@ -181,26 +208,30 @@ func ConvertPython(modelDir string, progress ProgressFunc) (string, error) {
 
 	python, missingDeps := findPythonEnv()
 	if python == "" {
-		installHint := "brew install python3 (macOS) / apt install python3 (Linux) / https://python.org (Windows)"
 		return "", fmt.Errorf(
-			"this checkpoint is SafeTensors-only; csghub-lite converts it to GGUF once using the official llama.cpp Python script.\n" +
-				"Install packages are not bundled with the binary (no PyTorch inside the tarball).\n\n" +
-				"python3 was not found on PATH. Install Python: %s\n\n" +
-				"Then install conversion deps (one-time):\n" +
-				"  pip3 install torch safetensors gguf transformers\n\n" +
+			"this checkpoint is SafeTensors-only; csghub-lite converts it to GGUF once using the official llama.cpp Python script.\n"+
+				"The Python runtime and conversion packages are not bundled with the release binary.\n\n"+
+				"python3 was not found on PATH.\n"+
+				"Please complete these one-time setup steps:\n"+
+				"  1. Install Python 3 and make sure python3 / pip3 are available on PATH.\n"+
+				"%s\n"+
+				"  2. Install conversion deps:\n"+
+				"%s\n\n"+
 				"If the hub offers a GGUF build of the same model, download that instead to skip conversion.",
-			installHint,
+			pythonInstallHint(),
+			pythonDepsInstallHint(),
 		)
 	}
 	if missingDeps != "" {
 		return "", fmt.Errorf(
-			"this checkpoint is SafeTensors-only; csghub-lite converts it to GGUF once using the official llama.cpp Python script.\n" +
-				"Those Python packages are not bundled with the release binary.\n\n" +
-				"Missing: %s\n\n" +
-				"Install (one-time, space-separated):\n" +
-				"  pip3 install torch safetensors gguf transformers\n\n" +
+			"this checkpoint is SafeTensors-only; csghub-lite converts it to GGUF once using the official llama.cpp Python script.\n"+
+				"Those Python packages are not bundled with the release binary.\n\n"+
+				"Missing: %s\n\n"+
+				"Install (one-time):\n"+
+				"%s\n\n"+
 				"If a GGUF variant exists on CSGHub or Hugging Face, use it to skip conversion.",
 			missingDeps,
+			pythonDepsInstallHint(),
 		)
 	}
 

@@ -1058,6 +1058,14 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "name": "framework",
+            "in": "query",
+            "description": "Optional model type filter forwarded to CSGHub, such as `gguf` or `safetensors`.",
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -1070,6 +1078,52 @@
                 }
               }
             }
+          },
+          "502": {
+            "$ref": "#/components/responses/BadGateway"
+          }
+        }
+      }
+    },
+    "/api/marketplace/models/{namespace}/{name}": {
+      "get": {
+        "tags": [
+          "Marketplace"
+        ],
+        "summary": "Get marketplace model details",
+        "description": "Fetches a single marketplace model and, for GGUF repositories, summarizes the available quantization variants discovered in the upstream file tree.",
+        "operationId": "getMarketplaceModelDetail",
+        "parameters": [
+          {
+            "name": "namespace",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Marketplace model details and GGUF quantization summary.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MarketplaceModelDetailResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
           },
           "502": {
             "$ref": "#/components/responses/BadGateway"
@@ -3610,6 +3664,44 @@
           },
           "total": {
             "type": "integer"
+          }
+        }
+      },
+      "MarketplaceModelQuantization": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "name",
+          "file_count",
+          "example_path"
+        ],
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "file_count": {
+            "type": "integer"
+          },
+          "example_path": {
+            "type": "string"
+          }
+        }
+      },
+      "MarketplaceModelDetailResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "details"
+        ],
+        "properties": {
+          "details": {
+            "$ref": "#/components/schemas/MarketplaceModel"
+          },
+          "quantizations": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MarketplaceModelQuantization"
+            }
           }
         }
       },

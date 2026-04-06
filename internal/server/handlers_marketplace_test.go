@@ -1,0 +1,273 @@
+package server
+
+import (
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"strconv"
+	"testing"
+
+	"github.com/opencsgs/csghub-lite/internal/csghub"
+)
+
+func TestHandleMarketplaceModelsMapsFrameworkToTagFilter(t *testing.T) {
+	apiServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v1/models" {
+			t.Fatalf("unexpected upstream path: %s", r.URL.Path)
+		}
+		if got := r.URL.Query().Get("tag_category"); got != "framework" {
+			t.Fatalf("tag_category = %q, want %q", got, "framework")
+		}
+		if got := r.URL.Query().Get("tag_name"); got != "gguf" {
+			t.Fatalf("tag_name = %q, want %q", got, "gguf")
+		}
+		if got := r.URL.Query().Get("framework"); got != "" {
+			t.Fatalf("framework = %q, want empty", got)
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(csghub.ListResponse[csghub.Model]{
+			Msg:   "OK",
+			Data:  []csghub.Model{},
+			Total: 0,
+		})
+	}))
+	defer apiServer.Close()
+
+	s := newTestServer(t)
+	s.cfg.ServerURL = apiServer.URL
+
+	req := httptest.NewRequest(http.MethodGet, "/api/marketplace/models?framework=gguf", nil)
+	w := httptest.NewRecorder()
+
+	s.handleMarketplaceModels(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", w.Code, http.StatusOK)
+	}
+}
+
+func TestHandleMarketplaceModelsFallbackFiltersFrameworkTags(t *testing.T) {
+	allModels := []csghub.Model{
+		{
+			ID:   1,
+			Path: "ns/safetensors-one",
+			Tags: []csghub.Tag{{Name: "safetensors", Category: "framework", ShowName: "SafeTensors"}},
+		},
+		{
+			ID:   2,
+			Path: "ns/gguf-one",
+			Tags: []csghub.Tag{{Name: "gguf", Category: "framework", ShowName: "GGUF"}},
+		},
+		{
+			ID:   3,
+			Path: "ns/pytorch-one",
+			Tags: []csghub.Tag{{Name: "pytorch", Category: "framework", ShowName: "PyTorch"}},
+		},
+		{
+			ID:   4,
+			Path: "ns/gguf-two",
+			Tags: []csghub.Tag{{Name: "gguf", Category: "framework", ShowName: "GGUF"}},
+		},
+	}
+
+	apiServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v1/models" {
+			t.Fatalf("unexpected upstream path: %s", r.URL.Path)
+		}
+		if got := r.URL.Query().Get("tag_category"); got != "framework" {
+			t.Fatalf("tag_category = %q, want %q", got, "framework")
+		}
+		if got := r.URL.Query().Get("tag_name"); got != "gguf" {
+			t.Fatalf("tag_name = %q, want %q", got, "gguf")
+		}
+
+		page, _ := strconv.Atoi(r.URL.Query().Get("page"))
+		per, _ := strconv.Atoi(r.URL.Query().Get("per"))
+		if page <= 0 {
+			page = 1
+		}
+		if per <= 0 {
+			per = len(allModels)
+		}
+
+		start := (page - 1) * per
+		if start > len(allModels) {
+			start = len(allModels)
+		}
+		end := start + per
+		if end > len(allModels) {
+			end = len(allModels)
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(csghub.ListResponse[csghub.Model]{
+			Msg:   "OK",
+			Data:  allModels[start:end],
+			Total: len(allModels),
+		})
+	}))
+	defer apiServer.Close()
+
+	s := newTestServer(t)
+	s.cfg.ServerURL = apiServer.URL
+
+	req := httptest.NewRequest(http.MethodGet, "/api/marketplace/models?framework=gguf&page=1&per=2", nil)
+	w := httptest.NewRecorder()
+
+	s.handleMarketplaceModels(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", w.Code, http.StatusOK)
+	}
+
+	var resp struct {
+		Data  []csghub.Model `json:"data"`
+		Total int            `json:"total"`
+	}
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if len(resp.Data) != 2 {
+		t.Fatalf("data len = %d, want 2", len(resp.Data))
+	}
+	for _, model := range resp.Data {
+		if !marketplaceModelHasFramework(model.Tags, "gguf") {
+			t.Fatalf("model %q should have been filtered out", model.Path)
+		}
+	}
+	if resp.Data[0].Path != "ns/gguf-one" || resp.Data[1].Path != "ns/gguf-two" {
+		t.Fatalf("unexpected order after filtering: %#v", resp.Data)
+	}
+	if resp.Total != 2 {
+		t.Fatalf("total = %d, want 2", resp.Total)
+	}
+}
+
+func TestHandleMarketplaceModelDetailReturnsQuantizations(t *testing.T) {
+	apiServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/api/v1/models/Qwen/Qwen3-GGUF":
+			_ = json.NewEncoder(w).Encode(csghub.APIResponse[csghub.Model]{
+				Msg: "OK",
+				Data: csghub.Model{
+					ID:          1,
+					Name:        "Qwen3-GGUF",
+					Path:        "Qwen/Qwen3-GGUF",
+					Description: "GGUF model",
+					Likes:       12,
+					Downloads:   34,
+					License:     "apache-2.0",
+					Tags: []csghub.Tag{
+						{Name: "gguf", Category: "framework", ShowName: "GGUF"},
+						{Name: "text-generation", Category: "task", ShowName: "Text Generation"},
+					},
+					Metadata: csghub.ModelMetadata{
+						ModelParams:  7.6,
+						TensorType:   "F16",
+						Architecture: "QwenForCausalLM",
+					},
+				},
+			})
+		case "/api/v1/models/Qwen/Qwen3-GGUF/tree":
+			_ = json.NewEncoder(w).Encode(csghub.APIResponse[[]csghub.RepoFile]{
+				Msg: "OK",
+				Data: []csghub.RepoFile{
+					{Path: "Q8_0/Qwen3-Q8_0-00001-of-00002.gguf", Name: "Qwen3-Q8_0-00001-of-00002.gguf"},
+					{Path: "Q8_0/Qwen3-Q8_0-00002-of-00002.gguf", Name: "Qwen3-Q8_0-00002-of-00002.gguf"},
+					{Path: "Q4_K_M/Qwen3-Q4_K_M-00001-of-00002.gguf", Name: "Qwen3-Q4_K_M-00001-of-00002.gguf"},
+					{Path: "Q4_K_M/Qwen3-Q4_K_M-00002-of-00002.gguf", Name: "Qwen3-Q4_K_M-00002-of-00002.gguf"},
+					{Path: "mmproj/model-mmproj.gguf", Name: "model-mmproj.gguf"},
+				},
+			})
+		default:
+			t.Fatalf("unexpected upstream path: %s", r.URL.Path)
+		}
+	}))
+	defer apiServer.Close()
+
+	s := newTestServer(t)
+	s.cfg.ServerURL = apiServer.URL
+
+	req := httptest.NewRequest(http.MethodGet, "/api/marketplace/models/Qwen/Qwen3-GGUF", nil)
+	req.SetPathValue("namespace", "Qwen")
+	req.SetPathValue("name", "Qwen3-GGUF")
+	w := httptest.NewRecorder()
+
+	s.handleMarketplaceModelDetail(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", w.Code, http.StatusOK)
+	}
+
+	var resp marketplaceModelDetailResponse
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if resp.Details == nil {
+		t.Fatal("details = nil")
+	}
+	if resp.Details.Metadata.ModelParams != 7.6 {
+		t.Fatalf("model params = %v, want 7.6", resp.Details.Metadata.ModelParams)
+	}
+	if len(resp.Quantizations) != 2 {
+		t.Fatalf("quantizations len = %d, want 2", len(resp.Quantizations))
+	}
+	if resp.Quantizations[0].Name != "Q8_0" || resp.Quantizations[0].FileCount != 2 {
+		t.Fatalf("first quantization = %#v, want Q8_0 x2", resp.Quantizations[0])
+	}
+	if resp.Quantizations[1].Name != "Q4_K_M" || resp.Quantizations[1].FileCount != 2 {
+		t.Fatalf("second quantization = %#v, want Q4_K_M x2", resp.Quantizations[1])
+	}
+}
+
+func TestHandleMarketplaceModelDetailIgnoresTreeError(t *testing.T) {
+	apiServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/api/v1/models/Qwen/Qwen3-GGUF":
+			_ = json.NewEncoder(w).Encode(csghub.APIResponse[csghub.Model]{
+				Msg: "OK",
+				Data: csghub.Model{
+					ID:   1,
+					Name: "Qwen3-GGUF",
+					Path: "Qwen/Qwen3-GGUF",
+					Tags: []csghub.Tag{
+						{Name: "gguf", Category: "framework", ShowName: "GGUF"},
+					},
+				},
+			})
+		case "/api/v1/models/Qwen/Qwen3-GGUF/tree":
+			http.Error(w, "tree failed", http.StatusBadGateway)
+		default:
+			t.Fatalf("unexpected upstream path: %s", r.URL.Path)
+		}
+	}))
+	defer apiServer.Close()
+
+	s := newTestServer(t)
+	s.cfg.ServerURL = apiServer.URL
+
+	req := httptest.NewRequest(http.MethodGet, "/api/marketplace/models/Qwen/Qwen3-GGUF", nil)
+	req.SetPathValue("namespace", "Qwen")
+	req.SetPathValue("name", "Qwen3-GGUF")
+	w := httptest.NewRecorder()
+
+	s.handleMarketplaceModelDetail(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", w.Code, http.StatusOK)
+	}
+
+	var resp marketplaceModelDetailResponse
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if resp.Details == nil {
+		t.Fatal("details = nil")
+	}
+	if len(resp.Quantizations) != 0 {
+		t.Fatalf("quantizations = %#v, want empty when tree fails", resp.Quantizations)
+	}
+}

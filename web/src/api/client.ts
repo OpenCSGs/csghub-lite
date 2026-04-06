@@ -44,6 +44,29 @@ export interface ModelManifestResponse {
   files: ModelFileEntry[];
 }
 
+export interface MarketplaceTag {
+  name: string;
+  category: string;
+  show_name: string;
+  group?: string;
+  built_in?: boolean;
+}
+
+export interface MarketplaceRepository {
+  http_clone_url?: string;
+  ssh_clone_url?: string;
+}
+
+export interface MarketplaceModelMetadata {
+  model_params?: number;
+  tensor_type?: string;
+  architecture?: string;
+  mini_gpu_memory_gb?: number;
+  mini_gpu_finetune_gb?: number;
+  model_type?: string;
+  class_name?: string;
+}
+
 export interface MarketplaceModel {
   id: number;
   name: string;
@@ -51,10 +74,30 @@ export interface MarketplaceModel {
   description: string;
   likes: number;
   downloads: number;
-  tags: { name: string; category: string; show_name: string }[];
+  tags: MarketplaceTag[];
   license: string;
   created_at: string;
   updated_at: string;
+  nickname?: string;
+  repository_id?: number;
+  private?: boolean;
+  repository?: MarketplaceRepository;
+  default_branch?: string;
+  source?: string;
+  sync_status?: string;
+  metadata?: MarketplaceModelMetadata;
+  hf_path?: string;
+}
+
+export interface MarketplaceModelQuantization {
+  name: string;
+  file_count: number;
+  example_path: string;
+}
+
+export interface MarketplaceModelDetailResponse {
+  details: MarketplaceModel;
+  quantizations: MarketplaceModelQuantization[];
 }
 
 export interface MarketplaceDataset {
@@ -64,7 +107,7 @@ export interface MarketplaceDataset {
   description: string;
   likes: number;
   downloads: number;
-  tags: { name: string; category: string; show_name: string }[];
+  tags: MarketplaceTag[];
   license: string;
   created_at: string;
   updated_at: string;
@@ -776,18 +819,27 @@ export async function getDatasetFiles(
 export async function getMarketplaceModels(params: {
   search?: string;
   sort?: string;
+  framework?: string;
   page?: number;
   per?: number;
 }): Promise<{ data: MarketplaceModel[]; total: number }> {
   const q = new URLSearchParams();
   if (params.search) q.set("search", params.search);
   q.set("sort", params.sort || "trending");
+  if (params.framework) q.set("framework", params.framework);
   q.set("page", String(params.page || 1));
   q.set("per", String(params.per || 16));
   const resp = await fetchJSON<{ data: MarketplaceModel[]; total: number }>(
     `/api/marketplace/models?${q}`
   );
   return resp;
+}
+
+export async function getMarketplaceModelDetail(model: string): Promise<MarketplaceModelDetailResponse> {
+  const { namespace, name } = splitModelID(model);
+  return fetchJSON<MarketplaceModelDetailResponse>(
+    `/api/marketplace/models/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}`
+  );
 }
 
 export async function getMarketplaceDatasets(params: {

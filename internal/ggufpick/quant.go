@@ -108,6 +108,39 @@ func QuantRankFromRepoPath(relPath string) int {
 	return maxDir
 }
 
+// QuantLabelFromRepoPath extracts the canonical GGUF quantization label from a repo-relative path.
+// The filename takes precedence; if it has no known quant token, parent directories are considered.
+func QuantLabelFromRepoPath(relPath string) string {
+	// Repo tree paths from git APIs use '/'; normalize '\' so tests and Windows paths work.
+	relPath = strings.ReplaceAll(relPath, `\`, `/`)
+	relPath = filepath.ToSlash(relPath)
+	relPath = strings.TrimSpace(relPath)
+	if relPath == "" {
+		return ""
+	}
+	parts := strings.Split(relPath, "/")
+	if len(parts) == 0 {
+		return ""
+	}
+	base := parts[len(parts)-1]
+	if label := QuantLabel(base); label != "" {
+		return label
+	}
+	best := ""
+	bestRank := -1
+	for _, seg := range parts[:len(parts)-1] {
+		seg = strings.ToLower(strings.TrimSpace(seg))
+		if seg == "" {
+			continue
+		}
+		if rank, ok := quantRanks[seg]; ok && rank > bestRank {
+			bestRank = rank
+			best = strings.ToUpper(seg)
+		}
+	}
+	return best
+}
+
 func normalizeGGUFStem(basename string) string {
 	lower := strings.ToLower(basename)
 	if !strings.HasSuffix(lower, ".gguf") {
@@ -117,6 +150,15 @@ func normalizeGGUFStem(basename string) string {
 	stem = strings.ToLower(stem)
 	stem = shardSuffixRe.ReplaceAllString(stem, "")
 	return stem
+}
+
+// QuantLabel returns the canonical GGUF quantization label from a weight filename.
+func QuantLabel(basename string) string {
+	stem := normalizeGGUFStem(filepath.Base(basename))
+	if stem == "" {
+		return ""
+	}
+	return quantLabelFromStem(stem)
 }
 
 func quantRankFromStem(stem string) int {
@@ -135,6 +177,24 @@ func quantRankFromStem(stem string) int {
 		}
 	}
 	return -1
+}
+
+func quantLabelFromStem(stem string) string {
+	tokens := strings.Split(stem, "-")
+	if len(tokens) == 0 {
+		return ""
+	}
+	// Try last 1..3 tokens joined with underscores (e.g. q8_0, q4_k_m).
+	for n := 3; n >= 1; n-- {
+		if len(tokens) < n {
+			continue
+		}
+		cand := strings.Join(tokens[len(tokens)-n:], "_")
+		if _, ok := quantRanks[cand]; ok {
+			return strings.ToUpper(cand)
+		}
+	}
+	return ""
 }
 
 // FileEntry is a minimal file description for GGUF download filtering.

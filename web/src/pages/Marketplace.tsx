@@ -1,4 +1,4 @@
-import { useEffect } from "preact/hooks";
+import { useEffect, useState } from "preact/hooks";
 import { signal, computed } from "@preact/signals";
 import {
   getMarketplaceModels,
@@ -10,12 +10,18 @@ import {
 } from "../api/client";
 import type { MarketplaceModel, MarketplaceDataset } from "../api/client";
 import { t, locale } from "../i18n";
+import {
+  MarketplaceModelDetailDialog,
+  getMarketplaceModelFormats,
+} from "../components/MarketplaceModelDetailDialog";
 
 type Tab = "models" | "datasets";
 type ViewMode = "grid" | "list";
+type ModelFrameworkFilter = "" | "gguf" | "safetensors";
 const activeTab = signal<Tab>("models");
 const searchQuery = signal("");
 const sortBy = signal("trending");
+const frameworkFilter = signal<ModelFrameworkFilter>("");
 const viewMode = signal<ViewMode>("grid");
 const page = signal(1);
 const perPage = 16;
@@ -52,6 +58,7 @@ async function loadData() {
       const res = await getMarketplaceModels({
         search: searchQuery.value,
         sort: sortBy.value,
+        framework: frameworkFilter.value || undefined,
         page: page.value,
         per: perPage,
       });
@@ -75,6 +82,7 @@ async function loadData() {
 
 export function Marketplace() {
   void locale.value;
+  const [selectedModelPath, setSelectedModelPath] = useState("");
 
   useEffect(() => {
     loadData();
@@ -85,7 +93,13 @@ export function Marketplace() {
   useEffect(() => {
     page.value = 1;
     loadData();
-  }, [activeTab.value, sortBy.value]);
+  }, [activeTab.value, sortBy.value, frameworkFilter.value]);
+
+  useEffect(() => {
+    if (activeTab.value !== "models") {
+      setSelectedModelPath("");
+    }
+  }, [activeTab.value]);
 
   const handleSearch = (e: Event) => {
     e.preventDefault();
@@ -244,12 +258,27 @@ export function Marketplace() {
             <path stroke-linecap="round" stroke-linejoin="round" d="M3 4h13M3 8h9m-9 4h6m4 0l4-4m0 0l4 4m-4-4v12" />
           </svg>
         </div>
-        <button class="flex items-center gap-1.5 border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-600 hover:bg-gray-50">
-          <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" />
-          </svg>
-          {t("mp.filter")}
-        </button>
+        {activeTab.value === "models" && (
+          <div class="relative">
+            <svg class="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" />
+            </svg>
+            <select
+              class="appearance-none border border-gray-200 rounded-lg pl-8 pr-8 py-2 text-sm text-gray-600 focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white"
+              value={frameworkFilter.value}
+              onChange={(e) => (frameworkFilter.value = (e.target as HTMLSelectElement).value as ModelFrameworkFilter)}
+              aria-label={t("mp.modelType")}
+              title={t("mp.modelType")}
+            >
+              <option value="">{t("mp.allModelTypes")}</option>
+              <option value="gguf">{t("mp.modelTypeGGUF")}</option>
+              <option value="safetensors">{t("mp.modelTypeSafeTensors")}</option>
+            </select>
+            <svg class="absolute right-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
+            </svg>
+          </div>
+        )}
         <div class="flex border border-gray-200 rounded-lg overflow-hidden">
           <button
             onClick={() => (viewMode.value = "grid")}
@@ -277,14 +306,28 @@ export function Marketplace() {
         viewMode.value === "grid" ? (
           <div class="grid grid-cols-2 gap-4">
             {models.value.map((m) => (
-              <ModelGridCard key={m.id} model={m} pulling={pullingModels.value[m.path]} isLocal={localModelNames.value.has(m.path)} onDownload={handleDownload} />
+              <ModelGridCard
+                key={m.id}
+                model={m}
+                pulling={pullingModels.value[m.path]}
+                isLocal={localModelNames.value.has(m.path)}
+                onDownload={handleDownload}
+                onOpenDetail={setSelectedModelPath}
+              />
             ))}
             {models.value.length === 0 && <p class="col-span-2 text-center py-16 text-gray-400">{t("mp.noModels")}</p>}
           </div>
         ) : (
           <div class="space-y-0 divide-y divide-gray-100">
             {models.value.map((m) => (
-              <ModelCard key={m.id} model={m} pulling={pullingModels.value[m.path]} isLocal={localModelNames.value.has(m.path)} onDownload={handleDownload} />
+              <ModelCard
+                key={m.id}
+                model={m}
+                pulling={pullingModels.value[m.path]}
+                isLocal={localModelNames.value.has(m.path)}
+                onDownload={handleDownload}
+                onOpenDetail={setSelectedModelPath}
+              />
             ))}
             {models.value.length === 0 && <p class="text-center py-16 text-gray-400">{t("mp.noModels")}</p>}
           </div>
@@ -328,6 +371,14 @@ export function Marketplace() {
         </div>
       )}
 
+      {selectedModelPath && (
+        <MarketplaceModelDetailDialog
+          modelPath={selectedModelPath}
+          isLocal={localModelNames.value.has(selectedModelPath)}
+          onClose={() => setSelectedModelPath("")}
+        />
+      )}
+
     </div>
   );
 }
@@ -350,11 +401,13 @@ function ModelCard({
   pulling,
   isLocal,
   onDownload,
+  onOpenDetail,
 }: {
   model: MarketplaceModel;
   pulling?: { status: string; percent: number };
   isLocal?: boolean;
   onDownload: (path: string) => void;
+  onOpenDetail: (path: string) => void;
 }) {
   void locale.value;
   const tags = model.tags?.filter((t) => t.category === "task" || t.category === "license").slice(0, 3) || [];
@@ -362,8 +415,15 @@ function ModelCard({
   return (
     <div class="flex items-center justify-between py-4">
       <div class="flex-1 min-w-0">
-        <div class="flex items-center gap-2">
-          <span class="font-medium text-gray-900">{model.path}</span>
+        <div class="flex items-center gap-2 flex-wrap">
+          <button
+            onClick={() => onOpenDetail(model.path)}
+            class="font-medium text-gray-900 hover:text-indigo-600 transition-colors text-left break-all"
+            title={t("mp.viewDetails")}
+          >
+            {model.path}
+          </button>
+          <ModelFormatBadges model={model} />
           {isLocal && (
             <span class="px-1.5 py-0.5 text-xs bg-indigo-50 text-indigo-600 rounded font-medium">{t("mp.downloaded")}</span>
           )}
@@ -446,11 +506,13 @@ function ModelGridCard({
   pulling,
   isLocal,
   onDownload,
+  onOpenDetail,
 }: {
   model: MarketplaceModel;
   pulling?: { status: string; percent: number };
   isLocal?: boolean;
   onDownload: (path: string) => void;
+  onOpenDetail: (path: string) => void;
 }) {
   void locale.value;
   const tags = model.tags?.filter((t) => t.category === "task" || t.category === "license").slice(0, 2) || [];
@@ -464,7 +526,14 @@ function ModelGridCard({
               <path stroke-linecap="round" stroke-linejoin="round" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
             </svg>
           </div>
-          <span class="font-medium text-gray-900 text-sm truncate">{model.path}</span>
+          <button
+            onClick={() => onOpenDetail(model.path)}
+            class="min-w-0 flex-1 font-medium text-gray-900 text-sm truncate text-left hover:text-indigo-600 transition-colors"
+            title={t("mp.viewDetails")}
+          >
+            {model.path}
+          </button>
+          <ModelFormatBadges model={model} />
         </div>
         <p class="text-sm text-gray-500 line-clamp-2 mb-3 min-h-[2.5rem]">
           {model.description || ""}
@@ -712,5 +781,33 @@ function StarIcon() {
     <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
       <path stroke-linecap="round" stroke-linejoin="round" d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z" />
     </svg>
+  );
+}
+
+function ModelFormatBadges({ model }: { model: MarketplaceModel }) {
+  const formatTags = getMarketplaceModelFormats(model);
+  if (formatTags.length === 0) {
+    return null;
+  }
+
+  return (
+    <>
+      {formatTags.map((formatTag) => {
+        const formatName = formatTag.name.trim().toLowerCase();
+        const label = formatTag.show_name?.trim()
+          || (formatName === "safetensors" ? "SafeTensors" : formatName === "gguf" ? "GGUF" : formatTag.name);
+        const tone = formatName === "gguf"
+          ? "bg-blue-50 text-blue-700"
+          : formatName === "safetensors"
+            ? "bg-emerald-50 text-emerald-700"
+            : "bg-gray-100 text-gray-700";
+
+        return (
+          <span key={`format:${formatTag.name}`} class={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${tone}`}>
+            {label}
+          </span>
+        );
+      })}
+    </>
   );
 }
