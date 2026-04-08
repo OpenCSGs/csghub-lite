@@ -3,6 +3,7 @@ import { signal, computed } from "@preact/signals";
 import { getTags, getPs, streamChat, getCloudAuthStatus, saveCloudToken } from "../api/client";
 import type { ModelInfo, ChatMessage, ContentPart, CloudAuthStatus } from "../api/client";
 import { t, locale } from "../i18n";
+import { parseReasoningText } from "../reasoning";
 
 interface Session {
   id: string;
@@ -749,6 +750,32 @@ function MessageBubble({ message, streaming }: { message: ChatMessage; streaming
 
   const renderContent = () => {
     if (typeof content === "string") {
+      if (!isUser) {
+        const parsed = parseReasoningText(content);
+        if (parsed.hasThinking) {
+          const thinkingLabel = parsed.thinkingOpen ? t("chat.thinkingLive") : t("chat.thinking");
+          return (
+            <>
+              <details
+                open={streaming || parsed.thinkingOpen}
+                class={`rounded-xl border border-amber-200 bg-amber-50/70 px-3 py-2 ${
+                  parsed.answer ? "mb-3" : ""
+                }`}
+              >
+                <summary class="cursor-pointer select-none text-xs font-medium text-amber-700">
+                  {thinkingLabel}
+                </summary>
+                {parsed.thinking && (
+                  <div class="mt-2 whitespace-pre-wrap text-xs leading-relaxed text-amber-900">
+                    {parsed.thinking}
+                  </div>
+                )}
+              </details>
+              {parsed.answer && <p class="whitespace-pre-wrap">{parsed.answer}</p>}
+            </>
+          );
+        }
+      }
       return <p class="whitespace-pre-wrap">{content}</p>;
     }
     if (Array.isArray(content)) {

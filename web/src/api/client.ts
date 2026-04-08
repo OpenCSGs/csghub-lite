@@ -1,3 +1,5 @@
+import { stripReasoningText } from "../reasoning";
+
 export interface ModelInfo {
   name: string;
   model: string;
@@ -471,10 +473,7 @@ export function pullModel(
 }
 
 function stripReasoningTags(text: string): string {
-  return text
-    .replace(/<think>[\s\S]*?<\/think>/gi, "")
-    .replace(/<\/?think>/gi, "")
-    .trim();
+  return stripReasoningText(text);
 }
 
 function sanitizeMessageForAPI(m: ChatMessage): ChatMessage {

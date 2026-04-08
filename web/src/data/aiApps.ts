@@ -48,6 +48,9 @@ export interface AIAppRuntimeState {
   logLines: string[];
 }
 
+const claudeCodeInstallScriptURL =
+  "https://git-devops.opencsg.com/opensource/csghub-lite/-/raw/main/internal/apps/scripts/claude-code-install.sh";
+
 export const aiAppCategoryOptions: Array<{ id: "all" | AIAppCategory; label: LocalizedText }> = [
   { id: "all", label: { en: "All", zh: "全部" } },
   { id: "coding", label: { en: "Coding", zh: "编程" } },
@@ -78,7 +81,7 @@ export const aiAppsCatalog: AIAppCatalogEntry[] = [
       en: "By default the installer reads a versioned Claude Code mirror and wires the launcher locally; set CSGHUB_LITE_CLAUDE_DIST_BASE_URL only when testing another mirror.",
       zh: "默认从版本化的 Claude Code 镜像读取 runtime 并在本地配置启动命令；仅在测试其他镜像时才需要设置 CSGHUB_LITE_CLAUDE_DIST_BASE_URL。",
     },
-    commandPreview: "curl -fsSL https://git-devops.opencsg.com/opensource/apps/-/raw/main/claude-code/install.sh | bash",
+    commandPreview: `curl -fsSL ${claudeCodeInstallScriptURL} | bash`,
     liveLogsReady: true,
     plannedSteps: [
       {

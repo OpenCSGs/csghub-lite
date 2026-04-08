@@ -35,6 +35,39 @@ func TestAppSpecsRequirePTYForClaudeInstall(t *testing.T) {
 	}
 }
 
+func TestClaudeInstallerMirrorURLsUseCurrentRepoScripts(t *testing.T) {
+	var claude appSpec
+	found := false
+	for _, spec := range appSpecs() {
+		if spec.id == "claude-code" {
+			claude = spec
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatal("claude-code spec not found")
+	}
+
+	wantUnix := repoRawBaseURL + "/internal/apps/scripts/claude-code-install.sh"
+	if claude.unix == nil || claude.unix.mirrorURL != wantUnix {
+		got := "<nil>"
+		if claude.unix != nil {
+			got = claude.unix.mirrorURL
+		}
+		t.Fatalf("claude-code unix mirrorURL = %q, want %q", got, wantUnix)
+	}
+
+	wantWindows := repoRawBaseURL + "/internal/apps/scripts/claude-code-install.ps1"
+	if claude.windows == nil || claude.windows.mirrorURL != wantWindows {
+		got := "<nil>"
+		if claude.windows != nil {
+			got = claude.windows.mirrorURL
+		}
+		t.Fatalf("claude-code windows mirrorURL = %q, want %q", got, wantWindows)
+	}
+}
+
 func TestDetectInstalledBinaryPathFallsBackToCommonDirs(t *testing.T) {
 	homeDir := setTempHome(t)
 	t.Setenv("PATH", "")

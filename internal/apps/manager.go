@@ -28,6 +28,7 @@ const (
 	progressModePercent       = "percent"
 	progressModeIndeterminate = "indeterminate"
 	mirrorBaseURL             = "https://git-devops.opencsg.com/opensource/apps/-/raw/main"
+	repoRawBaseURL            = "https://git-devops.opencsg.com/opensource/csghub-lite/-/raw/main"
 	installTimeout            = 20 * time.Minute
 	installerPTYCols          = 120
 	installerPTYRows          = 36
@@ -128,13 +129,13 @@ func appSpecs() []appSpec {
 			supported:    true,
 			versionArgs:  []string{"--version"},
 			unix: &scriptSource{
-				mirrorURL:    mirrorBaseURL + "/claude-code/install.sh",
+				mirrorURL:    repoRawBaseURL + "/internal/apps/scripts/claude-code-install.sh",
 				embeddedPath: "scripts/claude-code-install.sh",
 				args:         []string{"latest"},
 				requiresPTY:  true,
 			},
 			windows: &scriptSource{
-				mirrorURL:    mirrorBaseURL + "/claude-code/install.ps1",
+				mirrorURL:    repoRawBaseURL + "/internal/apps/scripts/claude-code-install.ps1",
 				embeddedPath: "scripts/claude-code-install.ps1",
 				args:         []string{"-Target", "latest"},
 				requiresPTY:  true,
