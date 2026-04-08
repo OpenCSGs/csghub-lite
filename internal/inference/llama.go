@@ -471,19 +471,7 @@ func (e *llamaEngine) Chat(ctx context.Context, messages []Message, opts Options
 }
 
 func (e *llamaEngine) chatOnce(ctx context.Context, messages []Message, opts Options, onToken TokenCallback) (string, error) {
-	reqBody := map[string]interface{}{
-		"messages":    messages,
-		"temperature": opts.Temperature,
-		"top_p":       opts.TopP,
-		"max_tokens":  opts.MaxTokens,
-		"stream":      onToken != nil,
-	}
-	if opts.Seed >= 0 {
-		reqBody["seed"] = opts.Seed
-	}
-	if len(opts.Stop) > 0 {
-		reqBody["stop"] = opts.Stop
-	}
+	reqBody := buildLlamaChatRequestBody(e.modelName, messages, opts, onToken != nil)
 
 	resp, err := e.ChatCompletion(ctx, reqBody)
 	if err != nil {
@@ -495,6 +483,30 @@ func (e *llamaEngine) chatOnce(ctx context.Context, messages []Message, opts Opt
 		return e.handleStream(resp.Body, onToken)
 	}
 	return e.handleNonStream(resp.Body)
+}
+
+func buildLlamaChatRequestBody(modelName string, messages []Message, opts Options, stream bool) map[string]interface{} {
+	reqBody := map[string]interface{}{
+		"messages":    messages,
+		"temperature": opts.Temperature,
+		"top_p":       opts.TopP,
+		"max_tokens":  opts.MaxTokens,
+		"stream":      stream,
+	}
+	if opts.Seed >= 0 {
+		reqBody["seed"] = opts.Seed
+	}
+	if len(opts.Stop) > 0 {
+		reqBody["stop"] = opts.Stop
+	}
+	if shouldDisableQwen35Thinking(modelName) {
+		// Qwen3.5-0.8B should default to non-thinking mode; without this explicit
+		// template kwarg, llama-server can drift into a reasoning loop.
+		reqBody["chat_template_kwargs"] = map[string]interface{}{
+			"enable_thinking": false,
+		}
+	}
+	return reqBody
 }
 
 func trimOldestNonSystemMessage(messages []Message) ([]Message, bool) {
@@ -599,6 +611,14 @@ func (e *llamaEngine) handleNonStream(body io.Reader) (string, error) {
 
 func shouldDebugQwen35(modelName string) bool {
 	return strings.Contains(strings.ToLower(modelName), "qwen3.5")
+}
+
+func shouldDisableQwen35Thinking(modelName string) bool {
+	modelName = strings.TrimSpace(strings.ToLower(modelName))
+	return modelName == "qwen/qwen3.5-0.8b" ||
+		modelName == "qwen3.5-0.8b" ||
+		strings.HasPrefix(modelName, "qwen/qwen3.5-0.8b:") ||
+		strings.HasPrefix(modelName, "qwen3.5-0.8b:")
 }
 
 func firstSystemText(messages []Message) string {

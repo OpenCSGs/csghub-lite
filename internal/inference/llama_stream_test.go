@@ -82,3 +82,33 @@ func TestHandleNonStreamDuplicateReasoningAndContent(t *testing.T) {
 		t.Errorf("got %q, want single 你好", got)
 	}
 }
+
+func TestBuildLlamaChatRequestBodyDisablesThinkingForQwen3508B(t *testing.T) {
+	opts := DefaultOptions()
+	opts.Seed = 7
+	opts.Stop = []string{"</stop>"}
+
+	reqBody := buildLlamaChatRequestBody("Qwen/Qwen3.5-0.8B", []Message{{Role: "user", Content: "hi"}}, opts, true)
+
+	kwargs, ok := reqBody["chat_template_kwargs"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("chat_template_kwargs missing or wrong type: %#v", reqBody["chat_template_kwargs"])
+	}
+	if got, ok := kwargs["enable_thinking"].(bool); !ok || got {
+		t.Fatalf("enable_thinking = %#v, want false", kwargs["enable_thinking"])
+	}
+	if got, ok := reqBody["seed"].(int); !ok || got != 7 {
+		t.Fatalf("seed = %#v, want 7", reqBody["seed"])
+	}
+	if got, ok := reqBody["stop"].([]string); !ok || len(got) != 1 || got[0] != "</stop>" {
+		t.Fatalf("stop = %#v, want [\"</stop>\"]", reqBody["stop"])
+	}
+}
+
+func TestBuildLlamaChatRequestBodyLeavesOtherModelsUntouched(t *testing.T) {
+	reqBody := buildLlamaChatRequestBody("Qwen/Qwen3-0.6B-GGUF", []Message{{Role: "user", Content: "hi"}}, DefaultOptions(), false)
+
+	if _, ok := reqBody["chat_template_kwargs"]; ok {
+		t.Fatalf("chat_template_kwargs unexpectedly set: %#v", reqBody["chat_template_kwargs"])
+	}
+}
