@@ -1,0 +1,29 @@
+---
+description: Build and upload custom llama.cpp Ubuntu CUDA tarballs to GitLab correctly
+alwaysApply: true
+---
+
+# llama.cpp Ubuntu CUDA Mirror
+
+- When mirroring `llama.cpp` Ubuntu CUDA tarballs to GitLab, first extract and compare the existing GitLab reference packages:
+  - `b8429/llama-b8429-bin-ubuntu-cuda-12.4-arm64.tar.gz`
+  - `b8429/llama-b8429-bin-ubuntu-cuda-12.4-x64.tar.gz`
+- Upstream GitHub does not publish these Linux CUDA tarballs; build them locally in Docker, then upload them to the GitLab generic package registry and add release links.
+- Load `GITLAB_TOKEN` only from `local/secrets.env`. Use direct connection for GitLab API/package uploads; do not keep external proxy enabled for GitLab operations.
+- Build `arm64` and `x64` separately. Their tar layouts must match the GitLab reference:
+  - `arm64`: tar root `llama-<tag>-bin-ubuntu-cuda-12.4-arm64/` with only `bin/{llama-bench,llama-cli,llama-embedding,llama-quantize,llama-server}` plus `lib/` symlink chains for `libggml-base`, `libggml-cpu`, `libggml-cuda`, `libggml`, `libllama`, and `libmtmd`.
+  - `x64`: tar root contains `bin/` and `lib/` directly, with `llama-server` in `bin/` and the `libggml-cpu-*` backend variants plus `libggml-cuda.so` in `lib/`.
+- `arm64` build recipe:
+  - Use `BUILD_SHARED_LIBS=ON`, `GGML_CUDA=ON`, `GGML_BACKEND_DL=OFF`, `GGML_NATIVE=OFF`.
+  - Link and runtime checks need CUDA driver stubs inside the container: provide `libcuda.so.1 -> /usr/local/cuda/lib64/stubs/libcuda.so` and feed that stub directory to linker flags and `LD_LIBRARY_PATH`.
+  - Do not pass host proxy into `apt` for the arm64 container; `ports.ubuntu.com` may fail through `host.docker.internal:7890`.
+- `x64` build recipe:
+  - Use `BUILD_SHARED_LIBS=ON`, `GGML_CUDA=ON`, `GGML_BACKEND_DL=ON`, `GGML_CPU_ALL_VARIANTS=ON`.
+  - Never pass untyped `-DGGML_BACKEND_DIR=lib`; force it as `STRING` (or via a preload cache file) so CMake does not canonicalize it to `/lib` and install backends into the container root.
+- Before upload, re-pack on macOS to remove `._*` and `.DS_Store` entries while preserving symlinks.
+- Before upload, verify:
+  - tar layout matches the reference package for that architecture
+  - `libggml-cuda.so*` is present
+  - `file` reports the correct architecture
+  - `llama-server --version` runs in a container with the packaged `lib/` on `LD_LIBRARY_PATH` (use CUDA stubs if no real driver is present)
+- Upload the tarballs to `https://git-devops.opencsg.com/api/v4/projects/393/packages/generic/llama-cpp/<tag>/...`, then create matching release asset links for the same filenames.
