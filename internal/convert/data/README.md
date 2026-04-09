@@ -36,8 +36,8 @@ Optional: set **`CSGHUB_LITE_CONVERTER_URL`** at runtime to a raw mirror URL ins
 |---------|------|
 | `torch` | Load tensors / weights |
 | `safetensors` | Read `.safetensors` checkpoints |
-| `gguf` | Write GGUF; if the script fails with `AttributeError` involving `MODEL_ARCH` or `gguf`, upgrade: `pip3 install -U gguf` |
-| `transformers` | `AutoConfig`, tokenizers, etc. |
+| `gguf` | Write GGUF; if it is too old for the bundled converter, `csghub-lite` auto-runs `python -m pip install -U gguf` and retries once |
+| `transformers` | `AutoConfig`, tokenizers, etc.; if it is too old to recognize a new architecture, `csghub-lite` auto-runs `python -m pip install -U transformers` and retries once |
 
 One-time install (same as the CLI error text):
 

@@ -158,7 +158,7 @@ SafeTensors checkpoints are converted once using the bundled llama.cpp `convert_
 pip3 install torch safetensors gguf transformers
 ```
 
-Use Python 3.10+ on `PATH` (Windows: `python` or `python3`). Some models may need extra packages (for example `sentencepiece`); see [`internal/convert/data/README.md`](internal/convert/data/README.md) for the full list and troubleshooting (`gguf` version mismatch, optional `CSGHUB_LITE_CONVERTER_URL`).
+Use Python 3.10+ on `PATH` (Windows: `python` or `python3`). If `gguf` or `transformers` is installed but too old for the bundled converter, `csghub-lite` now tries `python -m pip install -U ...` and retries the conversion once automatically. Some models may need extra packages (for example `sentencepiece`); see [`internal/convert/data/README.md`](internal/convert/data/README.md) for the full list and troubleshooting (`gguf` version mismatch, optional `CSGHUB_LITE_CONVERTER_URL`).
 
 ## Development
 

@@ -20,6 +20,12 @@ import (
 
 const pythonDepsInstallArgs = "torch safetensors gguf transformers"
 
+type converterRepairResult struct {
+	attempted bool
+	succeeded bool
+	note      string
+}
+
 func pythonInstallHint() string {
 	switch runtime.GOOS {
 	case "darwin":
@@ -249,17 +255,8 @@ func ConvertPython(modelDir string, progress ProgressFunc) (string, error) {
 	outputPath := filepath.Join(modelDir, outputName)
 
 	progress("Converting with official converter", 0, 0)
-
-	cmd := exec.Command(python, script, modelDir,
-		"--outfile", outputPath,
-		"--outtype", "f16",
-	)
-
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		lines := strings.TrimSpace(string(output))
-		lastLines := lastNLines(lines, 5)
-		return "", fmt.Errorf("convert_hf_to_gguf.py failed: %s\n%s%s", err, lastLines, hintForConverterScriptFailure(lines))
+	if err := convertModelWithAutoRepair(python, script, modelDir, outputPath, progress); err != nil {
+		return "", err
 	}
 
 	if _, err := os.Stat(outputPath); err != nil {
@@ -268,14 +265,9 @@ func ConvertPython(modelDir string, progress ProgressFunc) (string, error) {
 
 	if hasVisionConfig(modelDir) {
 		progress("Converting vision encoder (mmproj)", 0, 0)
-		mmCmd := exec.Command(python, script, modelDir,
-			"--outtype", "f16",
-			"--mmproj",
-		)
-		mmCmd.Dir = modelDir
-		mmOut, mmErr := mmCmd.CombinedOutput()
+		mmOut, mmErr := runMMProjConverter(python, script, modelDir)
 		if mmErr != nil {
-			log.Printf("mmproj conversion failed (non-fatal): %s\n%s", mmErr, lastNLines(strings.TrimSpace(string(mmOut)), 5))
+			log.Printf("mmproj conversion failed (non-fatal): %s\n%s", mmErr, lastNLines(mmOut, 5))
 		} else {
 			log.Printf("mmproj conversion succeeded")
 		}
@@ -305,12 +297,144 @@ func PythonConverterAvailable() bool {
 	return p != "" && missing == ""
 }
 
+func convertModelWithAutoRepair(python, script, modelDir, outputPath string, progress ProgressFunc) error {
+	output, err := runModelConverter(python, script, modelDir, outputPath)
+	if err == nil {
+		return nil
+	}
+
+	repair := attemptConverterAutoRepair(python, output, progress)
+	if repair.attempted && repair.succeeded {
+		_ = os.Remove(outputPath)
+		progress("Retrying converter after Python package upgrade", 0, 0)
+		output, err = runModelConverter(python, script, modelDir, outputPath)
+		if err == nil {
+			return nil
+		}
+	}
+
+	_ = os.Remove(outputPath)
+	return formatConverterFailure(err, output, repair.note)
+}
+
+func runModelConverter(python, script, modelDir, outputPath string) (string, error) {
+	cmd := exec.Command(python, script, modelDir,
+		"--outfile", outputPath,
+		"--outtype", "f16",
+	)
+	output, err := cmd.CombinedOutput()
+	return strings.TrimSpace(string(output)), err
+}
+
+func runMMProjConverter(python, script, modelDir string) (string, error) {
+	cmd := exec.Command(python, script, modelDir,
+		"--outtype", "f16",
+		"--mmproj",
+	)
+	cmd.Dir = modelDir
+	output, err := cmd.CombinedOutput()
+	return strings.TrimSpace(string(output)), err
+}
+
+func attemptConverterAutoRepair(python, combined string, progress ProgressFunc) converterRepairResult {
+	packages := packagesToAutoUpgradeForConverterFailure(combined)
+	if len(packages) == 0 {
+		return converterRepairResult{}
+	}
+
+	progress(fmt.Sprintf("Upgrading Python package%s: %s", pluralSuffix(len(packages)), strings.Join(packages, ", ")), 0, 0)
+	pipOutput, pipErr := upgradePythonPackages(python, packages)
+	command := fmt.Sprintf("%s -m pip install --upgrade %s", python, strings.Join(packages, " "))
+
+	if pipErr != nil {
+		pipSummary := lastNLines(pipOutput, 10)
+		if pipSummary == "" {
+			pipSummary = "(no pip output)"
+		}
+		return converterRepairResult{
+			attempted: true,
+			note: fmt.Sprintf(
+				"\n\ncsghub-lite detected a Python package version mismatch and tried to run:\n  %s\n\n"+
+					"Automatic upgrade failed: %s\n%s",
+				command,
+				pipErr,
+				pipSummary,
+			),
+		}
+	}
+
+	return converterRepairResult{
+		attempted: true,
+		succeeded: true,
+		note: fmt.Sprintf(
+			"\n\ncsghub-lite auto-upgraded %s and retried once.",
+			strings.Join(packages, ", "),
+		),
+	}
+}
+
+func upgradePythonPackages(python string, packages []string) (string, error) {
+	args := []string{"-m", "pip", "install", "--upgrade"}
+	args = append(args, packages...)
+	cmd := exec.Command(python, args...)
+	cmd.Env = append(os.Environ(), "PIP_DISABLE_PIP_VERSION_CHECK=1")
+	output, err := cmd.CombinedOutput()
+	return strings.TrimSpace(string(output)), err
+}
+
+func packagesToAutoUpgradeForConverterFailure(combined string) []string {
+	if combined == "" {
+		return nil
+	}
+
+	var packages []string
+	add := func(pkg string) {
+		for _, existing := range packages {
+			if existing == pkg {
+				return
+			}
+		}
+		packages = append(packages, pkg)
+	}
+
+	lower := strings.ToLower(combined)
+	if strings.Contains(combined, "AttributeError") &&
+		(strings.Contains(combined, "MODEL_ARCH") || strings.Contains(combined, "gguf.")) {
+		add("gguf")
+	}
+	if strings.Contains(combined, "Transformers does not recognize this architecture") ||
+		strings.Contains(combined, "pip install --upgrade transformers") ||
+		strings.Contains(combined, "pip install git+https://github.com/huggingface/transformers.git") ||
+		strings.Contains(lower, "no module named 'transformers.models.") {
+		add("transformers")
+	}
+
+	return packages
+}
+
 func lastNLines(s string, n int) string {
 	lines := strings.Split(s, "\n")
 	if len(lines) <= n {
 		return s
 	}
 	return strings.Join(lines[len(lines)-n:], "\n")
+}
+
+func formatConverterFailure(err error, output string, repairNote string) error {
+	return fmt.Errorf(
+		"convert_hf_to_gguf.py failed: %s\n%s%s%s",
+		err,
+		lastNLines(output, 5),
+		repairNote,
+		hintForConverterScriptFailure(output),
+	)
+}
+
+func pluralSuffix(n int) string {
+	if n == 1 {
+		return ""
+	}
+	return "s"
 }
 
 func hintForConverterScriptFailure(combined string) string {
@@ -322,11 +446,17 @@ func hintForConverterScriptFailure(combined string) string {
 		(strings.Contains(combined, "MODEL_ARCH") || strings.Contains(combined, "gguf.")) {
 		return fmt.Sprintf(
 			"\n\nLikely the `gguf` Python package is older than this converter script expects.\n"+
-				"Try: pip3 install -U gguf\n"+
+				"If the automatic upgrade did not fix it, run: pip3 install -U gguf\n"+
 				"Or point CSGHUB_LITE_CONVERTER_URL at a raw copy of a newer convert_hf_to_gguf.py (mirror).\n"+
 				"To reset the bundled copy, delete convert_hf_to_gguf_bundled.py and bundled_convert_hf_revision under %s\n",
 			converterCacheDir(),
 		)
+	}
+	if strings.Contains(combined, "Transformers does not recognize this architecture") ||
+		strings.Contains(combined, "pip install --upgrade transformers") ||
+		strings.Contains(combined, "pip install git+https://github.com/huggingface/transformers.git") {
+		return "\n\nThe installed `transformers` package looks too old for this model.\n" +
+			"If the automatic upgrade did not fix it, run: pip3 install -U transformers\n"
 	}
 	return ""
 }

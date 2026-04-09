@@ -41,6 +41,7 @@ SafeTensors 是 Hugging Face 推出的模型存储格式。csghub-lite 支持下
 
 首次推理时，csghub-lite 会把 `convert_hf_to_gguf.py` **随二进制打包**（来自固定版本的 llama.cpp），解压到 `~/.csghub-lite/tools/` 后调用本机 Python，**运行时不需要访问 GitHub**。升级 csghub-lite 后若脚本更新，会随 **`bundledConverterRevision`** 自动刷新缓存。
 
+- 如果检测到本机 `gguf` 或 `transformers` 版本过旧，csghub-lite 会自动尝试执行 `python -m pip install -U ...`，然后重试一次转换。
 - 使用镜像上的脚本：设置环境变量 **`CSGHUB_LITE_CONVERTER_URL`** 为 raw 地址（下载一次后按 URL 缓存）。
 - 维护者更新内置脚本：见 `internal/convert/data/README.md`。
 
