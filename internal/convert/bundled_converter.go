@@ -10,4 +10,4 @@ var bundledConverterPy []byte
 const bundledConverterRevision = 2
 
 // BundledConverterLLamacppRef documents the llama.cpp release tag the bundled script was taken from.
-const BundledConverterLLamacppRef = "b8722"
+const BundledConverterLLamacppRef = "b8724"
