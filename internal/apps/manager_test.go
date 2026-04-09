@@ -261,6 +261,44 @@ func TestNewManagerKeepsHomeBinOpenClawBinaryUnmanaged(t *testing.T) {
 	}
 }
 
+func TestWriteTempScriptRecreatesMissingTMPDIR(t *testing.T) {
+	setTempHome(t)
+
+	staleTempDir := filepath.Join(t.TempDir(), "stale-tmpdir")
+	t.Setenv("TMPDIR", staleTempDir)
+
+	content := []byte("#!/usr/bin/env bash\necho ok\n")
+	mgr := &Manager{}
+	scriptPath, err := mgr.writeTempScript("claude-code", nil, content)
+	if err != nil {
+		t.Fatalf("writeTempScript returned error: %v", err)
+	}
+	defer os.Remove(scriptPath)
+
+	if got := filepath.Dir(scriptPath); got != staleTempDir {
+		t.Fatalf("script dir = %q, want %q", got, staleTempDir)
+	}
+	if _, err := os.Stat(staleTempDir); err != nil {
+		t.Fatalf("stale temp dir should be recreated: %v", err)
+	}
+	data, err := os.ReadFile(scriptPath)
+	if err != nil {
+		t.Fatalf("read temp script: %v", err)
+	}
+	if string(data) != string(content) {
+		t.Fatalf("temp script contents = %q, want %q", string(data), string(content))
+	}
+	if runtime.GOOS != "windows" {
+		info, err := os.Stat(scriptPath)
+		if err != nil {
+			t.Fatalf("stat temp script: %v", err)
+		}
+		if info.Mode().Perm()&0o111 == 0 {
+			t.Fatalf("temp script mode = %v, want executable bit set", info.Mode().Perm())
+		}
+	}
+}
+
 func TestSummarizeFailureLogsPrefersExplicitError(t *testing.T) {
 	lines := []string{
 		"2026-03-28 23:13:43 INFO: preparing uninstaller",

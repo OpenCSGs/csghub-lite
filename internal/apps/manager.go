@@ -766,12 +766,43 @@ func (m *Manager) resolveScript(appID string, source *scriptSource) ([]byte, str
 	return nil, "", fmt.Errorf("read embedded script: %w", err)
 }
 
+func (m *Manager) tempScriptDir() (string, error) {
+	candidates := []string{}
+	if dir := os.TempDir(); dir != "" {
+		candidates = append(candidates, dir)
+	}
+	if home, err := config.AppHome(); err == nil && home != "" {
+		fallback := filepath.Join(home, "apps", "tmp")
+		if len(candidates) == 0 || !samePath(candidates[0], fallback) {
+			candidates = append(candidates, fallback)
+		}
+	}
+
+	var errs []string
+	for _, dir := range candidates {
+		// Recreate a missing TMPDIR before we try to create the temp script.
+		if err := os.MkdirAll(dir, 0o700); err == nil {
+			return dir, nil
+		} else {
+			errs = append(errs, fmt.Sprintf("%s: %v", dir, err))
+		}
+	}
+	if len(errs) == 0 {
+		return "", fmt.Errorf("no temp directory available")
+	}
+	return "", fmt.Errorf("prepare temp directory: %s", strings.Join(errs, "; "))
+}
+
 func (m *Manager) writeTempScript(appID string, source *scriptSource, content []byte) (string, error) {
 	ext := ".sh"
 	if runtime.GOOS == "windows" {
 		ext = ".ps1"
 	}
-	tmp, err := os.CreateTemp("", appID+"-*"+ext)
+	tempDir, err := m.tempScriptDir()
+	if err != nil {
+		return "", err
+	}
+	tmp, err := os.CreateTemp(tempDir, appID+"-*"+ext)
 	if err != nil {
 		return "", err
 	}
