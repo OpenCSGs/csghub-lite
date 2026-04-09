@@ -3,7 +3,7 @@ RELEASE_TAG ?= $(shell git describe --tags --exact-match 2>/dev/null || true)
 VERSION := $(if $(RELEASE_TAG),$(patsubst v%,%,$(RELEASE_TAG)),$(shell git describe --tags --always --dirty 2>/dev/null || echo "dev"))
 LDFLAGS := -ldflags "-s -w -X main.version=$(VERSION)"
 
-.PHONY: build build-web build-all clean-dist package release install test test-cover lint clean release-snapshot
+.PHONY: build build-web build-all clean-dist package release install test test-cover lint clean release-snapshot sync-converter check-converter-fresh
 
 build-web:
 	cd web && npm install && npm run build
@@ -53,6 +53,12 @@ package: clean-dist build-all
 	echo "Created dist/$(BINARY_NAME)_$(VERSION)_windows-amd64.zip"
 	@./scripts/write-checksums.sh dist
 	@echo "Created dist/checksums.txt"
+
+sync-converter:
+	@./scripts/sync-llama-converter.sh
+
+check-converter-fresh:
+	@./scripts/sync-llama-converter.sh --check
 
 release:
 	@scripts/push.sh

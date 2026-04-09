@@ -4,20 +4,27 @@ This file is embedded into the `csghub-lite` binary (`go:embed`) so SafeTensors 
 
 | Field | Value |
 |-------|--------|
-| Upstream tag | `b8350` (see `BundledConverterLLamacppRef` in `bundled_converter.go`) |
+| Upstream tag | `b8721` (see `BundledConverterLLamacppRef` in `bundled_converter.go`) |
 
 ## Refreshing from llama.cpp
 
-1. Replace `convert_hf_to_gguf.py` from the desired tag:
+1. Sync the bundled converter from the latest llama.cpp release:
 
    ```bash
-   curl -fsSL -o internal/convert/data/convert_hf_to_gguf.py \
-     "https://raw.githubusercontent.com/ggml-org/llama.cpp/b8350/convert_hf_to_gguf.py"
+   source ~/.myshrc
+   ./scripts/sync-llama-converter.sh
    ```
 
-2. Increment **`bundledConverterRevision`** in `../bundled_converter.go`.
+   To pin a specific release instead of the latest one:
 
-3. Update **`BundledConverterLLamacppRef`** and the table above.
+   ```bash
+   source ~/.myshrc
+   ./scripts/sync-llama-converter.sh --tag b8721
+   ```
+
+2. Review the updated `convert_hf_to_gguf.py`, `bundled_converter.go`, and this README.
+
+3. Commit the sync before creating a release tag. `scripts/push.sh` runs `./scripts/sync-llama-converter.sh --check` and refuses to publish a stale bundled converter by default.
 
 Optional: set **`CSGHUB_LITE_CONVERTER_URL`** at runtime to a raw mirror URL instead of using the embedded file.
 

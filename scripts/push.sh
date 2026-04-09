@@ -33,6 +33,7 @@ Options:
   --skip-github          Skip GitHub upload
   --skip-gitlab          Skip GitLab upload
   --skip-gitlab-git      Skip git push to GitLab (only upload packages + release links)
+  --skip-converter-check Skip checking whether bundled llama.cpp converter is fresh
   --skip-build           Skip make package (reuse existing dist/)
   -h, --help             Show this help
 
@@ -49,6 +50,7 @@ TAG=""
 SKIP_GITHUB=0
 SKIP_GITLAB=0
 SKIP_GITLAB_GIT=0
+SKIP_CONVERTER_CHECK=0
 SKIP_BUILD=0
 
 while [ $# -gt 0 ]; do
@@ -58,6 +60,7 @@ while [ $# -gt 0 ]; do
         --skip-github)  SKIP_GITHUB=1; shift ;;
         --skip-gitlab)  SKIP_GITLAB=1; shift ;;
         --skip-gitlab-git) SKIP_GITLAB_GIT=1; shift ;;
+        --skip-converter-check) SKIP_CONVERTER_CHECK=1; shift ;;
         --skip-build)   SKIP_BUILD=1; shift ;;
         -h|--help)      usage; exit 0 ;;
         *)              die "Unknown option: $1" ;;
@@ -73,6 +76,11 @@ fi
 
 VERSION="${TAG#v}"
 info "Release tag: ${TAG} (version: ${VERSION})"
+
+if [ "$SKIP_CONVERTER_CHECK" -eq 0 ]; then
+    info "Checking bundled llama.cpp converter freshness..."
+    ./scripts/sync-llama-converter.sh --check
+fi
 
 # ---- Build & package ----
 if [ "$SKIP_BUILD" -eq 0 ]; then
