@@ -5,34 +5,49 @@ import (
 	"testing"
 )
 
-func TestPackagesToAutoUpgradeForConverterFailureGGUF(t *testing.T) {
+func TestRepairPlanForConverterFailureGGUF(t *testing.T) {
 	output := `
 INFO:hf-to-gguf:Model architecture: Gemma4ForConditionalGeneration
 model_arch = gguf.MODEL_ARCH.GEMMA4
 AttributeError: GEMMA4. Did you mean: 'GEMMA'?
 `
 
-	got := packagesToAutoUpgradeForConverterFailure(output)
-	want := []string{"gguf"}
+	got := repairPlanForConverterFailure(output)
+	want := converterRepairPlan{installBundledGGUFPy: true}
 	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("packagesToAutoUpgradeForConverterFailure() = %v, want %v", got, want)
+		t.Fatalf("repairPlanForConverterFailure() = %#v, want %#v", got, want)
 	}
 }
 
-func TestPackagesToAutoUpgradeForConverterFailureTransformers(t *testing.T) {
+func TestRepairPlanForConverterFailureMissingGGUFModule(t *testing.T) {
+	output := `
+Traceback (most recent call last):
+  File "convert_hf_to_gguf.py", line 30, in <module>
+    import gguf
+ModuleNotFoundError: No module named 'gguf'
+`
+
+	got := repairPlanForConverterFailure(output)
+	want := converterRepairPlan{installBundledGGUFPy: true}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("repairPlanForConverterFailure() = %#v, want %#v", got, want)
+	}
+}
+
+func TestRepairPlanForConverterFailureTransformers(t *testing.T) {
 	output := `
 The checkpoint you are trying to load has model type "gemma4" but Transformers does not recognize this architecture.
 You can update Transformers with the command "pip install --upgrade transformers".
 `
 
-	got := packagesToAutoUpgradeForConverterFailure(output)
-	want := []string{"transformers"}
+	got := repairPlanForConverterFailure(output)
+	want := converterRepairPlan{upgradePackages: []string{"transformers"}}
 	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("packagesToAutoUpgradeForConverterFailure() = %v, want %v", got, want)
+		t.Fatalf("repairPlanForConverterFailure() = %#v, want %#v", got, want)
 	}
 }
 
-func TestPackagesToAutoUpgradeForConverterFailureDeduplicates(t *testing.T) {
+func TestRepairPlanForConverterFailureDeduplicates(t *testing.T) {
 	output := `
 The checkpoint you are trying to load has model type "gemma4" but Transformers does not recognize this architecture.
 You can update Transformers with the command "pip install --upgrade transformers".
@@ -40,9 +55,44 @@ model_arch = gguf.MODEL_ARCH.GEMMA4
 AttributeError: GEMMA4. Did you mean: 'GEMMA'?
 `
 
-	got := packagesToAutoUpgradeForConverterFailure(output)
-	want := []string{"gguf", "transformers"}
+	got := repairPlanForConverterFailure(output)
+	want := converterRepairPlan{
+		installBundledGGUFPy: true,
+		upgradePackages:      []string{"transformers"},
+	}
 	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("packagesToAutoUpgradeForConverterFailure() = %v, want %v", got, want)
+		t.Fatalf("repairPlanForConverterFailure() = %#v, want %#v", got, want)
+	}
+}
+
+func TestLlamaCppSourcesPreferGiteeInCN(t *testing.T) {
+	got := llamaCppSources(regionCN)
+	if len(got) != 2 {
+		t.Fatalf("len(llamaCppSources(CN)) = %d, want 2", len(got))
+	}
+	if got[0].name != "Gitee mirror" || got[1].name != "GitHub upstream" {
+		t.Fatalf("llamaCppSources(CN) order = %#v", got)
+	}
+}
+
+func TestLlamaCppSourcesPreferGitHubOutsideCN(t *testing.T) {
+	got := llamaCppSources(regionINTL)
+	if len(got) != 2 {
+		t.Fatalf("len(llamaCppSources(INTL)) = %d, want 2", len(got))
+	}
+	if got[0].name != "GitHub upstream" || got[1].name != "Gitee mirror" {
+		t.Fatalf("llamaCppSources(INTL) order = %#v", got)
+	}
+}
+
+func TestDetectLlamaCppSourceRegionUsesEnvOverride(t *testing.T) {
+	t.Setenv("CSGHUB_LITE_REGION", "CN")
+	if got := detectLlamaCppSourceRegion(); got != regionCN {
+		t.Fatalf("detectLlamaCppSourceRegion() with CN = %q, want %q", got, regionCN)
+	}
+
+	t.Setenv("CSGHUB_LITE_REGION", "intl")
+	if got := detectLlamaCppSourceRegion(); got != regionINTL {
+		t.Fatalf("detectLlamaCppSourceRegion() with intl = %q, want %q", got, regionINTL)
 	}
 }

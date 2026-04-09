@@ -1,6 +1,6 @@
 # Bundled `convert_hf_to_gguf.py`
 
-This file is embedded into the `csghub-lite` binary (`go:embed`) so SafeTensors → GGUF conversion does not require downloading from GitHub at runtime.
+This file is embedded into the `csghub-lite` binary (`go:embed`) so SafeTensors → GGUF conversion does not need to download the converter script itself at runtime. If the system `gguf` package is too old, `csghub-lite` may still fetch matching `gguf-py` from the configured `llama.cpp` source mirror.
 
 | Field | Value |
 |-------|--------|
@@ -30,13 +30,13 @@ Optional: set **`CSGHUB_LITE_CONVERTER_URL`** at runtime to a raw mirror URL ins
 
 ## Python runtime dependencies
 
-`csghub-lite` materializes this script and runs it with a system **Python 3** interpreter. The binary pre-checks imports before conversion (`internal/convert/convert_python.go`); all of the following must be importable:
+`csghub-lite` materializes this script and runs it with a system **Python 3** interpreter. The binary pre-checks the core imports before conversion (`internal/convert/convert_python.go`); `gguf` can come either from the system Python environment or from a matching `gguf-py` fetch when auto-repair is needed:
 
 | Package | Role |
 |---------|------|
 | `torch` | Load tensors / weights |
 | `safetensors` | Read `.safetensors` checkpoints |
-| `gguf` | Write GGUF; if it is too old for the bundled converter, `csghub-lite` auto-runs `python -m pip install -U gguf` and retries once |
+| `gguf` | Write GGUF; if it is too old for the bundled converter, `csghub-lite` fetches matching `gguf-py` from the `llama.cpp` source tag and retries once (`CSGHUB_LITE_REGION=CN` prefers `https://gitee.com/xzgan/llama.cpp`, other regions prefer GitHub) |
 | `transformers` | `AutoConfig`, tokenizers, etc.; if it is too old to recognize a new architecture, `csghub-lite` auto-runs `python -m pip install -U transformers` and retries once |
 
 One-time install (same as the CLI error text):

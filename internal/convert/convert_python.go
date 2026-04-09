@@ -1,6 +1,8 @@
 package convert
 
 import (
+	"archive/tar"
+	"compress/gzip"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -18,12 +20,28 @@ import (
 // once per URL (e.g. GitLab mirror). When unset, the copy embedded in the binary is used
 // (no GitHub access required at runtime).
 
-const pythonDepsInstallArgs = "torch safetensors gguf transformers"
+const (
+	pythonDepsInstallArgs = "torch safetensors gguf transformers"
+	regionCN              = "CN"
+	regionINTL            = "INTL"
+	llamaCppGitHubRepo    = "https://github.com/ggml-org/llama.cpp"
+	llamaCppGiteeRepo     = "https://gitee.com/xzgan/llama.cpp"
+)
 
 type converterRepairResult struct {
 	attempted bool
 	succeeded bool
 	note      string
+}
+
+type converterRepairPlan struct {
+	installBundledGGUFPy bool
+	upgradePackages      []string
+}
+
+type llamaCppSource struct {
+	name       string
+	archiveURL string
 }
 
 func pythonInstallHint() string {
@@ -54,6 +72,14 @@ func pythonDepsInstallHint() string {
 func converterCacheDir() string {
 	home, _ := os.UserHomeDir()
 	return filepath.Join(home, ".csghub-lite", "tools")
+}
+
+func bundledConverterDir() string {
+	return filepath.Join(converterCacheDir(), "bundled")
+}
+
+func remoteConverterDir() string {
+	return filepath.Join(converterCacheDir(), "remote")
 }
 
 // findPythonEnv locates a suitable Python interpreter.
@@ -107,7 +133,7 @@ func findPythonEnv() (pythonPath string, missingDeps string) {
 
 // checkPythonDeps returns a comma-separated list of missing packages, or "" if all present.
 func checkPythonDeps(python string) string {
-	required := []string{"torch", "safetensors", "gguf", "transformers"}
+	required := requiredPythonModules()
 	var missing []string
 	for _, pkg := range required {
 		cmd := exec.Command(python, "-c", "import "+pkg)
@@ -116,6 +142,14 @@ func checkPythonDeps(python string) string {
 		}
 	}
 	return strings.Join(missing, ", ")
+}
+
+func requiredPythonModules() []string {
+	required := []string{"torch", "safetensors", "transformers"}
+	if strings.TrimSpace(os.Getenv("CSGHUB_LITE_CONVERTER_URL")) != "" {
+		required = append(required, "gguf")
+	}
+	return required
 }
 
 func ensureConverterScript() (string, error) {
@@ -133,12 +167,12 @@ func materializeBundledConverter() (string, error) {
 	if len(bundledConverterPy) == 0 {
 		return "", fmt.Errorf("embedded convert_hf_to_gguf.py is missing (rebuild csghub-lite)")
 	}
-	dir := converterCacheDir()
+	dir := bundledConverterDir()
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return "", fmt.Errorf("creating tools dir: %w", err)
 	}
 	revPath := filepath.Join(dir, "bundled_convert_hf_revision")
-	dst := filepath.Join(dir, "convert_hf_to_gguf_bundled.py")
+	dst := filepath.Join(dir, "convert_hf_to_gguf.py")
 	wantStamp := bundledConverterStamp()
 	if prev, err := os.ReadFile(revPath); err == nil && string(prev) == wantStamp {
 		if _, err := os.Stat(dst); err == nil {
@@ -160,12 +194,12 @@ func materializeBundledConverter() (string, error) {
 }
 
 func ensureRemoteConverterScript(rawURL string) (string, error) {
-	dir := converterCacheDir()
+	dir := remoteConverterDir()
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return "", fmt.Errorf("creating tools dir: %w", err)
 	}
 	urlPath := filepath.Join(dir, "remote_convert_hf_url")
-	dst := filepath.Join(dir, "convert_hf_to_gguf_remote.py")
+	dst := filepath.Join(dir, "convert_hf_to_gguf.py")
 	if prev, err := os.ReadFile(urlPath); err == nil && string(prev) == rawURL {
 		if _, err := os.Stat(dst); err == nil {
 			return dst, nil
@@ -206,7 +240,7 @@ func ensureRemoteConverterScript(rawURL string) (string, error) {
 
 // ConvertPython uses the official llama.cpp convert_hf_to_gguf.py to convert
 // a HuggingFace model directory to GGUF format. Returns the path to the
-// generated GGUF file. Requires python3 with torch, safetensors, and gguf.
+// generated GGUF file. Requires python3 with torch, safetensors, and transformers.
 func ConvertPython(modelDir string, progress ProgressFunc) (string, error) {
 	if progress == nil {
 		progress = func(string, int, int) {}
@@ -306,7 +340,7 @@ func convertModelWithAutoRepair(python, script, modelDir, outputPath string, pro
 	repair := attemptConverterAutoRepair(python, output, progress)
 	if repair.attempted && repair.succeeded {
 		_ = os.Remove(outputPath)
-		progress("Retrying converter after Python package upgrade", 0, 0)
+		progress("Retrying converter after automatic repair", 0, 0)
 		output, err = runModelConverter(python, script, modelDir, outputPath)
 		if err == nil {
 			return nil
@@ -337,38 +371,71 @@ func runMMProjConverter(python, script, modelDir string) (string, error) {
 }
 
 func attemptConverterAutoRepair(python, combined string, progress ProgressFunc) converterRepairResult {
-	packages := packagesToAutoUpgradeForConverterFailure(combined)
-	if len(packages) == 0 {
+	plan := repairPlanForConverterFailure(combined)
+	if !plan.installBundledGGUFPy && len(plan.upgradePackages) == 0 {
 		return converterRepairResult{}
 	}
 
-	progress(fmt.Sprintf("Upgrading Python package%s: %s", pluralSuffix(len(packages)), strings.Join(packages, ", ")), 0, 0)
-	pipOutput, pipErr := upgradePythonPackages(python, packages)
-	command := fmt.Sprintf("%s -m pip install --upgrade %s", python, strings.Join(packages, " "))
-
-	if pipErr != nil {
-		pipSummary := lastNLines(pipOutput, 10)
-		if pipSummary == "" {
-			pipSummary = "(no pip output)"
+	var notes []string
+	if plan.installBundledGGUFPy {
+		region := detectLlamaCppSourceRegion()
+		progress("Preparing matching gguf-py from llama.cpp", 0, 0)
+		sourceName, err := ensureBundledGGUFPy(region)
+		if err != nil {
+			return converterRepairResult{
+				attempted: true,
+				note: fmt.Sprintf(
+					"\n\ncsghub-lite detected that this bundled converter needs matching `gguf-py` from llama.cpp tag `%s`.\n"+
+						"It tried these sources in order for region `%s`: %s.\n\n"+
+						"Automatic repair failed: %s",
+					BundledConverterLLamacppRef,
+					region,
+					strings.Join(llamaCppSourceNames(region), ", "),
+					err,
+				),
+			}
 		}
-		return converterRepairResult{
-			attempted: true,
-			note: fmt.Sprintf(
+		notes = append(notes, fmt.Sprintf("prepared matching gguf-py from %s", sourceName))
+	}
+
+	if len(plan.upgradePackages) > 0 {
+		progress(fmt.Sprintf("Upgrading Python package%s: %s", pluralSuffix(len(plan.upgradePackages)), strings.Join(plan.upgradePackages, ", ")), 0, 0)
+		pipOutput, pipErr := upgradePythonPackages(python, plan.upgradePackages)
+		command := fmt.Sprintf("%s -m pip install --upgrade %s", python, strings.Join(plan.upgradePackages, " "))
+
+		if pipErr != nil {
+			pipSummary := lastNLines(pipOutput, 10)
+			if pipSummary == "" {
+				pipSummary = "(no pip output)"
+			}
+			note := fmt.Sprintf(
 				"\n\ncsghub-lite detected a Python package version mismatch and tried to run:\n  %s\n\n"+
 					"Automatic upgrade failed: %s\n%s",
 				command,
 				pipErr,
 				pipSummary,
-			),
+			)
+			if len(notes) > 0 {
+				note = fmt.Sprintf("\n\ncsghub-lite auto-repaired part of the converter environment (%s), but a follow-up package upgrade failed.%s",
+					strings.Join(notes, ", "),
+					note,
+				)
+			}
+			return converterRepairResult{
+				attempted: true,
+				note:      note,
+			}
 		}
+
+		notes = append(notes, fmt.Sprintf("upgraded %s", strings.Join(plan.upgradePackages, ", ")))
 	}
 
 	return converterRepairResult{
 		attempted: true,
 		succeeded: true,
 		note: fmt.Sprintf(
-			"\n\ncsghub-lite auto-upgraded %s and retried once.",
-			strings.Join(packages, ", "),
+			"\n\ncsghub-lite auto-repaired the converter environment (%s) and retried once.",
+			strings.Join(notes, ", "),
 		),
 	}
 }
@@ -382,25 +449,27 @@ func upgradePythonPackages(python string, packages []string) (string, error) {
 	return strings.TrimSpace(string(output)), err
 }
 
-func packagesToAutoUpgradeForConverterFailure(combined string) []string {
+func repairPlanForConverterFailure(combined string) converterRepairPlan {
 	if combined == "" {
-		return nil
+		return converterRepairPlan{}
 	}
 
-	var packages []string
+	var plan converterRepairPlan
 	add := func(pkg string) {
-		for _, existing := range packages {
+		for _, existing := range plan.upgradePackages {
 			if existing == pkg {
 				return
 			}
 		}
-		packages = append(packages, pkg)
+		plan.upgradePackages = append(plan.upgradePackages, pkg)
 	}
 
 	lower := strings.ToLower(combined)
-	if strings.Contains(combined, "AttributeError") &&
-		(strings.Contains(combined, "MODEL_ARCH") || strings.Contains(combined, "gguf.")) {
-		add("gguf")
+	if (strings.Contains(combined, "AttributeError") &&
+		(strings.Contains(combined, "MODEL_ARCH") || strings.Contains(combined, "gguf."))) ||
+		strings.Contains(lower, "no module named 'gguf'") ||
+		strings.Contains(lower, "no module named \"gguf\"") {
+		plan.installBundledGGUFPy = true
 	}
 	if strings.Contains(combined, "Transformers does not recognize this architecture") ||
 		strings.Contains(combined, "pip install --upgrade transformers") ||
@@ -409,7 +478,236 @@ func packagesToAutoUpgradeForConverterFailure(combined string) []string {
 		add("transformers")
 	}
 
-	return packages
+	return plan
+}
+
+func detectLlamaCppSourceRegion() string {
+	if region := strings.ToUpper(strings.TrimSpace(os.Getenv("CSGHUB_LITE_REGION"))); region != "" {
+		if region == regionCN {
+			return regionCN
+		}
+		return regionINTL
+	}
+
+	client := &http.Client{Timeout: 5 * time.Second}
+	resp, err := client.Get("https://ipinfo.io/country")
+	if err == nil {
+		defer resp.Body.Close()
+		if resp.StatusCode == http.StatusOK {
+			body, readErr := io.ReadAll(io.LimitReader(resp.Body, 16))
+			if readErr == nil {
+				country := strings.TrimSpace(string(body))
+				if country == regionCN {
+					return regionCN
+				}
+				if country != "" {
+					return regionINTL
+				}
+			}
+		}
+	}
+
+	return regionCN
+}
+
+func llamaCppSources(region string) []llamaCppSource {
+	gitee := llamaCppSource{
+		name:       "Gitee mirror",
+		archiveURL: fmt.Sprintf("%s/archive/refs/tags/%s.tar.gz", llamaCppGiteeRepo, BundledConverterLLamacppRef),
+	}
+	github := llamaCppSource{
+		name:       "GitHub upstream",
+		archiveURL: fmt.Sprintf("%s/archive/refs/tags/%s.tar.gz", llamaCppGitHubRepo, BundledConverterLLamacppRef),
+	}
+	if strings.EqualFold(region, regionCN) {
+		return []llamaCppSource{gitee, github}
+	}
+	return []llamaCppSource{github, gitee}
+}
+
+func llamaCppSourceNames(region string) []string {
+	sources := llamaCppSources(region)
+	names := make([]string, 0, len(sources))
+	for _, source := range sources {
+		names = append(names, source.name)
+	}
+	return names
+}
+
+func ensureBundledGGUFPy(region string) (string, error) {
+	dir := bundledConverterDir()
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return "", fmt.Errorf("creating bundled converter dir: %w", err)
+	}
+
+	stampPath := filepath.Join(dir, "bundled_gguf_py_ref")
+	sourcePath := filepath.Join(dir, "bundled_gguf_py_source")
+	dst := filepath.Join(dir, "gguf-py")
+	wantStamp := bundledConverterStamp()
+
+	if prev, err := os.ReadFile(stampPath); err == nil && string(prev) == wantStamp {
+		if _, err := os.Stat(filepath.Join(dst, "gguf", "__init__.py")); err == nil {
+			if source, err := os.ReadFile(sourcePath); err == nil && strings.TrimSpace(string(source)) != "" {
+				return strings.TrimSpace(string(source)), nil
+			}
+			return "cached llama.cpp source", nil
+		}
+	}
+
+	archiveFile, err := os.CreateTemp(dir, "llama.cpp-*.tar.gz")
+	if err != nil {
+		return "", fmt.Errorf("creating llama.cpp archive temp file: %w", err)
+	}
+	archivePath := archiveFile.Name()
+	archiveFile.Close()
+	defer os.Remove(archivePath)
+
+	sourceName, err := downloadLlamaCppArchive(archivePath, region)
+	if err != nil {
+		return "", err
+	}
+
+	tmpDir, err := os.MkdirTemp(dir, "gguf-py-*")
+	if err != nil {
+		return "", fmt.Errorf("creating gguf-py temp dir: %w", err)
+	}
+	defer func() {
+		if tmpDir != "" {
+			os.RemoveAll(tmpDir)
+		}
+	}()
+
+	if err := extractGGUFPyFromTarGz(archivePath, tmpDir); err != nil {
+		return "", err
+	}
+
+	if err := os.RemoveAll(dst); err != nil {
+		return "", fmt.Errorf("removing old gguf-py: %w", err)
+	}
+	if err := os.Rename(tmpDir, dst); err != nil {
+		return "", fmt.Errorf("installing gguf-py: %w", err)
+	}
+	tmpDir = ""
+
+	if err := os.WriteFile(stampPath, []byte(wantStamp), 0o644); err != nil {
+		return "", fmt.Errorf("writing gguf-py stamp: %w", err)
+	}
+	if err := os.WriteFile(sourcePath, []byte(sourceName), 0o644); err != nil {
+		return "", fmt.Errorf("writing gguf-py source: %w", err)
+	}
+
+	return sourceName, nil
+}
+
+func downloadLlamaCppArchive(dst, region string) (string, error) {
+	client := &http.Client{Timeout: 5 * time.Minute}
+	var failures []string
+	for _, source := range llamaCppSources(region) {
+		if err := downloadURLToFile(client, source.archiveURL, dst); err == nil {
+			return source.name, nil
+		} else {
+			failures = append(failures, fmt.Sprintf("%s: %v", source.name, err))
+		}
+	}
+	return "", fmt.Errorf("downloading llama.cpp archive failed: %s", strings.Join(failures, "; "))
+}
+
+func downloadURLToFile(client *http.Client, rawURL, dst string) error {
+	resp, err := client.Get(rawURL)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("HTTP %d", resp.StatusCode)
+	}
+
+	f, err := os.Create(dst)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+
+	if _, err := io.Copy(f, resp.Body); err != nil {
+		return err
+	}
+	return nil
+}
+
+func extractGGUFPyFromTarGz(archivePath, dst string) error {
+	f, err := os.Open(archivePath)
+	if err != nil {
+		return fmt.Errorf("opening llama.cpp archive: %w", err)
+	}
+	defer f.Close()
+
+	gzr, err := gzip.NewReader(f)
+	if err != nil {
+		return fmt.Errorf("opening llama.cpp gzip stream: %w", err)
+	}
+	defer gzr.Close()
+
+	tr := tar.NewReader(gzr)
+	found := false
+	for {
+		hdr, err := tr.Next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return fmt.Errorf("reading llama.cpp archive: %w", err)
+		}
+
+		name := strings.TrimPrefix(hdr.Name, "./")
+		idx := strings.Index(name, "/gguf-py/")
+		if idx < 0 {
+			continue
+		}
+
+		rel := name[idx+len("/gguf-py/"):]
+		if rel == "" {
+			found = true
+			continue
+		}
+
+		target := filepath.Join(dst, filepath.FromSlash(rel))
+		switch hdr.Typeflag {
+		case tar.TypeDir:
+			if err := os.MkdirAll(target, os.FileMode(hdr.Mode)); err != nil {
+				return fmt.Errorf("creating gguf-py dir: %w", err)
+			}
+			found = true
+		case tar.TypeReg, tar.TypeRegA:
+			if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+				return fmt.Errorf("creating gguf-py file dir: %w", err)
+			}
+			mode := os.FileMode(hdr.Mode)
+			if mode == 0 {
+				mode = 0o644
+			}
+			out, err := os.OpenFile(target, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, mode)
+			if err != nil {
+				return fmt.Errorf("creating gguf-py file: %w", err)
+			}
+			if _, err := io.Copy(out, tr); err != nil {
+				out.Close()
+				return fmt.Errorf("writing gguf-py file: %w", err)
+			}
+			if err := out.Close(); err != nil {
+				return fmt.Errorf("closing gguf-py file: %w", err)
+			}
+			found = true
+		}
+	}
+
+	if !found {
+		return fmt.Errorf("llama.cpp archive did not contain gguf-py")
+	}
+	if _, err := os.Stat(filepath.Join(dst, "gguf", "__init__.py")); err != nil {
+		return fmt.Errorf("extracted gguf-py is incomplete: %w", err)
+	}
+
+	return nil
 }
 
 func lastNLines(s string, n int) string {
@@ -446,10 +744,13 @@ func hintForConverterScriptFailure(combined string) string {
 		(strings.Contains(combined, "MODEL_ARCH") || strings.Contains(combined, "gguf.")) {
 		return fmt.Sprintf(
 			"\n\nLikely the `gguf` Python package is older than this converter script expects.\n"+
-				"If the automatic upgrade did not fix it, run: pip3 install -U gguf\n"+
-				"Or point CSGHUB_LITE_CONVERTER_URL at a raw copy of a newer convert_hf_to_gguf.py (mirror).\n"+
-				"To reset the bundled copy, delete convert_hf_to_gguf_bundled.py and bundled_convert_hf_revision under %s\n",
-			converterCacheDir(),
+				"csghub-lite now prefers matching `gguf-py` from llama.cpp tag `%s` (CN: %s, INTL: %s).\n"+
+				"If the automatic repair did not fix it, point CSGHUB_LITE_REGION to `CN` or `INTL` and retry.\n"+
+				"To reset the bundled copy, delete the bundled converter cache under %s\n",
+			BundledConverterLLamacppRef,
+			llamaCppGiteeRepo,
+			llamaCppGitHubRepo,
+			bundledConverterDir(),
 		)
 	}
 	if strings.Contains(combined, "Transformers does not recognize this architecture") ||
