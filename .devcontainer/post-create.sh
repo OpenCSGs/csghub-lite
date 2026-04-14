@@ -13,5 +13,31 @@ cat > ~/.config/git/github-config <<'EOF'
 EOF
 git config --global "includeIf.hasconfig:remote.*.url:*github.com*.path" "$HOME/.config/git/github-config"
 
+# Claude Code settings
+mkdir -p ~/.claude
+cat > ~/.claude/settings.json <<'EOF'
+{
+  "model": "vertex_ai/claude-opus-4-6",
+  "enabledPlugins": {
+    "gopls-lsp@claude-plugins-official": true
+  },
+  "permissions": {
+    "allow": [
+      "Bash",
+      "Read",
+      "Edit",
+      "Write",
+      "Grep",
+      "Glob",
+      "WebFetch",
+      "WebSearch",
+      "Agent",
+      "NotebookEdit",
+      "LSP"
+    ]
+  }
+}
+EOF
+
 # Install web dependencies
 cd web && npm install
