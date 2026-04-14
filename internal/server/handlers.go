@@ -355,6 +355,7 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 
 	opts := inference.DefaultOptions()
 	requestedNumCtx := 0
+	requestedNumParallel := 0
 	if req.Options != nil {
 		if req.Options.Temperature > 0 {
 			opts.Temperature = req.Options.Temperature
@@ -372,9 +373,12 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 			opts.NumCtx = req.Options.NumCtx
 			requestedNumCtx = req.Options.NumCtx
 		}
+		if req.Options.NumParallel > 0 {
+			requestedNumParallel = req.Options.NumParallel
+		}
 	}
 
-	eng, err := s.getChatEngine(r.Context(), req.Model, req.Source, requestedNumCtx)
+	eng, err := s.getChatEngine(r.Context(), req.Model, req.Source, requestedNumCtx, requestedNumParallel)
 	if err != nil {
 		writeInferenceError(w, err)
 		return

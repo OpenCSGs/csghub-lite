@@ -10,6 +10,7 @@ interface Session {
   title: string;
   messages: ChatMessage[];
   numCtx?: number;
+  numParallel?: number;
 }
 
 const availableModels = signal<ModelInfo[]>([]);
@@ -40,6 +41,8 @@ const pendingImages = signal<PendingImage[]>([]);
 const contextStorageKey = "csghub.chat.num_ctx";
 const contextLengthSteps = [4096, 8192, 16384, 32768, 65536, 131072, 262144];
 const contextLengthLabels = ["4k", "8k", "16k", "32k", "64k", "128k", "256k"];
+const parallelStorageKey = "csghub.chat.num_parallel";
+const parallelSteps = [1, 2, 4, 8];
 
 function modelKey(model: Pick<ModelInfo, "model" | "name" | "source">): string {
   return `${model.source || "local"}:${model.model || model.name}`;
@@ -120,6 +123,21 @@ function normalizeNumCtx(v: number | undefined): number {
   return defaultNumCtx();
 }
 
+function readNumParallel(): number | undefined {
+  try {
+    const raw = localStorage.getItem(parallelStorageKey);
+    const n = Number(raw);
+    if (parallelSteps.includes(n)) return n;
+  } catch {
+    /* ignore */
+  }
+  return undefined;
+}
+
+function defaultNumParallel(): number {
+  return readNumParallel() || 4;
+}
+
 function makeId(): string {
   if (typeof crypto !== "undefined" && crypto.randomUUID) {
     return crypto.randomUUID();
@@ -138,11 +156,12 @@ function loadSessions(): Session[] {
         return parsed.map((s) => ({
           ...s,
           numCtx: normalizeNumCtx(s?.numCtx),
+          numParallel: s?.numParallel || defaultNumParallel(),
         }));
       }
     }
   } catch { /* ignore */ }
-  const s: Session = { id: makeId(), title: "New Chat", messages: [], numCtx: defaultNumCtx() };
+  const s: Session = { id: makeId(), title: "New Chat", messages: [], numCtx: defaultNumCtx(), numParallel: defaultNumParallel() };
   return [s];
 }
 
@@ -364,6 +383,7 @@ export function Chat() {
           top_p: topP.value,
           max_tokens: maxTokens.value,
           num_ctx: normalizeNumCtx(session.numCtx),
+          num_parallel: session.numParallel || defaultNumParallel(),
           system: systemPrompt.value || undefined,
           source: currentModel.source,
         },
@@ -410,7 +430,7 @@ export function Chat() {
   };
 
   const handleNewSession = () => {
-    const s: Session = { id: makeId(), title: "New Chat", messages: [], numCtx: defaultNumCtx() };
+    const s: Session = { id: makeId(), title: "New Chat", messages: [], numCtx: defaultNumCtx(), numParallel: defaultNumParallel() };
     sessions.value = [s, ...sessions.value];
     activeSessionId.value = s.id;
     saveSessions();

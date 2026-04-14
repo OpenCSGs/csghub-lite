@@ -16,12 +16,16 @@ import type { AppSettings, CloudAuthStatus, LocalDirectoryBrowseResponse } from 
 const contextLengthSteps = [4096, 8192, 16384, 32768, 65536, 131072, 262144];
 const contextLengthLabels = ["4k", "8k", "16k", "32k", "64k", "128k", "256k"];
 const contextStorageKey = "csghub.chat.num_ctx";
+const parallelSteps = [1, 2, 4, 8];
+const parallelLabels = ["1", "2", "4", "8"];
+const parallelStorageKey = "csghub.chat.num_parallel";
 
 const storageLocation = signal("");
 const modelDirectory = signal("");
 const datasetDirectory = signal("");
 const appVersion = signal("");
 const contextIndex = signal(1);
+const parallelIndex = signal(2);
 const cloudAuth = signal<CloudAuthStatus | null>(null);
 const cloudTokenInput = signal("");
 const cloudAuthError = signal("");
@@ -56,9 +60,32 @@ function saveContextIndex(idx: number) {
   }
 }
 
+function loadParallelIndex(): number {
+  try {
+    const raw = localStorage.getItem(parallelStorageKey);
+    const num = Number(raw);
+    const idx = parallelSteps.indexOf(num);
+    if (idx >= 0) return idx;
+  } catch {
+    /* ignore */
+  }
+  return 2; // default index for 4
+}
+
+function saveParallelIndex(idx: number) {
+  const value = parallelSteps[idx] || parallelSteps[2];
+  try {
+    localStorage.setItem(parallelStorageKey, String(value));
+  } catch {
+    /* ignore */
+  }
+}
+
 function resetDefaults() {
   contextIndex.value = 1;
   saveContextIndex(1);
+  parallelIndex.value = 2;
+  saveParallelIndex(2);
   fetchSettings();
 }
 
@@ -163,6 +190,7 @@ export function Settings() {
     fetchSettings();
     fetchCloudAuth();
     contextIndex.value = loadContextIndex();
+    parallelIndex.value = loadParallelIndex();
   }, []);
 
   const handleOpenCloudLogin = () => {
@@ -281,6 +309,37 @@ export function Settings() {
           />
           <div class="flex justify-between mt-2">
             {contextLengthLabels.map((label) => (
+              <span key={label} class="text-xs text-gray-400">{label}</span>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* Parallel slots */}
+      <div class="mb-10">
+        <div class="flex items-center gap-2 mb-1">
+          <svg class="w-5 h-5 text-gray-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 12h16M4 18h16" />
+          </svg>
+          <span class="font-semibold text-gray-900">{t("settings.parallelSlots")}</span>
+        </div>
+        <p class="text-sm text-gray-500 mb-4 ml-7">{t("settings.parallelSlotsDesc")}</p>
+        <div class="ml-7">
+          <input
+            type="range"
+            min="0"
+            max={parallelSteps.length - 1}
+            step="1"
+            value={parallelIndex.value}
+            onInput={(e) => {
+              const idx = Number((e.target as HTMLInputElement).value);
+              parallelIndex.value = idx;
+              saveParallelIndex(idx);
+            }}
+            class="w-full h-1.5 bg-gray-200 rounded-full appearance-none cursor-pointer accent-indigo-600"
+          />
+          <div class="flex justify-between mt-2">
+            {parallelLabels.map((label) => (
               <span key={label} class="text-xs text-gray-400">{label}</span>
             ))}
           </div>

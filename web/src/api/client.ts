@@ -509,7 +509,7 @@ function stripImagesFromOldMessages(msgs: ChatMessage[]): ChatMessage[] {
 export function streamChat(
   model: string,
   messages: ChatMessage[],
-  options: { temperature?: number; top_p?: number; max_tokens?: number; num_ctx?: number; system?: string; source?: string },
+  options: { temperature?: number; top_p?: number; max_tokens?: number; num_ctx?: number; num_parallel?: number; system?: string; source?: string },
   onToken: (token: string, done: boolean) => void,
   signal?: AbortSignal
 ): Promise<void> {
@@ -536,6 +536,7 @@ export function streamChat(
           top_p: options.top_p,
           max_tokens: options.max_tokens,
           num_ctx: options.num_ctx,
+          num_parallel: options.num_parallel,
         },
       }),
       signal,

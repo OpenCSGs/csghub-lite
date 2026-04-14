@@ -26,6 +26,7 @@ import (
 const (
 	defaultLlamaCtxSize      = 8192
 	autoExpandedLlamaCtxSize = 16384
+	defaultLlamaParallel     = 4
 )
 
 // cappedWriter keeps only the last maxBytes of data written to it.
@@ -163,6 +164,20 @@ func ResolveNumCtx(modelDir string, requested int) int {
 	return defaultLlamaCtxSize
 }
 
+// ResolveNumParallel returns the effective number of parallel slots for llama-server.
+// Explicit requests win, then CSGHUB_LITE_LLAMA_NUM_PARALLEL, then defaultLlamaParallel.
+func ResolveNumParallel(requested int) int {
+	if requested >= 1 {
+		return requested
+	}
+	if v := strings.TrimSpace(os.Getenv("CSGHUB_LITE_LLAMA_NUM_PARALLEL")); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n >= 1 {
+			return n
+		}
+	}
+	return defaultLlamaParallel
+}
+
 func modelMaxPositionEmbeddings(modelDir string) int {
 	data, err := os.ReadFile(filepath.Join(modelDir, "config.json"))
 	if err != nil {
@@ -178,7 +193,7 @@ func modelMaxPositionEmbeddings(modelDir string) int {
 	return cfg.MaxPositionEmbeddings
 }
 
-func newLlamaEngine(modelPath, modelName string, verbose bool, progress ConvertProgressFunc, numCtx int, mmproj ...string) (*llamaEngine, error) {
+func newLlamaEngine(modelPath, modelName string, verbose bool, progress ConvertProgressFunc, numCtx, numParallel int, mmproj ...string) (*llamaEngine, error) {
 	binary := findLlamaBinary()
 	if binary == "" {
 		return nil, fmt.Errorf("llama-server not found in PATH.\n" +
@@ -200,12 +215,15 @@ func newLlamaEngine(modelPath, modelName string, verbose bool, progress ConvertP
 		client:    &http.Client{Timeout: 0},
 	}
 	effectiveNumCtx := ResolveNumCtx(filepath.Dir(modelPath), numCtx)
+	effectiveNumParallel := ResolveNumParallel(numParallel)
+	totalCtx := effectiveNumCtx * effectiveNumParallel
 
 	args := []string{
 		"-m", modelPath,
 		"--host", "127.0.0.1",
 		"--port", fmt.Sprintf("%d", port),
-		"-c", strconv.Itoa(effectiveNumCtx),
+		"-c", strconv.Itoa(totalCtx),
+		"--parallel", strconv.Itoa(effectiveNumParallel),
 	}
 	if len(mmproj) > 0 && mmproj[0] != "" {
 		args = append(args, "--mmproj", mmproj[0])

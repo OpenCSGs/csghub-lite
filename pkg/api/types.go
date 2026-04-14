@@ -168,6 +168,7 @@ type ModelOptions struct {
 	MaxTokens   int     `json:"max_tokens,omitempty"`
 	Seed        int     `json:"seed,omitempty"`
 	NumCtx      int     `json:"num_ctx,omitempty"`
+	NumParallel int     `json:"num_parallel,omitempty"`
 }
 
 // -- Dataset request types --
@@ -336,6 +337,7 @@ type OpenAIChatRequest struct {
 	TopP              *float64    `json:"top_p,omitempty"`
 	MaxTokens         *int        `json:"max_tokens,omitempty"`
 	NumCtx            *int        `json:"num_ctx,omitempty"`
+	NumParallel       *int        `json:"num_parallel,omitempty"`
 	Seed              *int        `json:"seed,omitempty"`
 	Stop              []string    `json:"stop,omitempty"`
 }

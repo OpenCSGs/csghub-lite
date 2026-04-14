@@ -155,7 +155,7 @@ func TestGetChatEngineRefreshesCloudModelsAfterCacheMiss(t *testing.T) {
 	}
 
 	currentModel = "fresh/model"
-	eng, err := s.getChatEngine(context.Background(), "fresh/model", "", 0)
+	eng, err := s.getChatEngine(context.Background(), "fresh/model", "", 0, 0)
 	if err != nil {
 		t.Fatalf("getChatEngine returned error: %v", err)
 	}

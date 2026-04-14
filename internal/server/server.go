@@ -27,10 +27,11 @@ const (
 )
 
 type managedEngine struct {
-	engine    inference.Engine
-	numCtx    int
-	lastUsed  time.Time
-	keepAlive time.Duration
+	engine      inference.Engine
+	numCtx      int
+	numParallel int
+	lastUsed    time.Time
+	keepAlive   time.Duration
 }
 
 func (m *managedEngine) expiresAt() time.Time {
@@ -173,42 +174,51 @@ func (s *Server) touchEngine(modelID string) {
 }
 
 func (s *Server) getOrLoadEngine(modelID string) (inference.Engine, error) {
-	return s.getOrLoadEngineWithProgressAndNumCtx(modelID, nil, 0)
+	return s.getOrLoadEngineFull(modelID, nil, 0, 0)
 }
 
 func (s *Server) getOrLoadEngineWithProgress(modelID string, progress inference.ConvertProgressFunc) (inference.Engine, error) {
-	return s.getOrLoadEngineWithProgressAndNumCtx(modelID, progress, 0)
+	return s.getOrLoadEngineFull(modelID, progress, 0, 0)
 }
 
 func (s *Server) getOrLoadEngineWithNumCtx(modelID string, numCtx int) (inference.Engine, error) {
-	return s.getOrLoadEngineWithProgressAndNumCtx(modelID, nil, numCtx)
+	return s.getOrLoadEngineFull(modelID, nil, numCtx, 0)
+}
+
+func (s *Server) getOrLoadEngineWithOpts(modelID string, numCtx, numParallel int) (inference.Engine, error) {
+	return s.getOrLoadEngineFull(modelID, nil, numCtx, numParallel)
 }
 
 func (s *Server) getOrLoadEngineWithProgressAndNumCtx(modelID string, progress inference.ConvertProgressFunc, numCtx int) (inference.Engine, error) {
+	return s.getOrLoadEngineFull(modelID, progress, numCtx, 0)
+}
+
+func (s *Server) getOrLoadEngineFull(modelID string, progress inference.ConvertProgressFunc, numCtx, numParallel int) (inference.Engine, error) {
 	modelDir, err := s.manager.ModelPath(modelID)
 	if err != nil {
 		return nil, fmt.Errorf("model %q not found locally; use 'csghub-lite pull %s' first", modelID, modelID)
 	}
 	effectiveNumCtx := inference.ResolveNumCtx(modelDir, numCtx)
+	effectiveNumParallel := inference.ResolveNumParallel(numParallel)
 
 	s.mu.RLock()
 	me, ok := s.engines[modelID]
 	s.mu.RUnlock()
 	if ok {
-		if me.numCtx == effectiveNumCtx {
+		if me.numCtx == effectiveNumCtx && me.numParallel == effectiveNumParallel {
 			return me.engine, nil
 		}
-		// fall through to replace engine with requested context window
+		// fall through to replace engine with changed settings
 	}
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	if me, ok := s.engines[modelID]; ok {
-		if me.numCtx == effectiveNumCtx {
+		if me.numCtx == effectiveNumCtx && me.numParallel == effectiveNumParallel {
 			return me.engine, nil
 		}
-		log.Printf("reloading model %s due to num_ctx change (%d -> %d)", modelID, me.numCtx, effectiveNumCtx)
+		log.Printf("reloading model %s due to config change (num_ctx %d->%d, parallel %d->%d)", modelID, me.numCtx, effectiveNumCtx, me.numParallel, effectiveNumParallel)
 		me.engine.Close()
 		delete(s.engines, modelID)
 	}
@@ -218,16 +228,17 @@ func (s *Server) getOrLoadEngineWithProgressAndNumCtx(modelID string, progress i
 		return nil, err
 	}
 
-	eng, err := inference.LoadEngineWithProgress(modelDir, lm, progress, false, effectiveNumCtx)
+	eng, err := inference.LoadEngineWithProgress(modelDir, lm, progress, false, effectiveNumCtx, effectiveNumParallel)
 	if err != nil {
 		return nil, err
 	}
 
 	s.engines[modelID] = &managedEngine{
-		engine:    eng,
-		numCtx:    effectiveNumCtx,
-		lastUsed:  time.Now(),
-		keepAlive: DefaultKeepAlive,
+		engine:      eng,
+		numCtx:      effectiveNumCtx,
+		numParallel: effectiveNumParallel,
+		lastUsed:    time.Now(),
+		keepAlive:   DefaultKeepAlive,
 	}
 	return eng, nil
 }

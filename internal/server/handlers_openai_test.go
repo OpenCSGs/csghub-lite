@@ -199,7 +199,7 @@ func TestHandleOpenAIChatCompletionsWithToolsSynthesizesToolCalls(t *testing.T) 
 	}
 
 	s := New(cfg, "test")
-	s.engines["test/model"] = &managedEngine{engine: engine, numCtx: 16384}
+	s.engines["test/model"] = &managedEngine{engine: engine, numCtx: 16384, numParallel: 4}
 
 	body := `{
 	  "model": "test/model",

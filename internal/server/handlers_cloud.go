@@ -105,13 +105,13 @@ func (s *Server) cloudAuthStatus(ctx context.Context) cloudAuthStatus {
 	return status
 }
 
-func (s *Server) getChatEngine(ctx context.Context, modelID, source string, numCtx int) (inference.Engine, error) {
+func (s *Server) getChatEngine(ctx context.Context, modelID, source string, numCtx, numParallel int) (inference.Engine, error) {
 	source = strings.TrimSpace(strings.ToLower(source))
 	if source == "cloud" {
 		return s.newCloudEngine(modelID)
 	}
 
-	eng, err := s.getOrLoadEngineWithNumCtx(modelID, numCtx)
+	eng, err := s.getOrLoadEngineWithOpts(modelID, numCtx, numParallel)
 	if err == nil {
 		return eng, nil
 	}
