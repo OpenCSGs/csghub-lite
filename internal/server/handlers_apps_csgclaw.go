@@ -56,11 +56,6 @@ func (s *Server) onboardCSGClaw(ctx context.Context, binary, modelID string, mod
 		apiKey = "csghub-lite"
 	}
 
-	models := strings.Join(modelIDs, ",")
-	if models == "" {
-		models = modelID
-	}
-
 	onboardCtx, cancel := context.WithTimeout(ctx, csgclawOnboardTimeout)
 	defer cancel()
 
@@ -68,8 +63,12 @@ func (s *Server) onboardCSGClaw(ctx context.Context, binary, modelID string, mod
 		"onboard",
 		"--base-url", strings.TrimRight(serverURL, "/") + "/v1",
 		"--api-key", apiKey,
-		"--models", models,
 	}
+
+	// v0.1.5 uses -model-id (single); newer versions use -models (comma-separated).
+	// Try -models first; fall back to -model-id on failure.
+	modelsFlag, modelsValue := csgclawModelsFlag(binary, modelID, modelIDs)
+	args = append(args, modelsFlag, modelsValue)
 
 	cmd := exec.CommandContext(onboardCtx, binary, args...)
 	output, err := cmd.CombinedOutput()
@@ -135,4 +134,20 @@ func waitForCSGClaw(timeout time.Duration) error {
 		time.Sleep(300 * time.Millisecond)
 	}
 	return fmt.Errorf("CSGClaw server did not become ready in time")
+}
+
+// csgclawModelsFlag probes the installed binary to decide which flag name to
+// use.  v0.1.5 and earlier accept "-model-id" (single model); newer builds
+// accept "-models" (comma-separated).  We check `csgclaw onboard --help` for
+// the presence of "-models" and fall back to "-model-id".
+func csgclawModelsFlag(binary, modelID string, modelIDs []string) (flag, value string) {
+	helpOut, _ := exec.Command(binary, "onboard", "--help").CombinedOutput()
+	if strings.Contains(string(helpOut), "-models") {
+		models := strings.Join(modelIDs, ",")
+		if models == "" {
+			models = modelID
+		}
+		return "--models", models
+	}
+	return "--model-id", modelID
 }
