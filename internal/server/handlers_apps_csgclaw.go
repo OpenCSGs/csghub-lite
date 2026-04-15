@@ -31,6 +31,9 @@ func (s *Server) openCSGClawURL(ctx context.Context, modelID string) (string, er
 	if err != nil {
 		return "", err
 	}
+	if strings.TrimSpace(modelID) != "" {
+		s.savePreferredAIAppModel("csgclaw", resolvedModel)
+	}
 
 	if err := s.onboardCSGClaw(ctx, binary, resolvedModel, modelIDs); err != nil {
 		return "", err

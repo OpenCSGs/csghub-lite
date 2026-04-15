@@ -78,6 +78,20 @@ func (s *Server) handleAppUninstall(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusAccepted, info)
 }
 
+func (s *Server) handleAppModelSave(w http.ResponseWriter, r *http.Request) {
+	var req api.AIAppActionRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if strings.TrimSpace(req.AppID) == "" || strings.TrimSpace(req.ModelID) == "" {
+		writeError(w, http.StatusBadRequest, "app_id and model_id are required")
+		return
+	}
+	s.savePreferredAIAppModel(req.AppID, req.ModelID)
+	w.WriteHeader(http.StatusNoContent)
+}
+
 func (s *Server) handleAppOpen(w http.ResponseWriter, r *http.Request) {
 	var req api.AIAppOpenRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -122,7 +136,12 @@ func (s *Server) enrichAIApp(ctx context.Context, info *api.AIAppInfo) {
 	case "claude-code", "open-code", "codex":
 		modelID, _, err = s.resolveAIAppShellLaunchModels(ctx, info.ID, "")
 	case "openclaw", "csgclaw":
-		modelID, _, err = s.resolveAIAppLaunchModels(ctx, "")
+		preferred := s.preferredAIAppModel(info.ID)
+		modelID, _, err = s.resolveAIAppLaunchModels(ctx, preferred)
+		if err != nil && preferred != "" {
+			s.clearPreferredAIAppModel(info.ID)
+			modelID, _, err = s.resolveAIAppLaunchModels(ctx, "")
+		}
 	default:
 		return
 	}

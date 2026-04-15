@@ -6,6 +6,7 @@ import {
   getTags,
   installAIApp,
   openAIApp,
+  saveAIAppModel,
   streamAIAppLogs,
   uninstallAIApp,
   type AIAppInfo as RemoteAIAppInfo,
@@ -694,7 +695,13 @@ function LiveLogsDrawer({
                     <div class="relative">
                       <select
                         value={currentModelID}
-                        onChange={(e) => setSelectedModel((e.currentTarget as HTMLSelectElement).value)}
+                        onChange={(e) => {
+                          const val = (e.currentTarget as HTMLSelectElement).value;
+                          setSelectedModel(val);
+                          if (val) {
+                            void saveAIAppModel(app.id, val);
+                          }
+                        }}
                         disabled={modelsLoading || models.length === 0}
                         class={`appearance-none w-full rounded-xl border bg-white pl-3 pr-9 py-3 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent ${
                           modelsLoading || models.length === 0

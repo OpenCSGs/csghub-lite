@@ -897,6 +897,14 @@ export async function openAIApp(appId: string, modelId?: string, workDir?: strin
   });
 }
 
+export async function saveAIAppModel(appId: string, modelId: string): Promise<void> {
+  await fetch("/api/apps/model", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ app_id: appId, model_id: modelId }),
+  });
+}
+
 export function streamLogs(
   onLog: (line: string) => void,
   signal?: AbortSignal

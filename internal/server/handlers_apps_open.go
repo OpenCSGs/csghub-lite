@@ -66,6 +66,9 @@ func (s *Server) openClawChatURL(ctx context.Context, modelID string) (string, e
 	if err := s.ensureOpenClawProfile(ctx, binary, modelID); err != nil {
 		return "", err
 	}
+	if strings.TrimSpace(modelID) != "" {
+		s.savePreferredAIAppModel("openclaw", modelID)
+	}
 
 	url, err := openClawDashboardURL(ctx, binary)
 	if err != nil {
