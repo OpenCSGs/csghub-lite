@@ -36,13 +36,13 @@ func (s *Server) openCSGClawURL(ctx context.Context, modelID string) (string, er
 		return "", err
 	}
 
-	if !csgclawReachable() {
-		if err := s.startCSGClawServe(binary); err != nil {
-			return "", err
-		}
-		if err := waitForCSGClaw(csgclawServeWait); err != nil {
-			return "", err
-		}
+	// Always restart to pick up model/config changes (like openclaw --force).
+	stopCSGClaw()
+	if err := s.startCSGClawServe(binary); err != nil {
+		return "", err
+	}
+	if err := waitForCSGClaw(csgclawServeWait); err != nil {
+		return "", err
 	}
 
 	return "http://" + csgclawDefaultAddr + "/", nil
@@ -112,6 +112,22 @@ func (s *Server) startCSGClawServe(binary string) error {
 	_ = cmd.Process.Release()
 	log.Printf("started csgclaw serve (pid %d)", cmd.Process.Pid)
 	return nil
+}
+
+// stopCSGClaw terminates any running csgclaw serve process so a fresh
+// instance can be started with updated configuration.
+func stopCSGClaw() {
+	if !csgclawReachable() {
+		return
+	}
+	_ = exec.Command("pkill", "-f", "csgclaw serve").Run()
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		if !csgclawReachable() {
+			return
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
 }
 
 func csgclawReachable() bool {
