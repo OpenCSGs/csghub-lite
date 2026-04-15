@@ -26,8 +26,24 @@ func newConfigSetCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "set KEY VALUE",
 		Short: "Set a configuration value",
-		Args:  cobra.ExactArgs(2),
-		RunE:  runConfigSet,
+		Long: `Set a configuration value.
+
+Available keys:
+  server_url       CSGHub server URL for model marketplace (default: https://hub.opencsg.com)
+  ai_gateway_url   AI Gateway URL for cloud inference models (default: https://ai.space.opencsg.com)
+  storage_dir      Root storage directory (sets both model_dir and dataset_dir)
+  model_dir        Directory for downloaded models
+  dataset_dir      Directory for downloaded datasets
+  listen_addr      Local server listen address (default: :11435)
+  token            Access token for CSGHub authentication
+
+Examples:
+  csghub-lite config set server_url https://my-csghub.example.com
+  csghub-lite config set ai_gateway_url https://my-gateway.example.com
+  csghub-lite config set storage_dir /data/csghub-lite
+  csghub-lite config set listen_addr :8080`,
+		Args: cobra.ExactArgs(2),
+		RunE: runConfigSet,
 	}
 }
 
@@ -35,8 +51,15 @@ func newConfigGetCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "get KEY",
 		Short: "Get a configuration value",
-		Args:  cobra.ExactArgs(1),
-		RunE:  runConfigGet,
+		Long: `Get a configuration value.
+
+Available keys: ` + supportedConfigKeys + `
+
+Examples:
+  csghub-lite config get server_url
+  csghub-lite config get ai_gateway_url`,
+		Args: cobra.ExactArgs(1),
+		RunE: runConfigGet,
 	}
 }
 
