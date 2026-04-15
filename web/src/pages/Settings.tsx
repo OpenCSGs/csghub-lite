@@ -24,6 +24,8 @@ const storageLocation = signal("");
 const modelDirectory = signal("");
 const datasetDirectory = signal("");
 const appVersion = signal("");
+const autostartEnabled = signal(false);
+const isSavingAutostart = signal(false);
 const contextIndex = signal(1);
 const parallelIndex = signal(2);
 const cloudAuth = signal<CloudAuthStatus | null>(null);
@@ -95,6 +97,7 @@ function applySettings(data: AppSettings) {
   modelDirectory.value = data.model_dir || "";
   datasetDirectory.value = data.dataset_dir || "";
   appVersion.value = data.version || "";
+  autostartEnabled.value = data.autostart ?? false;
 }
 
 function fetchSettings() {
@@ -358,6 +361,43 @@ export function Settings() {
         <div class="flex gap-2 ml-7">
           <LangBtn code="en" label="EN" />
           <LangBtn code="zh" label="中文" />
+        </div>
+      </div>
+
+      {/* Autostart */}
+      <div class="mb-10">
+        <div class="flex items-center gap-2 mb-1">
+          <svg class="w-5 h-5 text-gray-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M5.636 18.364a9 9 0 010-12.728m12.728 0a9 9 0 010 12.728M12 2v2m0 16v2" />
+          </svg>
+          <span class="font-semibold text-gray-900">{t("settings.autostart")}</span>
+        </div>
+        <p class="text-sm text-gray-500 mb-3 ml-7">{t("settings.autostartDesc")}</p>
+        <div class="ml-7 flex items-center gap-3">
+          <label class="relative inline-flex items-center cursor-pointer">
+            <input
+              type="checkbox"
+              checked={autostartEnabled.value}
+              disabled={isSavingAutostart.value}
+              onChange={async (e) => {
+                const enabled = (e.target as HTMLInputElement).checked;
+                isSavingAutostart.value = true;
+                try {
+                  const data = await saveSettings({ autostart: enabled });
+                  applySettings(data);
+                } catch {
+                  autostartEnabled.value = !enabled;
+                } finally {
+                  isSavingAutostart.value = false;
+                }
+              }}
+              class="sr-only peer"
+            />
+            <div class="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-indigo-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-600 peer-disabled:opacity-60 peer-disabled:cursor-not-allowed"></div>
+          </label>
+          <span class="text-sm text-gray-700">
+            {autostartEnabled.value ? t("settings.autostartOn") : t("settings.autostartOff")}
+          </span>
         </div>
       </div>
 

@@ -7,6 +7,9 @@
     "ghcr.io/devcontainers/features/node:1": { "version": "22" },
     "ghcr.io/devcontainers/features/github-cli:1": {}
   },
+  "mounts": [
+    "source=${localEnv:HOME}/.ssh,target=/home/vscode/.ssh,type=bind,readonly"
+  ],
   "postCreateCommand": ".devcontainer/post-create.sh",
   "forwardPorts": [11435],
   "containerEnv": {

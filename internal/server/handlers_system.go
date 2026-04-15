@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/opencsgs/csghub-lite/internal/autostart"
 	"github.com/opencsgs/csghub-lite/internal/config"
 	"github.com/opencsgs/csghub-lite/internal/hardware"
 	"github.com/opencsgs/csghub-lite/pkg/api"
@@ -113,15 +114,31 @@ func (s *Server) handleSettingsUpdate(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	if req.Autostart != nil {
+		if *req.Autostart {
+			if err := autostart.Enable(); err != nil {
+				writeError(w, http.StatusInternalServerError, "failed to enable autostart: "+err.Error())
+				return
+			}
+		} else {
+			if err := autostart.Disable(); err != nil {
+				writeError(w, http.StatusInternalServerError, "failed to disable autostart: "+err.Error())
+				return
+			}
+		}
+	}
+
 	writeJSON(w, http.StatusOK, currentSettingsResponse(s.cfg, s.version))
 }
 
 func currentSettingsResponse(cfg *config.Config, version string) api.SettingsResponse {
+	autostartEnabled, _ := autostart.IsEnabled()
 	return api.SettingsResponse{
 		Version:    version,
 		StorageDir: cfg.StorageDir(),
 		ModelDir:   cfg.ModelDir,
 		DatasetDir: cfg.DatasetDir,
+		Autostart:  autostartEnabled,
 	}
 }
 

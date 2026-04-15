@@ -258,12 +258,14 @@ type SettingsResponse struct {
 	StorageDir string `json:"storage_dir"`
 	ModelDir   string `json:"model_dir"`
 	DatasetDir string `json:"dataset_dir"`
+	Autostart  bool   `json:"autostart"`
 }
 
 type SettingsUpdateRequest struct {
 	StorageDir string `json:"storage_dir,omitempty"`
 	ModelDir   string `json:"model_dir,omitempty"`
 	DatasetDir string `json:"dataset_dir,omitempty"`
+	Autostart  *bool  `json:"autostart,omitempty"`
 }
 
 type DirectoryBrowseRequest struct {
