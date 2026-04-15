@@ -77,10 +77,16 @@ func (s *Server) handleCloudAuthTokenDelete(w http.ResponseWriter, r *http.Reque
 }
 
 func (s *Server) cloudAuthStatus(ctx context.Context) cloudAuthStatus {
+	displayURL := strings.TrimRight(s.cfg.DisplayURL(), "/")
+	loginURL := displayURL + "/login"
+	if s.cfg.ServerURL == config.DefaultServerURL || s.cfg.ServerURL == "" {
+		loginURL = cloud.DefaultLoginURL
+	}
+
 	status := cloudAuthStatus{
 		AuthMode:       "token",
-		LoginURL:       cloud.DefaultLoginURL,
-		AccessTokenURL: cloud.DefaultAccessTokenURL,
+		LoginURL:       loginURL,
+		AccessTokenURL: displayURL + "/settings/access-token",
 	}
 	token := strings.TrimSpace(s.cfg.Token)
 	status.HasToken = token != ""

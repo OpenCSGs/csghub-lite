@@ -1604,6 +1604,38 @@
         }
       }
     },
+    "/api/apps/model": {
+      "post": {
+        "tags": [
+          "AI Apps"
+        ],
+        "summary": "Save preferred model for an AI App",
+        "description": "Persists the user's preferred model choice for a given AI App so it is used as the default on next launch.",
+        "operationId": "saveAIAppModel",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AIAppActionRequest"
+              },
+              "example": {
+                "app_id": "openclaw",
+                "model_id": "Qwen/Qwen3-0.6B-GGUF"
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "Model preference saved."
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          }
+        }
+      }
+    },
     "/api/apps/logs": {
       "get": {
         "tags": [
