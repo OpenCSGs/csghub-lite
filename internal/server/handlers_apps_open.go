@@ -46,6 +46,8 @@ func (s *Server) openAIAppURL(ctx context.Context, appID, modelID, workDir strin
 	switch appID {
 	case "openclaw":
 		return s.openClawChatURL(ctx, modelID)
+	case "csgclaw":
+		return s.openCSGClawURL(ctx, modelID)
 	case "claude-code", "open-code", "codex":
 		return s.openAIAppShellURL(ctx, appID, modelID, workDir)
 	default:

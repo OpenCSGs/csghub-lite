@@ -97,7 +97,7 @@ func NewManager(cfg *config.Config) *Manager {
 		phase := "ready"
 		if !spec.supported {
 			status = "disabled"
-			phase = "docker_disabled"
+			phase = spec.disabledReason
 		}
 		m.states[spec.id] = &appState{
 			info: api.AIAppInfo{
@@ -117,6 +117,13 @@ func NewManager(cfg *config.Config) *Manager {
 
 	_ = m.RefreshAll(context.Background())
 	return m
+}
+
+func csgclawDisabledReason() string {
+	if runtime.GOOS == "windows" {
+		return "windows_unsupported"
+	}
+	return ""
 }
 
 func appSpecs() []appSpec {
@@ -189,6 +196,22 @@ func appSpecs() []appSpec {
 			},
 			uninstallWin: &scriptSource{
 				embeddedPath: "scripts/openclaw-uninstall.ps1",
+			},
+		},
+		{
+			id:             "csgclaw",
+			binaryName:     "csgclaw",
+			installMode:    "script",
+			progressMode:   progressModePercent,
+			supported:      runtime.GOOS != "windows",
+			disabledReason: csgclawDisabledReason(),
+			versionArgs:    []string{"--version"},
+			unix: &scriptSource{
+				mirrorURL:    mirrorBaseURL + "/csgclaw/install.sh",
+				embeddedPath: "scripts/csgclaw-install.sh",
+			},
+			uninstallUnix: &scriptSource{
+				embeddedPath: "scripts/csgclaw-uninstall.sh",
 			},
 		},
 		{

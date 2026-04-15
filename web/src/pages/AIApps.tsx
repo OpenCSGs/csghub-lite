@@ -1042,7 +1042,7 @@ function drawerNotice(state: AIAppRuntimeState): string {
 }
 
 function canOpenAIApp(app: AIAppCatalogEntry, state: AIAppRuntimeState): boolean {
-  return ["openclaw", "claude-code", "open-code", "codex"].includes(app.id) &&
+  return ["openclaw", "csgclaw", "claude-code", "open-code", "codex"].includes(app.id) &&
     state.status === "installed" &&
     !state.disabled;
 }
@@ -1072,13 +1072,15 @@ function cliLaunchAppName(appID: string): string {
       return "codex";
     case "openclaw":
       return "openclaw";
+    case "csgclaw":
+      return "csgclaw";
     default:
       return "";
   }
 }
 
 function canSelectAIAppModel(app: AIAppCatalogEntry): boolean {
-  return ["claude-code", "open-code", "codex", "openclaw"].includes(app.id);
+  return ["claude-code", "open-code", "codex", "openclaw", "csgclaw"].includes(app.id);
 }
 
 function normalizeAIAppModels(models: ModelInfo[]): ModelInfo[] {

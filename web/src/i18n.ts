@@ -215,6 +215,7 @@ const en: Record<string, string> = {
   "aiApps.phase.uninstall_failed": "Uninstallation failed",
   "aiApps.phase.complete": "Complete",
   "aiApps.phase.docker_disabled": "Disabled in AI Apps",
+  "aiApps.phase.windows_unsupported": "Not available on Windows",
 
   // Settings
   "nav.settings": "Settings",
@@ -584,6 +585,7 @@ const zh: Record<string, string> = {
   "aiApps.phase.uninstall_failed": "卸载失败",
   "aiApps.phase.complete": "完成",
   "aiApps.phase.docker_disabled": "应用页暂不支持",
+  "aiApps.phase.windows_unsupported": "暂不支持 Windows",
 
   // Settings
   "nav.settings": "设置",
