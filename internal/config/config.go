@@ -30,6 +30,7 @@ func (c *Config) StorageDir() string {
 
 type Config struct {
 	ServerURL            string            `json:"server_url"`
+	AIGatewayURL         string            `json:"ai_gateway_url,omitempty"`
 	Token                string            `json:"token,omitempty"`
 	ListenAddr           string            `json:"listen_addr"`
 	ModelDir             string            `json:"model_dir"`

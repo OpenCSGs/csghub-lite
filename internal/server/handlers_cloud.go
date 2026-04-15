@@ -146,7 +146,7 @@ func (s *Server) newCloudEngine(modelID string) (inference.Engine, error) {
 	if token == "" {
 		return nil, inference.NewHTTPStatusError(http.StatusUnauthorized, "Cloud login required. Please sign in and save an Access Token.")
 	}
-	baseURL := cloud.DefaultBaseURL
+	baseURL := resolveCloudURL(s.cfg)
 	if s.cloud != nil && strings.TrimSpace(s.cloud.BaseURL()) != "" {
 		baseURL = s.cloud.BaseURL()
 	}

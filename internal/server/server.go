@@ -70,7 +70,7 @@ func New(cfg *config.Config, version string) *Server {
 		manager:        mgr,
 		datasetManager: dsMgr,
 		appManager:     apps.NewManager(cfg),
-		cloud:          cloud.NewService(cloud.DefaultBaseURL),
+		cloud:          cloud.NewService(resolveCloudURL(cfg)),
 		engines:        make(map[string]*managedEngine),
 		logBuf:         logBuf,
 	}
@@ -85,6 +85,13 @@ func New(cfg *config.Config, version string) *Server {
 		IdleTimeout:  120 * time.Second,
 	}
 	return s
+}
+
+func resolveCloudURL(cfg *config.Config) string {
+	if u := strings.TrimSpace(cfg.AIGatewayURL); u != "" {
+		return u
+	}
+	return cloud.DefaultBaseURL
 }
 
 func (s *Server) Run(ctx context.Context) error {

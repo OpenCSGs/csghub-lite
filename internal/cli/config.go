@@ -10,7 +10,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-const supportedConfigKeys = "server_url, storage_dir, model_dir, dataset_dir, listen_addr, token"
+const supportedConfigKeys = "server_url, ai_gateway_url, storage_dir, model_dir, dataset_dir, listen_addr, token"
 
 func newConfigCmd() *cobra.Command {
 	cmd := &cobra.Command{
@@ -58,6 +58,8 @@ func runConfigSet(cmd *cobra.Command, args []string) error {
 	switch key {
 	case "server_url":
 		cfg.ServerURL = strings.TrimSpace(value)
+	case "ai_gateway_url":
+		cfg.AIGatewayURL = strings.TrimSpace(value)
 	case "storage_dir":
 		dir, err := requiredPathValue(value)
 		if err != nil {
@@ -115,6 +117,8 @@ func runConfigGet(cmd *cobra.Command, args []string) error {
 	switch key {
 	case "server_url":
 		fmt.Println(cfg.ServerURL)
+	case "ai_gateway_url":
+		fmt.Println(cfg.AIGatewayURL)
 	case "storage_dir":
 		fmt.Println(cfg.StorageDir())
 	case "model_dir":
@@ -137,12 +141,13 @@ func runConfigShow(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("loading config: %w", err)
 	}
 
-	fmt.Printf("server_url:  %s\n", cfg.ServerURL)
-	fmt.Printf("storage_dir: %s\n", cfg.StorageDir())
-	fmt.Printf("model_dir:   %s\n", cfg.ModelDir)
-	fmt.Printf("dataset_dir: %s\n", cfg.DatasetDir)
-	fmt.Printf("listen_addr: %s\n", cfg.ListenAddr)
-	fmt.Printf("token:       %s\n", maskedToken(cfg.Token))
+	fmt.Printf("server_url:      %s\n", cfg.ServerURL)
+	fmt.Printf("ai_gateway_url:  %s\n", cfg.AIGatewayURL)
+	fmt.Printf("storage_dir:     %s\n", cfg.StorageDir())
+	fmt.Printf("model_dir:       %s\n", cfg.ModelDir)
+	fmt.Printf("dataset_dir:     %s\n", cfg.DatasetDir)
+	fmt.Printf("listen_addr:     %s\n", cfg.ListenAddr)
+	fmt.Printf("token:           %s\n", maskedToken(cfg.Token))
 	return nil
 }
 
@@ -180,6 +185,8 @@ func displayConfigValue(cfg *config.Config, key string) string {
 		return cfg.ListenAddr
 	case "server_url":
 		return cfg.ServerURL
+	case "ai_gateway_url":
+		return cfg.AIGatewayURL
 	case "token":
 		return maskedToken(cfg.Token)
 	default:
