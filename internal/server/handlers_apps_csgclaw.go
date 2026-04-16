@@ -1,6 +1,7 @@
 package server
 
 import (
+	"bufio"
 	"context"
 	"fmt"
 	"log"
@@ -8,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -27,11 +29,12 @@ func (s *Server) openCSGClawURL(ctx context.Context, modelID string) (string, er
 		return "", fmt.Errorf("CSGClaw is installed, but its launch command was not found on PATH")
 	}
 
-	resolvedModel, modelIDs, err := s.resolveAIAppLaunchModels(ctx, modelID)
+	requestedModel := strings.TrimSpace(modelID)
+	resolvedModel, modelIDs, err := s.resolveCSGClawLaunchModels(ctx, requestedModel)
 	if err != nil {
 		return "", err
 	}
-	if strings.TrimSpace(modelID) != "" {
+	if requestedModel != "" {
 		s.savePreferredAIAppModel("csgclaw", resolvedModel)
 	}
 
@@ -51,22 +54,54 @@ func (s *Server) openCSGClawURL(ctx context.Context, modelID string) (string, er
 	return "http://" + csgclawDefaultAddr + "/", nil
 }
 
+func (s *Server) resolveCSGClawLaunchModels(ctx context.Context, requestedModel string) (string, []string, error) {
+	requestedModel = strings.TrimSpace(requestedModel)
+	if requestedModel != "" {
+		return s.resolveAIAppLaunchModels(ctx, requestedModel)
+	}
+
+	preferredModel := s.preferredAIAppModel("csgclaw")
+	if preferredModel != "" {
+		modelID, modelIDs, err := s.resolveAIAppLaunchModels(ctx, preferredModel)
+		if err == nil {
+			return modelID, modelIDs, nil
+		}
+		if strings.Contains(err.Error(), "is not available for AI Apps") {
+			s.clearPreferredAIAppModel("csgclaw")
+		} else {
+			return "", nil, err
+		}
+	}
+
+	return s.resolveAIAppLaunchModels(ctx, "")
+}
+
 func (s *Server) onboardCSGClaw(ctx context.Context, binary, modelID string, modelIDs []string) error {
-	serverURL := s.localBaseURL()
+	listenAddr := ""
+	if s != nil && s.cfg != nil {
+		listenAddr = s.cfg.ListenAddr
+	}
+	serverURL := csgclawReachableBaseURL(listenAddr, csgclawInterfaceAddrs())
 	token := strings.TrimSpace(s.cfg.Token)
 	apiKey := token
 	if apiKey == "" {
 		apiKey = "csghub-lite"
 	}
+	modelBaseURL := strings.TrimRight(serverURL, "/") + "/v1"
 
 	onboardCtx, cancel := context.WithTimeout(ctx, csgclawOnboardTimeout)
 	defer cancel()
 
 	args := []string{
 		"onboard",
-		"--base-url", strings.TrimRight(serverURL, "/") + "/v1",
-		"--api-key", apiKey,
 	}
+	if csgclawConfigNeedsManagerRecreate(modelBaseURL, apiKey, modelID) {
+		args = append(args, "--force-recreate-manager")
+	}
+	args = append(args,
+		"--base-url", modelBaseURL,
+		"--api-key", apiKey,
+	)
 
 	// v0.1.5 uses -model-id (single); newer versions use -models (comma-separated).
 	// Try -models first; fall back to -model-id on failure.
@@ -153,6 +188,179 @@ func waitForCSGClaw(timeout time.Duration) error {
 		time.Sleep(300 * time.Millisecond)
 	}
 	return fmt.Errorf("CSGClaw server did not become ready in time")
+}
+
+func csgclawReachableBaseURL(listenAddr string, addrs []net.Addr) string {
+	host, port := csgclawListenHostPort(listenAddr)
+	if csgclawNeedsReachableHost(host) {
+		if reachableHost := csgclawReachableHost(addrs); reachableHost != "" {
+			host = reachableHost
+		} else {
+			host = "127.0.0.1"
+		}
+	}
+	return "http://" + net.JoinHostPort(host, port)
+}
+
+func csgclawListenHostPort(listenAddr string) (host, port string) {
+	addr := strings.TrimSpace(listenAddr)
+	if addr == "" {
+		addr = config.DefaultListenAddr
+	}
+	if strings.HasPrefix(addr, ":") {
+		return "", strings.TrimPrefix(addr, ":")
+	}
+	if host, port, err := net.SplitHostPort(addr); err == nil {
+		return strings.Trim(host, "[]"), port
+	}
+	if strings.Count(addr, ":") == 1 {
+		parts := strings.SplitN(addr, ":", 2)
+		return parts[0], parts[1]
+	}
+	return "127.0.0.1", strings.TrimPrefix(config.DefaultListenAddr, ":")
+}
+
+func csgclawNeedsReachableHost(host string) bool {
+	host = strings.TrimSpace(strings.Trim(host, "[]"))
+	if host == "" || strings.EqualFold(host, "localhost") {
+		return true
+	}
+	ip := net.ParseIP(host)
+	if ip == nil {
+		return false
+	}
+	return ip.IsLoopback() || ip.IsUnspecified()
+}
+
+func csgclawReachableHost(addrs []net.Addr) string {
+	privateHosts := make([]string, 0, len(addrs))
+	publicHosts := make([]string, 0, len(addrs))
+	seen := make(map[string]struct{}, len(addrs))
+	for _, addr := range addrs {
+		var ip net.IP
+		switch v := addr.(type) {
+		case *net.IPNet:
+			ip = v.IP
+		case *net.IPAddr:
+			ip = v.IP
+		}
+		if ip == nil || ip.IsLoopback() {
+			continue
+		}
+		ip = ip.To4()
+		if ip == nil {
+			continue
+		}
+		host := ip.String()
+		if _, ok := seen[host]; ok {
+			continue
+		}
+		seen[host] = struct{}{}
+		if ip.IsPrivate() {
+			privateHosts = append(privateHosts, host)
+			continue
+		}
+		if ip.IsGlobalUnicast() {
+			publicHosts = append(publicHosts, host)
+		}
+	}
+	if len(privateHosts) > 0 {
+		return privateHosts[0]
+	}
+	if len(publicHosts) > 0 {
+		return publicHosts[0]
+	}
+	return ""
+}
+
+func csgclawInterfaceAddrs() []net.Addr {
+	addrs, err := net.InterfaceAddrs()
+	if err != nil {
+		return nil
+	}
+	return addrs
+}
+
+func csgclawConfigNeedsManagerRecreate(baseURL, apiKey, modelID string) bool {
+	currentBaseURL, currentAPIKey, currentModelID, err := readCSGClawModelConfig()
+	if err != nil {
+		return true
+	}
+	return strings.TrimRight(currentBaseURL, "/") != strings.TrimRight(baseURL, "/") ||
+		strings.TrimSpace(currentAPIKey) != strings.TrimSpace(apiKey) ||
+		strings.TrimSpace(currentModelID) != strings.TrimSpace(modelID)
+}
+
+func readCSGClawModelConfig() (baseURL, apiKey, modelID string, err error) {
+	path, err := csgclawConfigPath()
+	if err != nil {
+		return "", "", "", err
+	}
+	file, err := os.Open(path)
+	if err != nil {
+		return "", "", "", err
+	}
+	defer file.Close()
+
+	inModelSection := false
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		if strings.HasPrefix(line, "[") && strings.HasSuffix(line, "]") {
+			inModelSection = line == "[model]"
+			continue
+		}
+		if !inModelSection {
+			continue
+		}
+		key, value, ok := parseCSGClawConfigKV(line)
+		if !ok {
+			continue
+		}
+		switch key {
+		case "base_url":
+			baseURL = value
+		case "api_key":
+			apiKey = value
+		case "model_id":
+			modelID = value
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		return "", "", "", err
+	}
+	if strings.TrimSpace(baseURL) == "" || strings.TrimSpace(modelID) == "" {
+		return "", "", "", fmt.Errorf("csgclaw model config is incomplete")
+	}
+	return baseURL, apiKey, modelID, nil
+}
+
+func csgclawConfigPath() (string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(home, ".csgclaw", "config.toml"), nil
+}
+
+func parseCSGClawConfigKV(line string) (key, value string, ok bool) {
+	key, value, ok = strings.Cut(line, "=")
+	if !ok {
+		return "", "", false
+	}
+	key = strings.TrimSpace(key)
+	value = strings.TrimSpace(value)
+	if len(value) >= 2 && strings.HasPrefix(value, "\"") && strings.HasSuffix(value, "\"") {
+		if unquoted, err := strconv.Unquote(value); err == nil {
+			value = unquoted
+		} else {
+			value = strings.Trim(value, "\"")
+		}
+	}
+	return key, value, true
 }
 
 // csgclawModelsFlag probes the installed binary to decide which flag name to
