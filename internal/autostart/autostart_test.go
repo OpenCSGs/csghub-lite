@@ -42,8 +42,9 @@ func testLinuxRoundTrip(t *testing.T) {
 		t.Fatal("expected autostart to be enabled after Enable()")
 	}
 
-	// Verify the desktop file exists and has expected content.
-	path := filepath.Join(tmp, "autostart", desktopFileName)
+	// Keep the expected file name local to the test so the package still
+	// compiles on non-Linux hosts where desktopFileName is not defined.
+	path := filepath.Join(tmp, "autostart", "csghub-lite.desktop")
 	data, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatalf("reading desktop file: %v", err)
