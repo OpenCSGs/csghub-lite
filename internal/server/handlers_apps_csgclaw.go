@@ -17,10 +17,11 @@ import (
 )
 
 const (
-	csgclawDefaultAddr    = "127.0.0.1:18080"
-	csgclawOnboardTimeout = 2 * time.Minute
-	csgclawServeWait      = 12 * time.Second
-	csgclawLogName        = "csgclaw.log"
+	csgclawDefaultAddr         = "127.0.0.1:18080"
+	csgclawOnboardTimeout      = 2 * time.Minute
+	csgclawServeWait           = 12 * time.Second
+	csgclawLogName             = "csgclaw.log"
+	csgclawDefaultProviderName = "default"
 )
 
 func (s *Server) openCSGClawURL(ctx context.Context, modelID string) (string, error) {
@@ -98,15 +99,12 @@ func (s *Server) onboardCSGClaw(ctx context.Context, binary, modelID string, mod
 	if csgclawConfigNeedsManagerRecreate(modelBaseURL, apiKey, modelID) {
 		args = append(args, "--force-recreate-manager")
 	}
+	models := csgclawOrderedModels(modelID, modelIDs)
 	args = append(args,
 		"--base-url", modelBaseURL,
 		"--api-key", apiKey,
+		"--models", strings.Join(models, ","),
 	)
-
-	// v0.1.5 uses -model-id (single); newer versions use -models (comma-separated).
-	// Try -models first; fall back to -model-id on failure.
-	modelsFlag, modelsValue := csgclawModelsFlag(binary, modelID, modelIDs)
-	args = append(args, modelsFlag, modelsValue)
 
 	cmd := exec.CommandContext(onboardCtx, binary, args...)
 	output, err := cmd.CombinedOutput()
@@ -282,27 +280,70 @@ func csgclawInterfaceAddrs() []net.Addr {
 }
 
 func csgclawConfigNeedsManagerRecreate(baseURL, apiKey, modelID string) bool {
-	currentBaseURL, currentAPIKey, currentModelID, err := readCSGClawModelConfig()
+	cfg, err := readCSGClawModelConfig()
 	if err != nil {
 		return true
 	}
-	return strings.TrimRight(currentBaseURL, "/") != strings.TrimRight(baseURL, "/") ||
-		strings.TrimSpace(currentAPIKey) != strings.TrimSpace(apiKey) ||
-		strings.TrimSpace(currentModelID) != strings.TrimSpace(modelID)
+	providerName := cfg.EffectiveProviderName()
+	provider, ok := cfg.Providers[providerName]
+	if !ok {
+		return true
+	}
+	wantSelector := csgclawModelSelector(providerName, modelID)
+	return strings.TrimSpace(cfg.DefaultSelector) != wantSelector ||
+		strings.TrimRight(provider.BaseURL, "/") != strings.TrimRight(baseURL, "/") ||
+		strings.TrimSpace(provider.APIKey) != strings.TrimSpace(apiKey) ||
+		!csgclawContainsModel(provider.Models, modelID)
 }
 
-func readCSGClawModelConfig() (baseURL, apiKey, modelID string, err error) {
+type csgclawModelConfig struct {
+	DefaultSelector string
+	Providers       map[string]csgclawModelProviderConfig
+}
+
+type csgclawModelProviderConfig struct {
+	BaseURL string
+	APIKey  string
+	Models  []string
+}
+
+func (c csgclawModelConfig) EffectiveProviderName() string {
+	selector := strings.TrimSpace(c.DefaultSelector)
+	if providerName, _, ok := strings.Cut(selector, "."); ok {
+		providerName = strings.TrimSpace(providerName)
+		if providerName != "" {
+			return providerName
+		}
+	}
+	if len(c.Providers) == 1 {
+		for name := range c.Providers {
+			name = strings.TrimSpace(name)
+			if name != "" {
+				return name
+			}
+		}
+	}
+	if _, ok := c.Providers[csgclawDefaultProviderName]; ok {
+		return csgclawDefaultProviderName
+	}
+	return ""
+}
+
+func readCSGClawModelConfig() (csgclawModelConfig, error) {
 	path, err := csgclawConfigPath()
 	if err != nil {
-		return "", "", "", err
+		return csgclawModelConfig{}, err
 	}
 	file, err := os.Open(path)
 	if err != nil {
-		return "", "", "", err
+		return csgclawModelConfig{}, err
 	}
 	defer file.Close()
 
-	inModelSection := false
+	cfg := csgclawModelConfig{
+		Providers: make(map[string]csgclawModelProviderConfig),
+	}
+	section := ""
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
@@ -310,32 +351,48 @@ func readCSGClawModelConfig() (baseURL, apiKey, modelID string, err error) {
 			continue
 		}
 		if strings.HasPrefix(line, "[") && strings.HasSuffix(line, "]") {
-			inModelSection = line == "[model]"
-			continue
-		}
-		if !inModelSection {
+			section = strings.Trim(line, "[]")
 			continue
 		}
 		key, value, ok := parseCSGClawConfigKV(line)
 		if !ok {
 			continue
 		}
-		switch key {
-		case "base_url":
-			baseURL = value
-		case "api_key":
-			apiKey = value
-		case "model_id":
-			modelID = value
+		switch {
+		case section == "models":
+			if key == "default" {
+				cfg.DefaultSelector = value
+			}
+		case strings.HasPrefix(section, "models.providers."):
+			providerName := strings.TrimSpace(strings.TrimPrefix(section, "models.providers."))
+			if providerName == "" {
+				continue
+			}
+			provider := cfg.Providers[providerName]
+			switch key {
+			case "base_url":
+				provider.BaseURL = value
+			case "api_key":
+				provider.APIKey = value
+			case "models":
+				models, err := parseCSGClawConfigStringArray(value)
+				if err != nil {
+					return csgclawModelConfig{}, err
+				}
+				provider.Models = models
+			}
+			cfg.Providers[providerName] = provider
 		}
 	}
 	if err := scanner.Err(); err != nil {
-		return "", "", "", err
+		return csgclawModelConfig{}, err
 	}
-	if strings.TrimSpace(baseURL) == "" || strings.TrimSpace(modelID) == "" {
-		return "", "", "", fmt.Errorf("csgclaw model config is incomplete")
+	providerName := cfg.EffectiveProviderName()
+	provider, ok := cfg.Providers[providerName]
+	if providerName == "" || !ok || strings.TrimSpace(cfg.DefaultSelector) == "" || strings.TrimSpace(provider.BaseURL) == "" || len(provider.Models) == 0 {
+		return csgclawModelConfig{}, fmt.Errorf("csgclaw models config is incomplete")
 	}
-	return baseURL, apiKey, modelID, nil
+	return cfg, nil
 }
 
 func csgclawConfigPath() (string, error) {
@@ -363,18 +420,79 @@ func parseCSGClawConfigKV(line string) (key, value string, ok bool) {
 	return key, value, true
 }
 
-// csgclawModelsFlag probes the installed binary to decide which flag name to
-// use.  v0.1.5 and earlier accept "-model-id" (single model); newer builds
-// accept "-models" (comma-separated).  We check `csgclaw onboard --help` for
-// the presence of "-models" and fall back to "-model-id".
-func csgclawModelsFlag(binary, modelID string, modelIDs []string) (flag, value string) {
-	helpOut, _ := exec.Command(binary, "onboard", "--help").CombinedOutput()
-	if strings.Contains(string(helpOut), "-models") {
-		models := strings.Join(modelIDs, ",")
-		if models == "" {
-			models = modelID
-		}
-		return "--models", models
+func parseCSGClawConfigStringArray(value string) ([]string, error) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return nil, nil
 	}
-	return "--model-id", modelID
+	if !strings.HasPrefix(value, "[") || !strings.HasSuffix(value, "]") {
+		return nil, fmt.Errorf("invalid csgclaw array value %q", value)
+	}
+	inner := strings.TrimSpace(strings.TrimSuffix(strings.TrimPrefix(value, "["), "]"))
+	if inner == "" {
+		return nil, nil
+	}
+	items := strings.Split(inner, ",")
+	models := make([]string, 0, len(items))
+	for _, item := range items {
+		item = strings.TrimSpace(item)
+		if item == "" {
+			continue
+		}
+		if len(item) >= 2 && strings.HasPrefix(item, "\"") && strings.HasSuffix(item, "\"") {
+			unquoted, err := strconv.Unquote(item)
+			if err != nil {
+				return nil, err
+			}
+			item = unquoted
+		}
+		item = strings.TrimSpace(item)
+		if item == "" {
+			continue
+		}
+		models = append(models, item)
+	}
+	return models, nil
+}
+
+func csgclawModelSelector(providerName, modelID string) string {
+	providerName = strings.TrimSpace(providerName)
+	modelID = strings.TrimSpace(modelID)
+	if providerName == "" || modelID == "" {
+		return ""
+	}
+	return providerName + "." + modelID
+}
+
+func csgclawContainsModel(models []string, want string) bool {
+	want = strings.TrimSpace(want)
+	for _, model := range models {
+		if strings.TrimSpace(model) == want {
+			return true
+		}
+	}
+	return false
+}
+
+func csgclawOrderedModels(selected string, modelIDs []string) []string {
+	selected = strings.TrimSpace(selected)
+	ordered := make([]string, 0, len(modelIDs)+1)
+	seen := make(map[string]struct{}, len(modelIDs)+1)
+	appendModel := func(modelID string) {
+		modelID = strings.TrimSpace(modelID)
+		if modelID == "" {
+			return
+		}
+		if _, ok := seen[modelID]; ok {
+			return
+		}
+		seen[modelID] = struct{}{}
+		ordered = append(ordered, modelID)
+	}
+
+	appendModel(selected)
+	for _, modelID := range modelIDs {
+		appendModel(modelID)
+	}
+	return ordered
 }

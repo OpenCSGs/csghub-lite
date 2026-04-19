@@ -283,11 +283,24 @@ func TestCSGClawConfigNeedsManagerRecreateWhenModelConfigDrifts(t *testing.T) {
 
 [server]
 listen_addr = "0.0.0.0:18080"
+advertise_base_url = ""
+access_token = "your_access_token"
 
-[model]
+[bootstrap]
+manager_image = "ghcr.io/russellluo/picoclaw:2026.4.18"
+
+[sandbox]
+provider = "boxlite"
+home_dir_name = "boxlite"
+boxlite_cli_path = "boxlite"
+
+[models]
+default = "default.glm-5"
+
+[models.providers.default]
 base_url = "http://192.168.10.215:11435/v1"
 api_key = "test-token"
-model_id = "glm-5"
+models = ["glm-5", "Qwen/Qwen3-0.6B-GGUF"]
 `
 	if err := os.WriteFile(filepath.Join(cfgDir, "config.toml"), []byte(configTOML), 0o644); err != nil {
 		t.Fatalf("write config.toml: %v", err)
@@ -304,6 +317,19 @@ model_id = "glm-5"
 	}
 	if !csgclawConfigNeedsManagerRecreate("http://192.168.10.215:11435/v1", "other-token", "glm-5") {
 		t.Fatal("expected API key drift to require manager recreation")
+	}
+}
+
+func TestCSGClawOrderedModelsPutsSelectedModelFirst(t *testing.T) {
+	got := csgclawOrderedModels("glm-5", []string{
+		"Qwen/Qwen3-0.6B-GGUF",
+		"glm-5",
+		"minimax-m2.5",
+		"glm-5",
+	})
+	want := []string{"glm-5", "Qwen/Qwen3-0.6B-GGUF", "minimax-m2.5"}
+	if !sameStrings(got, want) || got[0] != "glm-5" {
+		t.Fatalf("csgclawOrderedModels = %#v, want %#v", got, want)
 	}
 }
 
