@@ -158,6 +158,101 @@ region_download_text() {
     fi
 }
 
+add_candidate() {
+    _candidate="$1"
+    [ -n "$_candidate" ] || return 0
+    case " ${_candidates:-} " in
+        *" ${_candidate} "*) return 0 ;;
+    esac
+    _candidates="${_candidates:+${_candidates} }${_candidate}"
+}
+
+extract_release_asset_names() {
+    _pattern="$1"
+    printf "%s\n" "${_llama_json:-}" | grep -Eo "$_pattern" | awk '!seen[$0]++'
+}
+
+add_release_candidates() {
+    _pattern="$1"
+    _matches="$(extract_release_asset_names "$_pattern" 2>/dev/null || true)"
+    [ -n "$_matches" ] || return 0
+    _old_ifs="$IFS"
+    IFS='
+'
+    for _match in $_matches; do
+        add_candidate "$_match"
+    done
+    IFS="$_old_ifs"
+}
+
+normalize_minor_version() {
+    printf "%s\n" "$1" | sed -n 's/.*\([0-9][0-9]*\.[0-9][0-9]*\).*/\1/p' | sed -n '1p'
+}
+
+extract_rocm_minor_version() {
+    _rocm_text="$1"
+    _rocm_version="$(printf "%s\n" "$_rocm_text" | sed -n 's/.*HIP version:[[:space:]]*\([0-9][0-9]*\.[0-9][0-9]*\).*/\1/p' | sed -n '1p')"
+    [ -n "$_rocm_version" ] || _rocm_version="$(printf "%s\n" "$_rocm_text" | sed -n 's/.*ROCm version:[[:space:]]*\([0-9][0-9]*\.[0-9][0-9]*\).*/\1/p' | sed -n '1p')"
+    [ -n "$_rocm_version" ] || _rocm_version="$(printf "%s\n" "$_rocm_text" | sed -n 's@.*rocm-\([0-9][0-9]*\.[0-9][0-9]*\).*@\1@p' | sed -n '1p')"
+    [ -n "$_rocm_version" ] || _rocm_version="$(normalize_minor_version "$_rocm_text")"
+    printf "%s\n" "$_rocm_version"
+}
+
+detect_rocm_version() {
+    _rocm_version="$(extract_rocm_minor_version "${CSGHUB_LITE_LLAMA_ROCM_VERSION:-}")"
+    if [ -n "$_rocm_version" ]; then
+        printf "%s\n" "$_rocm_version"
+        return 0
+    fi
+
+    for _version_file in \
+        /opt/rocm/.info/version \
+        /opt/rocm/.info/version-dev \
+        /opt/rocm-*/.info/version \
+        /opt/rocm-*/.info/version-dev
+    do
+        [ -f "$_version_file" ] || continue
+        _rocm_version="$(extract_rocm_minor_version "$(sed -n '1p' "$_version_file" 2>/dev/null || true)")"
+        if [ -n "$_rocm_version" ]; then
+            printf "%s\n" "$_rocm_version"
+            return 0
+        fi
+    done
+
+    if command -v hipcc >/dev/null 2>&1; then
+        _hipcc_version="$(hipcc --version 2>/dev/null || true)"
+        _rocm_version="$(extract_rocm_minor_version "$_hipcc_version")"
+        if [ -n "$_rocm_version" ]; then
+            printf "%s\n" "$_rocm_version"
+            return 0
+        fi
+    fi
+
+    return 1
+}
+
+has_rocm_runtime() {
+    if command -v rocm-smi >/dev/null 2>&1; then
+        _rocm_smi_out="$(rocm-smi 2>/dev/null || true)"
+        if printf "%s\n" "$_rocm_smi_out" | grep -Eq '^[[:space:]]*[0-9]+[[:space:]]'; then
+            return 0
+        fi
+    fi
+
+    if command -v rocminfo >/dev/null 2>&1; then
+        _rocminfo_out="$(rocminfo 2>/dev/null || true)"
+        if printf "%s\n" "$_rocminfo_out" | grep -Eq 'gfx[0-9]+'; then
+            return 0
+        fi
+    fi
+
+    if command -v hipcc >/dev/null 2>&1 && [ -e /dev/kfd ]; then
+        return 0
+    fi
+
+    return 1
+}
+
 install_enterprise_license() {
     _install_dir="$1"
     if [ "$EE" != "1" ]; then
@@ -460,8 +555,8 @@ install_llama_server() {
     case "$OS" in
         darwin)
             case "$ARCH" in
-                amd64) _candidates="llama-${_llama_tag}-bin-macos-x64.tar.gz" ;;
-                arm64) _candidates="llama-${_llama_tag}-bin-macos-arm64.tar.gz" ;;
+                amd64) add_candidate "llama-${_llama_tag}-bin-macos-x64.tar.gz" ;;
+                arm64) add_candidate "llama-${_llama_tag}-bin-macos-arm64.tar.gz" ;;
             esac ;;
         linux)
             case "$ARCH" in
@@ -471,11 +566,23 @@ install_llama_server() {
             if [ -n "${_arch_token:-}" ]; then
                 if command -v nvidia-smi >/dev/null 2>&1; then
                     info "NVIDIA GPU detected, trying CUDA build first."
-                    _candidates="llama-${_llama_tag}-bin-ubuntu-cuda-12.4-${_arch_token}.tar.gz"
-                    _candidates="${_candidates} llama-${_llama_tag}-bin-ubuntu-vulkan-${_arch_token}.tar.gz"
-                    _candidates="${_candidates} llama-${_llama_tag}-bin-ubuntu-${_arch_token}.tar.gz"
+                    add_candidate "llama-${_llama_tag}-bin-ubuntu-cuda-12.4-${_arch_token}.tar.gz"
+                    add_release_candidates "llama-${_llama_tag}-bin-ubuntu-cuda-[0-9]+\\.[0-9]+-${_arch_token}\\.tar\\.gz"
+                    add_candidate "llama-${_llama_tag}-bin-ubuntu-vulkan-${_arch_token}.tar.gz"
+                    add_candidate "llama-${_llama_tag}-bin-ubuntu-${_arch_token}.tar.gz"
+                elif [ "$_arch_token" = "x64" ] && has_rocm_runtime; then
+                    _rocm_version="$(detect_rocm_version || true)"
+                    if [ -n "$_rocm_version" ]; then
+                        info "ROCm runtime detected (${_rocm_version}), trying ROCm build first."
+                        add_candidate "llama-${_llama_tag}-bin-ubuntu-rocm-${_rocm_version}-${_arch_token}.tar.gz"
+                    else
+                        info "ROCm runtime detected, trying published ROCm builds first."
+                    fi
+                    add_release_candidates "llama-${_llama_tag}-bin-ubuntu-rocm-[0-9]+\\.[0-9]+-${_arch_token}\\.tar\\.gz"
+                    add_candidate "llama-${_llama_tag}-bin-ubuntu-vulkan-${_arch_token}.tar.gz"
+                    add_candidate "llama-${_llama_tag}-bin-ubuntu-${_arch_token}.tar.gz"
                 else
-                    _candidates="llama-${_llama_tag}-bin-ubuntu-${_arch_token}.tar.gz"
+                    add_candidate "llama-${_llama_tag}-bin-ubuntu-${_arch_token}.tar.gz"
                 fi
             fi ;;
     esac

@@ -45,6 +45,7 @@ $env:EE="1"; irm https://hub.opencsg.com/csghub-lite/install.ps1 | iex
 | `CSGHUB_LITE_LLAMA_SERVER_INSTALL_DIR` | 指定 `llama-server` 安装目录。未设置时，macOS 默认跟随 `csghub-lite` 的安装目录。 |
 | `CSGHUB_LITE_AUTO_INSTALL_LLAMA_SERVER` | 设为 `0` 可跳过自动安装/升级 `llama-server`。 |
 | `CSGHUB_LITE_AUTO_INSTALL_PATCHELF` | Linux 上设为 `0` 可禁止自动 `apt/dnf/yum install patchelf`（用于为 `llama-server` 设置 `$ORIGIN`，使同目录 `.so` 可被直接加载）。 |
+| `CSGHUB_LITE_LLAMA_ROCM_VERSION` | Linux 上可显式指定优先尝试的 ROCm 资产版本（例如 `7.2`）。未设置时，安装脚本会尝试从本机 ROCm 环境自动识别版本，再回退到发布页中可用的其他 ROCm/Vulkan/CPU 包。 |
 
 说明：若远程 llama.cpp 与本地 **build 号一致**，脚本会跳过重新下载；此前若因缺少 `libmtmd.so.0` 等导致 `llama-server --version` 失败，会被误判为需要升级——新版本已用 `LD_LIBRARY_PATH` 检测版本，并从压缩包 **递归** 安装所有 `.so`。
 

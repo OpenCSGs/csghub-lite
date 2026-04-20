@@ -79,6 +79,35 @@ function Region-DownloadText {
     }
 }
 
+function Get-ReleaseAssetNames {
+    param(
+        [Parameter(Mandatory = $true)] $Release,
+        [Parameter(Mandatory = $true)][string]$Pattern
+    )
+
+    if (-not $Release) {
+        return @()
+    }
+
+    try {
+        $serialized = $Release | ConvertTo-Json -Depth 10 -Compress
+    } catch {
+        $serialized = [string]$Release
+    }
+
+    $regex = [regex]$Pattern
+    $seen = @{}
+    $assets = @()
+    foreach ($match in $regex.Matches($serialized)) {
+        if (-not $seen.ContainsKey($match.Value)) {
+            $seen[$match.Value] = $true
+            $assets += $match.Value
+        }
+    }
+
+    return $assets
+}
+
 function Get-LatestVersion {
     $ghUrl = "$GitHubApi/$Repo/releases/latest"
     $glUrl = "$GitLabApi/$GitLabCsghubId/releases/permalink/latest"
@@ -278,13 +307,35 @@ function Install-LlamaServer {
 
     # Build ordered list of candidate assets (best match first)
     $candidates = @()
+    $candidateAssets = @{}
     $cudartName = $null
+    $escapedTag = [regex]::Escape($llamaTag)
+    function Add-Candidate {
+        param([string]$Asset, [string]$Cudart = $null)
+        if (-not $Asset) {
+            return
+        }
+        if ($candidateAssets.ContainsKey($Asset)) {
+            return
+        }
+        $candidateAssets[$Asset] = $true
+        $candidates += @{ Asset = $Asset; Cudart = $Cudart }
+    }
+
     if ($hasCuda) {
         Info "NVIDIA GPU detected, trying CUDA build first."
-        $candidates += @{ Asset = "llama-${llamaTag}-bin-win-cuda-12.4-${archToken}.zip"; Cudart = "cudart-llama-bin-win-cuda-12.4-${archToken}.zip" }
-        $candidates += @{ Asset = "llama-${llamaTag}-bin-win-vulkan-${archToken}.zip"; Cudart = $null }
+        Add-Candidate -Asset "llama-${llamaTag}-bin-win-cuda-12.4-${archToken}.zip" -Cudart "cudart-llama-bin-win-cuda-12.4-${archToken}.zip"
+        $cudaAssets = Get-ReleaseAssetNames -Release $release -Pattern "llama-${escapedTag}-bin-win-cuda-[0-9.]+-${archToken}\.zip"
+        foreach ($asset in $cudaAssets) {
+            $cudartAsset = $null
+            if ($asset -match "^llama-${escapedTag}-bin-win-cuda-([0-9.]+)-${archToken}\.zip$") {
+                $cudartAsset = "cudart-llama-bin-win-cuda-$($Matches[1])-${archToken}.zip"
+            }
+            Add-Candidate -Asset $asset -Cudart $cudartAsset
+        }
+        Add-Candidate -Asset "llama-${llamaTag}-bin-win-vulkan-${archToken}.zip"
     }
-    $candidates += @{ Asset = "llama-${llamaTag}-bin-win-cpu-${archToken}.zip"; Cudart = $null }
+    Add-Candidate -Asset "llama-${llamaTag}-bin-win-cpu-${archToken}.zip"
 
     $tmpDir = Join-Path ([IO.Path]::GetTempPath()) ("llama-install-" + [Guid]::NewGuid().ToString("N"))
     New-Item -ItemType Directory -Force -Path $tmpDir | Out-Null
