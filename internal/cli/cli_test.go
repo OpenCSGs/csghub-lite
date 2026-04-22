@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bytes"
+	"strings"
 	"testing"
 )
 
@@ -150,5 +151,33 @@ func TestConfigCmd_SubCommands(t *testing.T) {
 	}
 	if !subcommands["show"] {
 		t.Error("config show subcommand not found")
+	}
+}
+
+func TestConfigCmd_HelpListsConfigurableKeys(t *testing.T) {
+	cmd := NewRootCmd("test")
+	var buf bytes.Buffer
+	cmd.SetOut(&buf)
+	cmd.SetErr(&buf)
+	cmd.SetArgs([]string{"config", "--help"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute error: %v", err)
+	}
+
+	output := buf.String()
+	for _, want := range []string{
+		"Configurable keys:",
+		"server_url",
+		"ai_gateway_url",
+		"storage_dir",
+		"model_dir",
+		"dataset_dir",
+		"listen_addr",
+		"token",
+	} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("config help output missing %q: %q", want, output)
+		}
 	}
 }

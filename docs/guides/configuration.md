@@ -31,6 +31,17 @@ CSGHub 平台的 API 地址。
 csghub-lite config set server_url https://my-csghub.example.com
 ```
 
+### ai_gateway_url
+
+云端推理模型使用的 AI Gateway 地址。
+
+- 默认值: `https://ai.space.opencsg.com`
+- 用途: 覆盖默认的云端模型网关地址，适用于私有化或代理部署
+
+```bash
+csghub-lite config set ai_gateway_url https://my-gateway.example.com
+```
+
 ### token
 
 CSGHub 平台的访问令牌（Access Token）。

@@ -59,8 +59,10 @@ func (s *Server) listAvailableModelsWithRefresh(ctx context.Context, refreshClou
 	return out, nil
 }
 
+// Public cloud model metadata can be listed without an access token.
+// Authentication is enforced later when a cloud inference engine is created.
 func (s *Server) listCloudModels(ctx context.Context, refresh bool) ([]api.ModelInfo, error) {
-	if s == nil || s.cloud == nil || s.cfg == nil || strings.TrimSpace(s.cfg.Token) == "" {
+	if s == nil || s.cloud == nil {
 		return nil, nil
 	}
 	if refresh {
@@ -70,7 +72,7 @@ func (s *Server) listCloudModels(ctx context.Context, refresh bool) ([]api.Model
 }
 
 func (s *Server) refreshCloudChatModels(ctx context.Context) ([]api.ModelInfo, error) {
-	if s == nil || s.cloud == nil || s.cfg == nil || strings.TrimSpace(s.cfg.Token) == "" {
+	if s == nil || s.cloud == nil {
 		return nil, nil
 	}
 

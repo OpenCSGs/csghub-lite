@@ -6,16 +6,60 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/opencsgs/csghub-lite/internal/cloud"
 	"github.com/opencsgs/csghub-lite/internal/config"
 	"github.com/spf13/cobra"
 )
 
-const supportedConfigKeys = "server_url, ai_gateway_url, storage_dir, model_dir, dataset_dir, listen_addr, token"
+type configKeySpec struct {
+	name        string
+	description string
+}
+
+var configKeySpecs = []configKeySpec{
+	{
+		name:        "server_url",
+		description: "CSGHub server URL for model marketplace (default: " + config.DefaultServerURL + ")",
+	},
+	{
+		name:        "ai_gateway_url",
+		description: "AI Gateway URL for cloud inference models (default: " + cloud.DefaultBaseURL + ")",
+	},
+	{
+		name:        "storage_dir",
+		description: "Root storage directory (default: ~/.csghub-lite; sets both model_dir and dataset_dir)",
+	},
+	{
+		name:        "model_dir",
+		description: "Directory for downloaded models (default: ~/.csghub-lite/models)",
+	},
+	{
+		name:        "dataset_dir",
+		description: "Directory for downloaded datasets (default: ~/.csghub-lite/datasets)",
+	},
+	{
+		name:        "listen_addr",
+		description: "Local server listen address (default: " + config.DefaultListenAddr + ")",
+	},
+	{
+		name:        "token",
+		description: "Access token for CSGHub authentication (default: not set)",
+	},
+}
 
 func newConfigCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "config",
 		Short: "Manage csghub-lite configuration",
+		Long: strings.Join([]string{
+			"Manage csghub-lite configuration.",
+			"Configurable keys:\n" + configKeysHelpText(),
+			"Examples:\n" +
+				"  csghub-lite config show\n" +
+				"  csghub-lite config get server_url\n" +
+				"  csghub-lite config set storage_dir /data/csghub-lite\n" +
+				"  csghub-lite config set listen_addr :8080",
+		}, "\n\n"),
 	}
 
 	cmd.AddCommand(newConfigSetCmd(), newConfigGetCmd(), newConfigShowCmd())
@@ -26,22 +70,15 @@ func newConfigSetCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "set KEY VALUE",
 		Short: "Set a configuration value",
-		Long: `Set a configuration value.
-
-Available keys:
-  server_url       CSGHub server URL for model marketplace (default: https://hub.opencsg.com)
-  ai_gateway_url   AI Gateway URL for cloud inference models (default: https://ai.space.opencsg.com)
-  storage_dir      Root storage directory (sets both model_dir and dataset_dir)
-  model_dir        Directory for downloaded models
-  dataset_dir      Directory for downloaded datasets
-  listen_addr      Local server listen address (default: :11435)
-  token            Access token for CSGHub authentication
-
-Examples:
-  csghub-lite config set server_url https://my-csghub.example.com
-  csghub-lite config set ai_gateway_url https://my-gateway.example.com
-  csghub-lite config set storage_dir /data/csghub-lite
-  csghub-lite config set listen_addr :8080`,
+		Long: strings.Join([]string{
+			"Set a configuration value.",
+			"Available keys:\n" + configKeysHelpText(),
+			"Examples:\n" +
+				"  csghub-lite config set server_url https://my-csghub.example.com\n" +
+				"  csghub-lite config set ai_gateway_url https://my-gateway.example.com\n" +
+				"  csghub-lite config set storage_dir /data/csghub-lite\n" +
+				"  csghub-lite config set listen_addr :8080",
+		}, "\n\n"),
 		Args: cobra.ExactArgs(2),
 		RunE: runConfigSet,
 	}
@@ -51,13 +88,13 @@ func newConfigGetCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "get KEY",
 		Short: "Get a configuration value",
-		Long: `Get a configuration value.
-
-Available keys: ` + supportedConfigKeys + `
-
-Examples:
-  csghub-lite config get server_url
-  csghub-lite config get ai_gateway_url`,
+		Long: strings.Join([]string{
+			"Get a configuration value.",
+			"Available keys:\n" + configKeysHelpText(),
+			"Examples:\n" +
+				"  csghub-lite config get server_url\n" +
+				"  csghub-lite config get ai_gateway_url",
+		}, "\n\n"),
 		Args: cobra.ExactArgs(1),
 		RunE: runConfigGet,
 	}
@@ -119,7 +156,7 @@ func runConfigSet(cmd *cobra.Command, args []string) error {
 	case "token":
 		cfg.Token = strings.TrimSpace(value)
 	default:
-		return fmt.Errorf("unknown config key %q (valid: %s)", key, supportedConfigKeys)
+		return fmt.Errorf("unknown config key %q (valid: %s)", key, supportedConfigKeys())
 	}
 
 	if err := config.Save(cfg); err != nil {
@@ -141,7 +178,7 @@ func runConfigGet(cmd *cobra.Command, args []string) error {
 	case "server_url":
 		fmt.Println(cfg.ServerURL)
 	case "ai_gateway_url":
-		fmt.Println(cfg.AIGatewayURL)
+		fmt.Println(effectiveAIGatewayURL(cfg))
 	case "storage_dir":
 		fmt.Println(cfg.StorageDir())
 	case "model_dir":
@@ -153,7 +190,7 @@ func runConfigGet(cmd *cobra.Command, args []string) error {
 	case "token":
 		fmt.Println(maskedToken(cfg.Token))
 	default:
-		return fmt.Errorf("unknown config key %q (valid: %s)", key, supportedConfigKeys)
+		return fmt.Errorf("unknown config key %q (valid: %s)", key, supportedConfigKeys())
 	}
 	return nil
 }
@@ -165,7 +202,7 @@ func runConfigShow(cmd *cobra.Command, args []string) error {
 	}
 
 	fmt.Printf("server_url:      %s\n", cfg.ServerURL)
-	fmt.Printf("ai_gateway_url:  %s\n", cfg.AIGatewayURL)
+	fmt.Printf("ai_gateway_url:  %s\n", effectiveAIGatewayURL(cfg))
 	fmt.Printf("storage_dir:     %s\n", cfg.StorageDir())
 	fmt.Printf("model_dir:       %s\n", cfg.ModelDir)
 	fmt.Printf("dataset_dir:     %s\n", cfg.DatasetDir)
@@ -196,6 +233,32 @@ func maskedToken(token string) string {
 	return token[:4] + "****"
 }
 
+func supportedConfigKeys() string {
+	names := make([]string, 0, len(configKeySpecs))
+	for _, spec := range configKeySpecs {
+		names = append(names, spec.name)
+	}
+	return strings.Join(names, ", ")
+}
+
+func configKeysHelpText() string {
+	var builder strings.Builder
+	for i, spec := range configKeySpecs {
+		if i > 0 {
+			builder.WriteByte('\n')
+		}
+		fmt.Fprintf(&builder, "  %-15s %s", spec.name, spec.description)
+	}
+	return builder.String()
+}
+
+func effectiveAIGatewayURL(cfg *config.Config) string {
+	if strings.TrimSpace(cfg.AIGatewayURL) == "" {
+		return cloud.DefaultBaseURL
+	}
+	return strings.TrimSpace(cfg.AIGatewayURL)
+}
+
 func displayConfigValue(cfg *config.Config, key string) string {
 	switch key {
 	case "storage_dir":
@@ -209,7 +272,7 @@ func displayConfigValue(cfg *config.Config, key string) string {
 	case "server_url":
 		return cfg.ServerURL
 	case "ai_gateway_url":
-		return cfg.AIGatewayURL
+		return effectiveAIGatewayURL(cfg)
 	case "token":
 		return maskedToken(cfg.Token)
 	default:

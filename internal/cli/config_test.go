@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/opencsgs/csghub-lite/internal/cloud"
 	"github.com/opencsgs/csghub-lite/internal/config"
 )
 
@@ -53,10 +54,10 @@ func TestRunConfigShowAndGetIncludeStorageDir(t *testing.T) {
 			t.Fatalf("runConfigShow() error: %v", err)
 		}
 	})
-	if !strings.Contains(showOutput, "storage_dir: "+root) {
+	if !strings.Contains(showOutput, "storage_dir:") || !strings.Contains(showOutput, root) {
 		t.Fatalf("config show output missing storage_dir: %q", showOutput)
 	}
-	if !strings.Contains(showOutput, "dataset_dir: "+filepath.Join(root, config.DatasetsDir)) {
+	if !strings.Contains(showOutput, "dataset_dir:") || !strings.Contains(showOutput, filepath.Join(root, config.DatasetsDir)) {
 		t.Fatalf("config show output missing dataset_dir: %q", showOutput)
 	}
 
@@ -67,6 +68,28 @@ func TestRunConfigShowAndGetIncludeStorageDir(t *testing.T) {
 	})
 	if strings.TrimSpace(getOutput) != root {
 		t.Fatalf("config get storage_dir = %q, want %q", strings.TrimSpace(getOutput), root)
+	}
+}
+
+func TestRunConfigShowAndGetIncludeDefaultAIGatewayURL(t *testing.T) {
+	setupCLIConfigHome(t)
+
+	showOutput := captureCLIStdout(t, func() {
+		if err := runConfigShow(nil, nil); err != nil {
+			t.Fatalf("runConfigShow() error: %v", err)
+		}
+	})
+	if !strings.Contains(showOutput, "ai_gateway_url:") || !strings.Contains(showOutput, cloud.DefaultBaseURL) {
+		t.Fatalf("config show output missing ai_gateway_url default: %q", showOutput)
+	}
+
+	getOutput := captureCLIStdout(t, func() {
+		if err := runConfigGet(nil, []string{"ai_gateway_url"}); err != nil {
+			t.Fatalf("runConfigGet(ai_gateway_url) error: %v", err)
+		}
+	})
+	if strings.TrimSpace(getOutput) != cloud.DefaultBaseURL {
+		t.Fatalf("config get ai_gateway_url = %q, want %q", strings.TrimSpace(getOutput), cloud.DefaultBaseURL)
 	}
 }
 

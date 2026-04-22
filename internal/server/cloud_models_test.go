@@ -30,14 +30,13 @@ func newCloudModelListServer(requests *int, currentModel *string) *httptest.Serv
 	}))
 }
 
-func TestHandleTagsRefreshQueryRefreshesCloudModels(t *testing.T) {
+func TestHandleTagsWithoutTokenIncludesAndRefreshesCloudModels(t *testing.T) {
 	requests := 0
 	currentModel := "stale/model"
 	apiServer := newCloudModelListServer(&requests, &currentModel)
 	defer apiServer.Close()
 
 	s := newTestServer(t)
-	s.cfg.Token = "test-token"
 	s.cloud = cloud.NewService(apiServer.URL)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/tags", nil)
@@ -76,14 +75,13 @@ func TestHandleTagsRefreshQueryRefreshesCloudModels(t *testing.T) {
 	}
 }
 
-func TestRefreshCloudChatModelsThrottlesRepeatedForceRefresh(t *testing.T) {
+func TestRefreshCloudChatModelsWithoutTokenThrottlesRepeatedForceRefresh(t *testing.T) {
 	requests := 0
 	currentModel := "stale/model"
 	apiServer := newCloudModelListServer(&requests, &currentModel)
 	defer apiServer.Close()
 
 	s := newTestServer(t)
-	s.cfg.Token = "test-token"
 	s.cloud = cloud.NewService(apiServer.URL)
 
 	models, err := s.refreshCloudChatModels(context.Background())
