@@ -1,6 +1,10 @@
 package cli
 
-import "testing"
+import (
+	"bytes"
+	"strings"
+	"testing"
+)
 
 func TestResolveLaunchTarget(t *testing.T) {
 	tests := []struct {
@@ -31,7 +35,50 @@ func TestResolveLaunchTarget(t *testing.T) {
 }
 
 func TestResolveLaunchTargetUnknown(t *testing.T) {
-	if _, err := resolveLaunchTarget("unknown-app"); err == nil {
+	_, err := resolveLaunchTarget("unknown-app")
+	if err == nil {
 		t.Fatal("resolveLaunchTarget(unknown-app) expected error")
+	}
+	if !strings.Contains(err.Error(), "csghub-lite launch --help") {
+		t.Fatalf("unknown app error = %q, want help hint", err)
+	}
+}
+
+func TestLaunchCmdHelpListsSupportedAppsAndExamples(t *testing.T) {
+	cmd := NewRootCmd("test")
+	var buf bytes.Buffer
+	cmd.SetOut(&buf)
+	cmd.SetErr(&buf)
+	cmd.SetArgs([]string{"launch", "--help"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute error: %v", err)
+	}
+
+	output := buf.String()
+	for _, want := range []string{
+		"Supported apps:",
+		"claude-code, open-code, codex, openclaw, dify, anythingllm",
+		"csghub-lite launch open-code -- --help",
+	} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("launch help output missing %q: %q", want, output)
+		}
+	}
+}
+
+func TestLaunchCmdRequiresArgShowsHelpHint(t *testing.T) {
+	cmd := NewRootCmd("test")
+	var buf bytes.Buffer
+	cmd.SetOut(&buf)
+	cmd.SetErr(&buf)
+	cmd.SetArgs([]string{"launch"})
+
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatal("expected error when launch app is missing")
+	}
+	if !strings.Contains(err.Error(), "csghub-lite launch --help") {
+		t.Fatalf("launch error = %q, want help hint", err)
 	}
 }

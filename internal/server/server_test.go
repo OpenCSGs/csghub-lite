@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -46,6 +47,32 @@ func TestHandleHealth(t *testing.T) {
 	}
 	if resp["status"] != "ok" {
 		t.Errorf("status = %q, want %q", resp["status"], "ok")
+	}
+}
+
+func TestGetChatEngineReusesLoadedEngineWhenOverridesOmitted(t *testing.T) {
+	s := newTestServer(t)
+	engine := &fakeChatCompletionEngine{}
+	s.engines["test/model"] = &managedEngine{
+		engine:      engine,
+		numCtx:      160000,
+		numParallel: 4,
+		lastUsed:    time.Now(),
+		keepAlive:   DefaultKeepAlive,
+	}
+
+	got, err := s.getChatEngine(context.Background(), "test/model", "", 0, 0, "", "", "")
+	if err != nil {
+		t.Fatalf("getChatEngine returned error: %v", err)
+	}
+	if got != engine {
+		t.Fatalf("getChatEngine returned %#v, want existing engine %#v", got, engine)
+	}
+	if s.engines["test/model"].numCtx != 160000 {
+		t.Fatalf("numCtx = %d, want 160000", s.engines["test/model"].numCtx)
+	}
+	if s.engines["test/model"].numParallel != 4 {
+		t.Fatalf("numParallel = %d, want 4", s.engines["test/model"].numParallel)
 	}
 }
 

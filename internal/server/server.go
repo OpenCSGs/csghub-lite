@@ -204,6 +204,10 @@ func (s *Server) getOrLoadEngineWithProgressAndOpts(modelID string, progress inf
 	return s.getOrLoadEngineFull(modelID, progress, numCtx, numParallel, cacheTypeK, cacheTypeV, dtype)
 }
 
+func runtimeOverridesRequested(numCtx, numParallel int, cacheTypeK, cacheTypeV, dtype string) bool {
+	return numCtx > 0 || numParallel > 0 || cacheTypeK != "" || cacheTypeV != "" || dtype != ""
+}
+
 func (s *Server) getOrLoadEngineFull(modelID string, progress inference.ConvertProgressFunc, numCtx, numParallel int, cacheTypeK, cacheTypeV, dtype string) (inference.Engine, error) {
 	normalizedCacheTypeK, err := inference.NormalizeCacheType(cacheTypeK)
 	if err != nil {
@@ -217,6 +221,14 @@ func (s *Server) getOrLoadEngineFull(modelID string, progress inference.ConvertP
 	if err != nil {
 		return nil, err
 	}
+	requestedOverrides := runtimeOverridesRequested(numCtx, numParallel, normalizedCacheTypeK, normalizedCacheTypeV, normalizedDType)
+
+	s.mu.RLock()
+	me, ok := s.engines[modelID]
+	s.mu.RUnlock()
+	if ok && !requestedOverrides {
+		return me.engine, nil
+	}
 
 	modelDir, err := s.manager.ModelPath(modelID)
 	if err != nil {
@@ -226,7 +238,7 @@ func (s *Server) getOrLoadEngineFull(modelID string, progress inference.ConvertP
 	effectiveNumParallel := inference.ResolveNumParallel(numParallel)
 
 	s.mu.RLock()
-	me, ok := s.engines[modelID]
+	me, ok = s.engines[modelID]
 	s.mu.RUnlock()
 	if ok {
 		if me.numCtx == effectiveNumCtx && me.numParallel == effectiveNumParallel && me.cacheTypeK == normalizedCacheTypeK && me.cacheTypeV == normalizedCacheTypeV && me.dtype == normalizedDType {
@@ -239,6 +251,9 @@ func (s *Server) getOrLoadEngineFull(modelID string, progress inference.ConvertP
 	defer s.mu.Unlock()
 
 	if me, ok := s.engines[modelID]; ok {
+		if !requestedOverrides {
+			return me.engine, nil
+		}
 		if me.numCtx == effectiveNumCtx && me.numParallel == effectiveNumParallel && me.cacheTypeK == normalizedCacheTypeK && me.cacheTypeV == normalizedCacheTypeV && me.dtype == normalizedDType {
 			return me.engine, nil
 		}

@@ -32,6 +32,8 @@ type launchOptions struct {
 	Model       string
 }
 
+const launchSupportedApps = "claude-code, open-code, codex, openclaw, dify, anythingllm"
+
 func newLaunchCmd() *cobra.Command {
 	var opts launchOptions
 
@@ -42,8 +44,21 @@ func newLaunchCmd() *cobra.Command {
 		Long: `Launch an AI app command-line tool managed by CSGHub Lite.
 
 If the selected app is not installed yet, the CLI will prompt to install it
-first using the same AI Apps installer backend as the web UI.`,
-		Args: cobra.MinimumNArgs(1),
+first using the same AI Apps installer backend as the web UI.
+
+Supported apps: ` + launchSupportedApps + `
+
+Use ` + "`--`" + ` to pass through arguments to the launched app binary.`,
+		Example: `  csghub-lite launch claude-code
+  csghub-lite launch codex --model Qwen/Qwen2.5-Coder-7B
+  csghub-lite launch open-code -- --help
+  csghub-lite launch anythingllm`,
+		Args: func(cmd *cobra.Command, args []string) error {
+			if len(args) == 0 {
+				return fmt.Errorf("APP is required\n\nRun 'csghub-lite launch --help' for supported apps and examples.")
+			}
+			return nil
+		},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runLaunch(cmd, args, opts)
 		},
@@ -187,7 +202,7 @@ func resolveLaunchTarget(name string) (launchTarget, error) {
 			DisplayName: "AnythingLLM",
 		}, nil
 	default:
-		return launchTarget{}, fmt.Errorf("unknown AI app %q (supported: claude-code, open-code, codex, openclaw, dify, anythingllm)", name)
+		return launchTarget{}, fmt.Errorf("unknown AI app %q (supported: %s)\n\nRun 'csghub-lite launch --help' for supported apps and examples.", name, launchSupportedApps)
 	}
 }
 

@@ -1,0 +1,24 @@
+package cli
+
+import (
+	"strings"
+	"testing"
+)
+
+func TestPsAPIUsageIncludesEndpointAndCurlExample(t *testing.T) {
+	got := psOpenAIAPIUsage("http://127.0.0.1:11435", "Qwen/Qwen3-0.6B-GGUF")
+	want := "\nOpenAI API:\n  GET  http://127.0.0.1:11435/v1/models\n  POST http://127.0.0.1:11435/v1/chat/completions\n  curl http://127.0.0.1:11435/v1/chat/completions \\\n    -H \"Content-Type: application/json\" \\\n    -d '{\"model\":\"Qwen/Qwen3-0.6B-GGUF\",\"messages\":[{\"role\":\"user\",\"content\":\"Hello!\"}]}'\n"
+	if got != want {
+		t.Fatalf("psOpenAIAPIUsage() = %q, want %q", got, want)
+	}
+}
+
+func TestPsOpenAIAPIUsageFallsBackToPlaceholderModel(t *testing.T) {
+	got := psOpenAIAPIUsage("http://127.0.0.1:11435", "")
+	if got == "" {
+		t.Fatal("psOpenAIAPIUsage() should not be empty")
+	}
+	if want := "\"model\":\"<model-id>\""; !strings.Contains(got, want) {
+		t.Fatalf("psOpenAIAPIUsage() = %q, want substring %q", got, want)
+	}
+}

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"strings"
 	"text/tabwriter"
 	"time"
 
@@ -29,7 +30,7 @@ func runPs(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("loading config: %w", err)
 	}
 
-	serverURL := fmt.Sprintf("http://localhost%s", cfg.ListenAddr)
+	serverURL := serverBaseURL(cfg)
 	client := &http.Client{Timeout: 5 * time.Second}
 
 	resp, err := client.Get(serverURL + "/api/ps")
@@ -45,6 +46,7 @@ func runPs(cmd *cobra.Command, args []string) error {
 
 	if len(psResp.Models) == 0 {
 		fmt.Println("No models currently running.")
+		fmt.Print(psOpenAIAPIUsage(serverURL, ""))
 		return nil
 	}
 
@@ -58,5 +60,22 @@ func runPs(cmd *cobra.Command, args []string) error {
 		fmt.Fprintf(w, "%s\t%s\t%s\t%s\n",
 			m.Name, m.Format, formatBytes(m.Size), until)
 	}
-	return w.Flush()
+	if err := w.Flush(); err != nil {
+		return err
+	}
+	fmt.Print(psOpenAIAPIUsage(serverURL, psResp.Models[0].Model))
+	return nil
+}
+
+func psOpenAIAPIUsage(serverURL, modelID string) string {
+	if strings.TrimSpace(modelID) == "" {
+		modelID = "<model-id>"
+	}
+	return fmt.Sprintf(
+		"\nOpenAI API:\n  GET  %s/v1/models\n  POST %s/v1/chat/completions\n  curl %s/v1/chat/completions \\\n    -H \"Content-Type: application/json\" \\\n    -d '{\"model\":\"%s\",\"messages\":[{\"role\":\"user\",\"content\":\"Hello!\"}]}'\n",
+		serverURL,
+		serverURL,
+		serverURL,
+		modelID,
+	)
 }
