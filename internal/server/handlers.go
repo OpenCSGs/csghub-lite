@@ -219,17 +219,29 @@ func (s *Server) handleLoad(w http.ResponseWriter, r *http.Request) {
 
 	requestedNumCtx := 0
 	requestedNumParallel := 0
+	requestedCacheTypeK := ""
+	requestedCacheTypeV := ""
+	requestedDType := ""
 	if req.NumCtx > 0 {
 		requestedNumCtx = req.NumCtx
 	}
 	if req.NumParallel > 0 {
 		requestedNumParallel = req.NumParallel
 	}
+	if req.CacheTypeK != "" {
+		requestedCacheTypeK = req.CacheTypeK
+	}
+	if req.CacheTypeV != "" {
+		requestedCacheTypeV = req.CacheTypeV
+	}
+	if req.DType != "" {
+		requestedDType = req.DType
+	}
 
 	stream := req.Stream != nil && *req.Stream
 
 	if !stream {
-		_, err := s.getOrLoadEngineFull(req.Model, nil, requestedNumCtx, requestedNumParallel)
+		_, err := s.getOrLoadEngineFull(req.Model, nil, requestedNumCtx, requestedNumParallel, requestedCacheTypeK, requestedCacheTypeV, requestedDType)
 		if err != nil {
 			writeError(w, http.StatusBadRequest, err.Error())
 			return
@@ -261,7 +273,7 @@ func (s *Server) handleLoad(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
-	_, err := s.getOrLoadEngineWithProgressAndOpts(req.Model, progress, requestedNumCtx, requestedNumParallel)
+	_, err := s.getOrLoadEngineWithProgressAndOpts(req.Model, progress, requestedNumCtx, requestedNumParallel, requestedCacheTypeK, requestedCacheTypeV, requestedDType)
 	if err != nil {
 		log.Printf("load %s failed: %v", req.Model, err)
 		safeSSE(api.LoadResponse{Status: "error: " + err.Error()})
@@ -282,6 +294,10 @@ func (s *Server) handleGenerate(w http.ResponseWriter, r *http.Request) {
 
 	opts := inference.DefaultOptions()
 	requestedNumCtx := 0
+	requestedNumParallel := 0
+	requestedCacheTypeK := ""
+	requestedCacheTypeV := ""
+	requestedDType := ""
 	if req.Options != nil {
 		if req.Options.Temperature > 0 {
 			opts.Temperature = req.Options.Temperature
@@ -299,9 +315,21 @@ func (s *Server) handleGenerate(w http.ResponseWriter, r *http.Request) {
 			opts.NumCtx = req.Options.NumCtx
 			requestedNumCtx = req.Options.NumCtx
 		}
+		if req.Options.NumParallel > 0 {
+			requestedNumParallel = req.Options.NumParallel
+		}
+		if req.Options.CacheTypeK != "" {
+			requestedCacheTypeK = req.Options.CacheTypeK
+		}
+		if req.Options.CacheTypeV != "" {
+			requestedCacheTypeV = req.Options.CacheTypeV
+		}
+		if req.Options.DType != "" {
+			requestedDType = req.Options.DType
+		}
 	}
 
-	eng, err := s.getOrLoadEngineWithNumCtx(req.Model, requestedNumCtx)
+	eng, err := s.getOrLoadEngineWithOpts(req.Model, requestedNumCtx, requestedNumParallel, requestedCacheTypeK, requestedCacheTypeV, requestedDType)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
@@ -365,6 +393,9 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 	opts := inference.DefaultOptions()
 	requestedNumCtx := 0
 	requestedNumParallel := 0
+	requestedCacheTypeK := ""
+	requestedCacheTypeV := ""
+	requestedDType := ""
 	if req.Options != nil {
 		if req.Options.Temperature > 0 {
 			opts.Temperature = req.Options.Temperature
@@ -385,9 +416,18 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 		if req.Options.NumParallel > 0 {
 			requestedNumParallel = req.Options.NumParallel
 		}
+		if req.Options.CacheTypeK != "" {
+			requestedCacheTypeK = req.Options.CacheTypeK
+		}
+		if req.Options.CacheTypeV != "" {
+			requestedCacheTypeV = req.Options.CacheTypeV
+		}
+		if req.Options.DType != "" {
+			requestedDType = req.Options.DType
+		}
 	}
 
-	eng, err := s.getChatEngine(r.Context(), req.Model, req.Source, requestedNumCtx, requestedNumParallel)
+	eng, err := s.getChatEngine(r.Context(), req.Model, req.Source, requestedNumCtx, requestedNumParallel, requestedCacheTypeK, requestedCacheTypeV, requestedDType)
 	if err != nil {
 		writeInferenceError(w, err)
 		return

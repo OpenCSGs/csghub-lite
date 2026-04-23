@@ -2,24 +2,68 @@ package convert
 
 import (
 	"encoding/binary"
+	"fmt"
 	"math"
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/opencsgs/csghub-lite/internal/ggufpick"
+	"github.com/opencsgs/csghub-lite/internal/model"
 )
 
 // ProgressFunc reports conversion progress.
 type ProgressFunc func(step string, current, total int)
 
+const defaultConvertDType = "f16"
+
+var allowedConvertDTypes = []string{"f32", "f16", "bf16", "q8_0", "tq1_0", "tq2_0", "auto"}
+
+var allowedConvertDTypeSet = func() map[string]struct{} {
+	allowed := make(map[string]struct{}, len(allowedConvertDTypes))
+	for _, v := range allowedConvertDTypes {
+		allowed[v] = struct{}{}
+	}
+	return allowed
+}()
+
 // Convert converts SafeTensors model files in modelDir to a GGUF file.
 // It runs the llama.cpp convert_hf_to_gguf.py bundled in the binary (or from
 // CSGHUB_LITE_CONVERTER_URL when set); see convert_python.go.
-func Convert(modelDir string, progress ProgressFunc) (string, error) {
+func Convert(modelDir string, progress ProgressFunc, dtype string) (string, error) {
 	if progress == nil {
 		progress = func(string, int, int) {}
 	}
 
-	return ConvertPython(modelDir, progress)
+	return ConvertPython(modelDir, progress, dtype)
+}
+
+// AllowedDTypes returns the converter output dtypes accepted by csghub-lite.
+func AllowedDTypes() []string {
+	return append([]string(nil), allowedConvertDTypes...)
+}
+
+// NormalizeDType returns a lower-case converter dtype or "" when unset.
+func NormalizeDType(value string) (string, error) {
+	normalized := strings.ToLower(strings.TrimSpace(value))
+	if normalized == "" {
+		return "", nil
+	}
+	if _, ok := allowedConvertDTypeSet[normalized]; ok {
+		return normalized, nil
+	}
+	return "", fmt.Errorf("unsupported dtype %q (allowed: %s)", value, strings.Join(allowedConvertDTypes, ", "))
+}
+
+func resolveDType(value string) (string, error) {
+	normalized, err := NormalizeDType(value)
+	if err != nil {
+		return "", err
+	}
+	if normalized == "" {
+		return defaultConvertDType, nil
+	}
+	return normalized, nil
 }
 
 // HasGGUF checks if a GGUF file already exists in the model directory.
@@ -37,14 +81,8 @@ func HasGGUF(modelDir string) (string, bool) {
 	return "", false
 }
 
-// NeedsConversion checks if the model directory contains SafeTensors files
-// but no GGUF files.
-func NeedsConversion(modelDir string) bool {
-	_, hasGGUF := HasGGUF(modelDir)
-	if hasGGUF {
-		return false
-	}
-
+// HasSafeTensors reports whether modelDir contains SafeTensors files.
+func HasSafeTensors(modelDir string) bool {
 	entries, err := os.ReadDir(modelDir)
 	if err != nil {
 		return false
@@ -57,6 +95,32 @@ func NeedsConversion(modelDir string) bool {
 	return false
 }
 
+func mmprojGGUFNames(modelDir string) ([]string, error) {
+	entries, err := os.ReadDir(modelDir)
+	if err != nil {
+		return nil, err
+	}
+	var names []string
+	for _, e := range entries {
+		lower := strings.ToLower(e.Name())
+		if !e.IsDir() && strings.Contains(lower, "mmproj") && strings.HasSuffix(lower, ".gguf") {
+			names = append(names, e.Name())
+		}
+	}
+	return names, nil
+}
+
+// NeedsConversion checks if the model directory contains SafeTensors files
+// but no GGUF files.
+func NeedsConversion(modelDir string) bool {
+	_, hasGGUF := HasGGUF(modelDir)
+	if hasGGUF {
+		return false
+	}
+
+	return HasSafeTensors(modelDir)
+}
+
 func reverseShape(shape []int64) []uint64 {
 	n := len(shape)
 	dims := make([]uint64, n)
@@ -66,12 +130,80 @@ func reverseShape(shape []int64) []uint64 {
 	return dims
 }
 
-func generateOutputName(modelDir string, cfg *modelConfig) string {
+func generateOutputName(modelDir string, dtype string) string {
 	base := filepath.Base(modelDir)
 	if base == "." || base == "" {
 		base = "model"
 	}
-	return base + "-f16.gguf"
+	switch strings.ToLower(strings.TrimSpace(dtype)) {
+	case "", defaultConvertDType:
+		return base + "-f16.gguf"
+	case "auto":
+		return base + "-{ftype}.gguf"
+	default:
+		return base + "-" + strings.ToLower(strings.TrimSpace(dtype)) + ".gguf"
+	}
+}
+
+// FindGGUFForDType returns an existing GGUF path that matches the requested dtype.
+// When dtype is empty or auto, it returns the highest precision GGUF chosen by model.FindModelFile.
+func FindGGUFForDType(modelDir, dtype string) (string, bool, error) {
+	normalized, err := NormalizeDType(dtype)
+	if err != nil {
+		return "", false, err
+	}
+	if normalized == "" || normalized == "auto" {
+		path, format, err := model.FindModelFile(modelDir)
+		if err != nil || format != model.FormatGGUF {
+			return "", false, nil
+		}
+		return path, true, nil
+	}
+
+	relPaths, err := ggufpick.CollectWeightGGUFRelPaths(modelDir)
+	if err != nil {
+		return "", false, err
+	}
+	for _, relPath := range relPaths {
+		if strings.EqualFold(ggufpick.QuantLabelFromRepoPath(relPath), normalized) {
+			return filepath.Join(modelDir, relPath), true, nil
+		}
+	}
+	return "", false, nil
+}
+
+// FindMMProjForDType returns an existing mmproj GGUF path that matches the requested dtype.
+// When dtype is empty or auto, it returns the highest precision mmproj GGUF if present.
+func FindMMProjForDType(modelDir, dtype string) (string, bool, error) {
+	normalized, err := NormalizeDType(dtype)
+	if err != nil {
+		return "", false, err
+	}
+	names, err := mmprojGGUFNames(modelDir)
+	if err != nil {
+		return "", false, err
+	}
+	if len(names) == 0 {
+		return "", false, nil
+	}
+	if normalized == "" || normalized == "auto" {
+		bestName := ""
+		bestRank := -2
+		for _, name := range names {
+			rank := ggufpick.QuantRank(name)
+			if bestName == "" || rank > bestRank {
+				bestName = name
+				bestRank = rank
+			}
+		}
+		return filepath.Join(modelDir, bestName), true, nil
+	}
+	for _, name := range names {
+		if strings.EqualFold(ggufpick.QuantLabel(name), normalized) {
+			return filepath.Join(modelDir, name), true, nil
+		}
+	}
+	return "", false, nil
 }
 
 func findKVIndex(kvs []ggufKV, key string) int {

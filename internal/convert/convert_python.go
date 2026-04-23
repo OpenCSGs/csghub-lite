@@ -241,9 +241,20 @@ func ensureRemoteConverterScript(rawURL string) (string, error) {
 // ConvertPython uses the official llama.cpp convert_hf_to_gguf.py to convert
 // a HuggingFace model directory to GGUF format. Returns the path to the
 // generated GGUF file. Requires python3 with torch, safetensors, and transformers.
-func ConvertPython(modelDir string, progress ProgressFunc) (string, error) {
+func ConvertPython(modelDir string, progress ProgressFunc, dtype string) (string, error) {
 	if progress == nil {
 		progress = func(string, int, int) {}
+	}
+
+	effectiveDType, err := resolveDType(dtype)
+	if err != nil {
+		return "", err
+	}
+
+	if existingPath, ok, err := FindGGUFForDType(modelDir, effectiveDType); err != nil {
+		return "", err
+	} else if ok {
+		return existingPath, nil
 	}
 
 	python, missingDeps := findPythonEnv()
@@ -285,25 +296,37 @@ func ConvertPython(modelDir string, progress ProgressFunc) (string, error) {
 		return "", err
 	}
 
-	outputName := generateOutputName(modelDir, nil)
+	outputName := generateOutputName(modelDir, effectiveDType)
 	outputPath := filepath.Join(modelDir, outputName)
 
 	progress("Converting with official converter", 0, 0)
-	if err := convertModelWithAutoRepair(python, script, modelDir, outputPath, progress); err != nil {
+	if err := convertModelWithAutoRepair(python, script, modelDir, outputPath, effectiveDType, progress); err != nil {
 		return "", err
 	}
 
-	if _, err := os.Stat(outputPath); err != nil {
+	if effectiveDType == "auto" {
+		if existingPath, ok, err := FindGGUFForDType(modelDir, "auto"); err != nil {
+			return "", err
+		} else if ok {
+			outputPath = existingPath
+		} else {
+			return "", fmt.Errorf("converter finished but output file not found for dtype %q", effectiveDType)
+		}
+	} else if _, err := os.Stat(outputPath); err != nil {
 		return "", fmt.Errorf("converter finished but output file not found: %s", outputPath)
 	}
 
 	if hasVisionConfig(modelDir) {
-		progress("Converting vision encoder (mmproj)", 0, 0)
-		mmOut, mmErr := runMMProjConverter(python, script, modelDir)
-		if mmErr != nil {
-			log.Printf("mmproj conversion failed (non-fatal): %s\n%s", mmErr, lastNLines(mmOut, 5))
-		} else {
-			log.Printf("mmproj conversion succeeded")
+		if _, ok, err := FindMMProjForDType(modelDir, effectiveDType); err != nil {
+			return "", err
+		} else if !ok {
+			progress("Converting vision encoder (mmproj)", 0, 0)
+			mmOut, mmErr := runMMProjConverter(python, script, modelDir, effectiveDType)
+			if mmErr != nil {
+				log.Printf("mmproj conversion failed (non-fatal): %s\n%s", mmErr, lastNLines(mmOut, 5))
+			} else {
+				log.Printf("mmproj conversion succeeded")
+			}
 		}
 	}
 
@@ -331,8 +354,8 @@ func PythonConverterAvailable() bool {
 	return p != "" && missing == ""
 }
 
-func convertModelWithAutoRepair(python, script, modelDir, outputPath string, progress ProgressFunc) error {
-	output, err := runModelConverter(python, script, modelDir, outputPath)
+func convertModelWithAutoRepair(python, script, modelDir, outputPath, dtype string, progress ProgressFunc) error {
+	output, err := runModelConverter(python, script, modelDir, outputPath, dtype)
 	if err == nil {
 		return nil
 	}
@@ -341,7 +364,7 @@ func convertModelWithAutoRepair(python, script, modelDir, outputPath string, pro
 	if repair.attempted && repair.succeeded {
 		_ = os.Remove(outputPath)
 		progress("Retrying converter after automatic repair", 0, 0)
-		output, err = runModelConverter(python, script, modelDir, outputPath)
+		output, err = runModelConverter(python, script, modelDir, outputPath, dtype)
 		if err == nil {
 			return nil
 		}
@@ -351,18 +374,18 @@ func convertModelWithAutoRepair(python, script, modelDir, outputPath string, pro
 	return formatConverterFailure(err, output, repair.note)
 }
 
-func runModelConverter(python, script, modelDir, outputPath string) (string, error) {
+func runModelConverter(python, script, modelDir, outputPath, dtype string) (string, error) {
 	cmd := exec.Command(python, script, modelDir,
 		"--outfile", outputPath,
-		"--outtype", "f16",
+		"--outtype", dtype,
 	)
 	output, err := cmd.CombinedOutput()
 	return strings.TrimSpace(string(output)), err
 }
 
-func runMMProjConverter(python, script, modelDir string) (string, error) {
+func runMMProjConverter(python, script, modelDir, dtype string) (string, error) {
 	cmd := exec.Command(python, script, modelDir,
-		"--outtype", "f16",
+		"--outtype", dtype,
 		"--mmproj",
 	)
 	cmd.Dir = modelDir

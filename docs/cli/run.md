@@ -20,6 +20,9 @@ csghub-lite run <model> [flags]
 |------|------|--------|
 | `--num-ctx <n>` | 仅对本次 `run` 生效的上下文长度 | 使用服务默认值 |
 | `--num-parallel <n>` | 仅对本次 `run` 生效的并行槽数；设为 `1` 可优先给单会话更大上下文 | 使用服务默认值 |
+| `--cache-type-k <type>` | 仅对本次 `run` 生效的 llama-server `--cache-type-k`，可用值：`f32`、`f16`、`bf16`、`q8_0`、`q4_0`、`q4_1`、`iq4_nl`、`q5_0`、`q5_1` | llama-server 默认值 |
+| `--cache-type-v <type>` | 仅对本次 `run` 生效的 llama-server `--cache-type-v`，可用值：`f32`、`f16`、`bf16`、`q8_0`、`q4_0`、`q4_1`、`iq4_nl`、`q5_0`、`q5_1` | llama-server 默认值 |
+| `--dtype <type>` | 仅对本次 `run` 生效的 SafeTensors -> GGUF 转换输出类型，可用值：`f32`、`f16`、`bf16`、`q8_0`、`tq1_0`、`tq2_0`、`auto` | `f16` |
 
 ## 说明
 
@@ -28,6 +31,8 @@ csghub-lite run <model> [flags]
 1. 检查模型是否已下载到本地
 2. 如未下载，自动从 CSGHub 拉取
 3. 加载模型并启动交互对话
+
+`--dtype` 只在模型需要从 SafeTensors 自动转换为 GGUF 时生效；如果是视觉模型，匹配的 `mmproj` 也会按同一 `dtype` 一起转换。若模型目录里已经有对应 `dtype` 的 GGUF / `mmproj` 文件，则会直接复用。
 
 如果只想对话而不自动下载，使用 [`chat`](chat.md) 命令。
 
@@ -52,6 +57,12 @@ csghub-lite run Qwen/Qwen3-0.6B-GGUF
 
 # 为单次运行显式指定更大的上下文
 csghub-lite run Qwen/Qwen3-0.6B-GGUF --num-ctx 131072 --num-parallel 1
+
+# 显存紧张时，压缩 KV cache dtype
+csghub-lite run Qwen/Qwen3-0.6B-GGUF --cache-type-k q8_0 --cache-type-v q8_0
+
+# 首次自动转换 SafeTensors 时，直接生成 Q8_0 GGUF
+csghub-lite run Qwen/Qwen3-0.6B --dtype q8_0
 
 # 运行后进入交互模式
 >>> 用一句话介绍你自己

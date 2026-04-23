@@ -26,7 +26,7 @@ func TestRemoteEngineChatIncludesRequestedContextOptions(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	eng := NewRemoteEngine(ts.URL, "Qwen/Qwen3-0.6B-GGUF", 131072, 1)
+	eng := NewRemoteEngine(ts.URL, "Qwen/Qwen3-0.6B-GGUF", 131072, 1, "q8_0", "bf16", "q8_0")
 	resp, err := eng.Chat(context.Background(), []Message{{Role: "user", Content: "hi"}}, DefaultOptions(), nil)
 	if err != nil {
 		t.Fatalf("Chat returned error: %v", err)
@@ -42,5 +42,14 @@ func TestRemoteEngineChatIncludesRequestedContextOptions(t *testing.T) {
 	}
 	if got.Options.NumParallel != 1 {
 		t.Fatalf("num_parallel = %d, want 1", got.Options.NumParallel)
+	}
+	if got.Options.CacheTypeK != "q8_0" {
+		t.Fatalf("cache_type_k = %q, want q8_0", got.Options.CacheTypeK)
+	}
+	if got.Options.CacheTypeV != "bf16" {
+		t.Fatalf("cache_type_v = %q, want bf16", got.Options.CacheTypeV)
+	}
+	if got.Options.DType != "q8_0" {
+		t.Fatalf("dtype = %q, want q8_0", got.Options.DType)
 	}
 }

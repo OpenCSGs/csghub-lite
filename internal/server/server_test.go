@@ -198,6 +198,40 @@ func TestHandleGenerate_InvalidBody(t *testing.T) {
 	}
 }
 
+func TestHandleLoad_InvalidCacheType(t *testing.T) {
+	s := newTestServer(t)
+
+	body := `{"model":"test/model","cache_type_k":"fp8"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/load", strings.NewReader(body))
+	w := httptest.NewRecorder()
+
+	s.handleLoad(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d body=%s", w.Code, http.StatusBadRequest, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "unsupported cache type") {
+		t.Fatalf("body = %q, want unsupported cache type", w.Body.String())
+	}
+}
+
+func TestHandleLoad_InvalidDType(t *testing.T) {
+	s := newTestServer(t)
+
+	body := `{"model":"test/model","dtype":"q4_k_m"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/load", strings.NewReader(body))
+	w := httptest.NewRecorder()
+
+	s.handleLoad(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d body=%s", w.Code, http.StatusBadRequest, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "unsupported dtype") {
+		t.Fatalf("body = %q, want unsupported dtype", w.Body.String())
+	}
+}
+
 func TestHandleChat_InvalidBody(t *testing.T) {
 	s := newTestServer(t)
 
@@ -292,6 +326,40 @@ func TestHandleGenerate_ModelNotFound(t *testing.T) {
 
 	if w.Code != http.StatusBadRequest {
 		t.Errorf("status = %d, want %d", w.Code, http.StatusBadRequest)
+	}
+}
+
+func TestHandleGenerate_InvalidCacheType(t *testing.T) {
+	s := newTestServer(t)
+
+	body := `{"model":"test/model","prompt":"hello","options":{"cache_type_v":"fp8"}}`
+	req := httptest.NewRequest(http.MethodPost, "/api/generate", strings.NewReader(body))
+	w := httptest.NewRecorder()
+
+	s.handleGenerate(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d body=%s", w.Code, http.StatusBadRequest, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "unsupported cache type") {
+		t.Fatalf("body = %q, want unsupported cache type", w.Body.String())
+	}
+}
+
+func TestHandleGenerate_InvalidDType(t *testing.T) {
+	s := newTestServer(t)
+
+	body := `{"model":"test/model","prompt":"hello","options":{"dtype":"q4_k_m"}}`
+	req := httptest.NewRequest(http.MethodPost, "/api/generate", strings.NewReader(body))
+	w := httptest.NewRecorder()
+
+	s.handleGenerate(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d body=%s", w.Code, http.StatusBadRequest, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "unsupported dtype") {
+		t.Fatalf("body = %q, want unsupported dtype", w.Body.String())
 	}
 }
 

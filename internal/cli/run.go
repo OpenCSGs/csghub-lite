@@ -17,6 +17,9 @@ import (
 func newRunCmd() *cobra.Command {
 	var numCtx int
 	var numParallel int
+	var cacheTypeK string
+	var cacheTypeV string
+	var dtype string
 
 	cmd := &cobra.Command{
 		Use:   "run MODEL",
@@ -26,30 +29,53 @@ chat session. Type your message and press Enter to send. Use '/bye' to exit.
 
 Multiline input: end a line with '\' to continue on the next line.
 
-Use --num-ctx and --num-parallel to override llama-server context settings for
-this run only.`,
+Use --num-ctx, --num-parallel, --cache-type-k, and --cache-type-v to override
+llama-server runtime settings for this run only.
+
+Use --dtype to control SafeTensors -> GGUF conversion output type when a model
+needs conversion.`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runRun(cmd, args, numCtx, numParallel)
+			return runRun(cmd, args, numCtx, numParallel, cacheTypeK, cacheTypeV, dtype)
 		},
 	}
 	cmd.Flags().IntVar(&numCtx, "num-ctx", 0, "set the per-model context length for this run only (for example 131072)")
 	cmd.Flags().IntVar(&numParallel, "num-parallel", 0, "set the llama-server parallel slots for this run only (use 1 to maximize single-session context)")
+	cmd.Flags().StringVar(&cacheTypeK, "cache-type-k", "", "set llama-server --cache-type-k for this run only ("+llamaRuntimeCacheTypeHelp()+")")
+	cmd.Flags().StringVar(&cacheTypeV, "cache-type-v", "", "set llama-server --cache-type-v for this run only ("+llamaRuntimeCacheTypeHelp()+")")
+	cmd.Flags().StringVar(&dtype, "dtype", "", "set SafeTensors -> GGUF conversion dtype for this run only ("+convertDTypeHelp()+")")
 	return cmd
 }
 
-func validateInteractiveModelOverrides(numCtx, numParallel int) error {
+func llamaRuntimeCacheTypeHelp() string {
+	return "allowed: " + strings.Join(inference.AllowedCacheTypes(), ", ")
+}
+
+func convertDTypeHelp() string {
+	return "allowed: " + strings.Join(convert.AllowedDTypes(), ", ")
+}
+
+func validateInteractiveModelOverrides(numCtx, numParallel int, cacheTypeK, cacheTypeV, dtype string) error {
 	if numCtx > 0 && numCtx < 1024 {
 		return fmt.Errorf("--num-ctx must be at least 1024 when set")
 	}
 	if numParallel < 0 {
 		return fmt.Errorf("--num-parallel must be at least 1 when set")
 	}
+	if _, err := inference.NormalizeCacheType(cacheTypeK); err != nil {
+		return fmt.Errorf("--cache-type-k %w", err)
+	}
+	if _, err := inference.NormalizeCacheType(cacheTypeV); err != nil {
+		return fmt.Errorf("--cache-type-v %w", err)
+	}
+	if _, err := convert.NormalizeDType(dtype); err != nil {
+		return fmt.Errorf("--dtype %w", err)
+	}
 	return nil
 }
 
-func runRun(cmd *cobra.Command, args []string, numCtx, numParallel int) error {
-	if err := validateInteractiveModelOverrides(numCtx, numParallel); err != nil {
+func runRun(cmd *cobra.Command, args []string, numCtx, numParallel int, cacheTypeK, cacheTypeV, dtype string) error {
+	if err := validateInteractiveModelOverrides(numCtx, numParallel, cacheTypeK, cacheTypeV, dtype); err != nil {
 		return err
 	}
 
@@ -81,11 +107,11 @@ func runRun(cmd *cobra.Command, args []string, numCtx, numParallel int) error {
 		return fmt.Errorf("starting server: %w", err)
 	}
 
-	if err := preloadModel(serverURL, modelID, numCtx, numParallel); err != nil {
+	if err := preloadModel(serverURL, modelID, numCtx, numParallel, cacheTypeK, cacheTypeV, dtype); err != nil {
 		return fmt.Errorf("loading model: %w", err)
 	}
 
-	eng := inference.NewRemoteEngine(serverURL, modelID, numCtx, numParallel)
+	eng := inference.NewRemoteEngine(serverURL, modelID, numCtx, numParallel, cacheTypeK, cacheTypeV, dtype)
 
 	fmt.Printf("Model %s ready. Type '/bye' to exit, '/clear' to reset context.\n\n", modelID)
 

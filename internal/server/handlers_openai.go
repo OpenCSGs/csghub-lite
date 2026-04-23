@@ -26,6 +26,9 @@ func (s *Server) handleOpenAIChatCompletions(w http.ResponseWriter, r *http.Requ
 	opts := inference.DefaultOptions()
 	requestedNumCtx := 0
 	requestedNumParallel := 0
+	requestedCacheTypeK := ""
+	requestedCacheTypeV := ""
+	requestedDType := ""
 	if req.Temperature != nil {
 		opts.Temperature = *req.Temperature
 	}
@@ -42,6 +45,15 @@ func (s *Server) handleOpenAIChatCompletions(w http.ResponseWriter, r *http.Requ
 	if req.NumParallel != nil && *req.NumParallel > 0 {
 		requestedNumParallel = *req.NumParallel
 	}
+	if req.CacheTypeK != nil {
+		requestedCacheTypeK = *req.CacheTypeK
+	}
+	if req.CacheTypeV != nil {
+		requestedCacheTypeV = *req.CacheTypeV
+	}
+	if req.DType != nil {
+		requestedDType = *req.DType
+	}
 	if req.Seed != nil {
 		opts.Seed = *req.Seed
 	}
@@ -49,7 +61,7 @@ func (s *Server) handleOpenAIChatCompletions(w http.ResponseWriter, r *http.Requ
 		opts.Stop = req.Stop
 	}
 
-	eng, err := s.getChatEngine(r.Context(), req.Model, "", requestedNumCtx, requestedNumParallel)
+	eng, err := s.getChatEngine(r.Context(), req.Model, "", requestedNumCtx, requestedNumParallel, requestedCacheTypeK, requestedCacheTypeV, requestedDType)
 	if err != nil {
 		if inference.HTTPStatusCode(err) != 0 {
 			writeOpenAIInferenceError(w, err)

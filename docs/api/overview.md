@@ -58,7 +58,11 @@ data: {"model":"...","done":true}
     "top_k": 40,
     "max_tokens": 2048,
     "seed": -1,
-    "num_ctx": 4096
+    "num_ctx": 4096,
+    "num_parallel": 1,
+    "cache_type_k": "q8_0",
+    "cache_type_v": "q8_0",
+    "dtype": "q8_0"
   }
 }
 ```
@@ -71,3 +75,7 @@ data: {"model":"...","done":true}
 | `max_tokens` | 2048 | 最大生成 token 数 |
 | `seed` | -1 | 随机种子（-1 为随机） |
 | `num_ctx` | 4096 | 上下文窗口大小 |
+| `num_parallel` | 4 | llama-server 并行槽数 |
+| `cache_type_k` | `f16` | llama-server KV cache 的 K dtype |
+| `cache_type_v` | `f16` | llama-server KV cache 的 V dtype |
+| `dtype` | `f16` | SafeTensors -> GGUF 自动转换输出类型；视觉模型会让 `mmproj` 跟随同一 `dtype` 一起转换 |

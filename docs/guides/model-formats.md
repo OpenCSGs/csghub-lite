@@ -45,6 +45,7 @@ SafeTensors 是 Hugging Face 推出的模型存储格式。csghub-lite 支持下
 - 如果检测到本机 `transformers` 版本过旧，csghub-lite 会自动尝试执行 `python -m pip install -U transformers`，然后重试一次转换。
 - 使用镜像上的脚本：设置环境变量 **`CSGHUB_LITE_CONVERTER_URL`** 为 raw 地址（下载一次后按 URL 缓存）。
 - 维护者更新内置脚本：见 `internal/convert/data/README.md`。
+- 如需控制自动转换输出类型，可在 `run` / `chat` 时加 `--dtype`，例如：`csghub-lite run Qwen/Qwen3-0.6B --dtype q8_0`。支持的值与内置 llama.cpp 转换器 `--outtype` 对齐：`f32`、`f16`、`bf16`、`q8_0`、`tq1_0`、`tq2_0`、`auto`。如果模型包含视觉投影器，`mmproj` 也会按相同 `dtype` 一起转换。
 
 ### 转换为 GGUF（手动）
 

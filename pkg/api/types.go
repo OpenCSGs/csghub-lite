@@ -41,6 +41,9 @@ type LoadRequest struct {
 	Stream      *bool  `json:"stream,omitempty"`
 	NumCtx      int    `json:"num_ctx,omitempty"`
 	NumParallel int    `json:"num_parallel,omitempty"`
+	CacheTypeK  string `json:"cache_type_k,omitempty"`
+	CacheTypeV  string `json:"cache_type_v,omitempty"`
+	DType       string `json:"dtype,omitempty"`
 }
 
 type LoadResponse struct {
@@ -171,6 +174,9 @@ type ModelOptions struct {
 	Seed        int     `json:"seed,omitempty"`
 	NumCtx      int     `json:"num_ctx,omitempty"`
 	NumParallel int     `json:"num_parallel,omitempty"`
+	CacheTypeK  string  `json:"cache_type_k,omitempty"`
+	CacheTypeV  string  `json:"cache_type_v,omitempty"`
+	DType       string  `json:"dtype,omitempty"`
 }
 
 // -- Dataset request types --
@@ -342,6 +348,9 @@ type OpenAIChatRequest struct {
 	MaxTokens         *int        `json:"max_tokens,omitempty"`
 	NumCtx            *int        `json:"num_ctx,omitempty"`
 	NumParallel       *int        `json:"num_parallel,omitempty"`
+	CacheTypeK        *string     `json:"cache_type_k,omitempty"`
+	CacheTypeV        *string     `json:"cache_type_v,omitempty"`
+	DType             *string     `json:"dtype,omitempty"`
 	Seed              *int        `json:"seed,omitempty"`
 	Stop              []string    `json:"stop,omitempty"`
 }

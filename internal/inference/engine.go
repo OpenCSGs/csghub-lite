@@ -44,30 +44,90 @@ type ConvertProgressFunc func(step string, current, total int)
 // If the model is SafeTensors, it auto-converts to GGUF first.
 // The llama-server output is suppressed by default.
 func LoadEngine(modelDir string, lm *model.LocalModel) (Engine, error) {
-	return LoadEngineWithProgress(modelDir, lm, nil, false, 0, 0)
+	return LoadEngineWithProgress(modelDir, lm, nil, false, 0, 0, "", "", "")
 }
 
 // LoadEngineWithProgress is like LoadEngine but accepts a progress callback
 // for SafeTensors → GGUF conversion. When verbose is true, llama-server
 // output is printed to stderr.
-func LoadEngineWithProgress(modelDir string, lm *model.LocalModel, progress ConvertProgressFunc, verbose bool, numCtx, numParallel int) (Engine, error) {
-	modelFile, format, err := model.FindModelFile(modelDir)
+func LoadEngineWithProgress(modelDir string, lm *model.LocalModel, progress ConvertProgressFunc, verbose bool, numCtx, numParallel int, cacheTypeK, cacheTypeV, dtype string) (Engine, error) {
+	normalizedDType, err := convert.NormalizeDType(dtype)
 	if err != nil {
-		return nil, fmt.Errorf("finding model file: %w", err)
+		return nil, err
 	}
 
-	mmproj := model.FindMMProj(modelDir)
+	resolveMMProj := func() (string, error) {
+		if path, ok, err := convert.FindMMProjForDType(modelDir, normalizedDType); err != nil {
+			return "", err
+		} else if ok {
+			return path, nil
+		}
+		if path, ok, err := convert.FindMMProjForDType(modelDir, ""); err != nil {
+			return "", err
+		} else if ok {
+			return path, nil
+		}
+		return "", nil
+	}
+
+	if normalizedDType != "" {
+		if ggufPath, ok, err := convert.FindGGUFForDType(modelDir, normalizedDType); err != nil {
+			return nil, err
+		} else if ok {
+			mmproj, err := resolveMMProj()
+			if err != nil {
+				return nil, err
+			}
+			return newLlamaEngine(ggufPath, lm.FullName(), verbose, progress, numCtx, numParallel, cacheTypeK, cacheTypeV, mmproj)
+		}
+		if convert.HasSafeTensors(modelDir) {
+			ggufPath, err := convertSafeTensors(modelDir, progress, normalizedDType)
+			if err != nil {
+				return nil, fmt.Errorf("auto-converting SafeTensors to GGUF: %w", err)
+			}
+			mmproj, err := resolveMMProj()
+			if err != nil {
+				return nil, err
+			}
+			eng, err := newLlamaEngine(ggufPath, lm.FullName(), verbose, progress, numCtx, numParallel, cacheTypeK, cacheTypeV, mmproj)
+			if err != nil {
+				log.Printf("removing invalid converted GGUF: %s", ggufPath)
+				os.Remove(ggufPath)
+				return nil, err
+			}
+			return eng, nil
+		}
+	}
+
+	modelFile, format, err := model.FindModelFile(modelDir)
+	if err != nil {
+		if !errors.Is(err, os.ErrNotExist) {
+			return nil, fmt.Errorf("finding model file: %w", err)
+		}
+		if !convert.NeedsConversion(modelDir) {
+			return nil, fmt.Errorf("%w: %s", ErrUnsupportedFormat, format)
+		}
+		format = model.FormatSafeTensors
+	}
 
 	switch format {
 	case model.FormatGGUF:
-		return newLlamaEngine(modelFile, lm.FullName(), verbose, progress, numCtx, numParallel, mmproj)
+		mmproj, err := resolveMMProj()
+		if err != nil {
+			return nil, err
+		}
+		return newLlamaEngine(modelFile, lm.FullName(), verbose, progress, numCtx, numParallel, cacheTypeK, cacheTypeV, mmproj)
 
 	case model.FormatSafeTensors:
-		ggufPath, err := convertSafeTensors(modelDir, progress)
+		ggufPath, err := convertSafeTensors(modelDir, progress, normalizedDType)
 		if err != nil {
 			return nil, fmt.Errorf("auto-converting SafeTensors to GGUF: %w", err)
 		}
-		eng, err := newLlamaEngine(ggufPath, lm.FullName(), verbose, progress, numCtx, numParallel, mmproj)
+		mmproj, err := resolveMMProj()
+		if err != nil {
+			return nil, err
+		}
+		eng, err := newLlamaEngine(ggufPath, lm.FullName(), verbose, progress, numCtx, numParallel, cacheTypeK, cacheTypeV, mmproj)
 		if err != nil {
 			log.Printf("removing invalid converted GGUF: %s", ggufPath)
 			os.Remove(ggufPath)
@@ -80,8 +140,10 @@ func LoadEngineWithProgress(modelDir string, lm *model.LocalModel, progress Conv
 	}
 }
 
-func convertSafeTensors(modelDir string, progress ConvertProgressFunc) (string, error) {
-	if ggufPath, ok := convert.HasGGUF(modelDir); ok {
+func convertSafeTensors(modelDir string, progress ConvertProgressFunc, dtype string) (string, error) {
+	if ggufPath, ok, err := convert.FindGGUFForDType(modelDir, dtype); err != nil {
+		return "", err
+	} else if ok {
 		return ggufPath, nil
 	}
 
@@ -90,5 +152,5 @@ func convertSafeTensors(modelDir string, progress ConvertProgressFunc) (string, 
 		progressFn = convert.ProgressFunc(progress)
 	}
 
-	return convert.Convert(modelDir, progressFn)
+	return convert.Convert(modelDir, progressFn, dtype)
 }

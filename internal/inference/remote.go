@@ -22,16 +22,22 @@ type remoteEngine struct {
 	client      *http.Client
 	numCtx      int
 	numParallel int
+	cacheTypeK  string
+	cacheTypeV  string
+	dtype       string
 }
 
 // NewRemoteEngine creates an Engine that delegates to a running csghub-lite server.
-func NewRemoteEngine(baseURL, modelName string, numCtx, numParallel int) Engine {
+func NewRemoteEngine(baseURL, modelName string, numCtx, numParallel int, cacheTypeK, cacheTypeV, dtype string) Engine {
 	return &remoteEngine{
 		baseURL:     strings.TrimRight(baseURL, "/"),
 		modelName:   modelName,
 		client:      &http.Client{Timeout: 0},
 		numCtx:      numCtx,
 		numParallel: numParallel,
+		cacheTypeK:  cacheTypeK,
+		cacheTypeV:  cacheTypeV,
+		dtype:       dtype,
 	}
 }
 
@@ -90,6 +96,15 @@ func (e *remoteEngine) Chat(ctx context.Context, messages []Message, opts Option
 	}
 	if e.numParallel > 0 {
 		reqBody.Options.NumParallel = e.numParallel
+	}
+	if e.cacheTypeK != "" {
+		reqBody.Options.CacheTypeK = e.cacheTypeK
+	}
+	if e.cacheTypeV != "" {
+		reqBody.Options.CacheTypeV = e.cacheTypeV
+	}
+	if e.dtype != "" {
+		reqBody.Options.DType = e.dtype
 	}
 
 	body, err := json.Marshal(reqBody)

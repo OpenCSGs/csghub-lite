@@ -18,7 +18,12 @@ Content-Type: application/json
   "stream": true,
   "options": {
     "temperature": 0.7,
-    "max_tokens": 256
+    "max_tokens": 256,
+    "num_ctx": 131072,
+    "num_parallel": 1,
+    "cache_type_k": "q8_0",
+    "cache_type_v": "q8_0",
+    "dtype": "q8_0"
   }
 }
 ```
@@ -29,6 +34,8 @@ Content-Type: application/json
 | `prompt` | string | 是 | 提示词 |
 | `stream` | bool | 否 | 是否流式输出（默认 `true`） |
 | `options` | object | 否 | 生成参数 |
+
+`options` 支持 `temperature`、`top_p`、`top_k`、`max_tokens`、`seed`、`num_ctx`、`num_parallel`、`cache_type_k`、`cache_type_v`、`dtype`。其中 `cache_type_k` / `cache_type_v` 与 `llama-server --cache-type-k` / `--cache-type-v` 保持一致，可用于在显存紧张时压缩 KV cache；`dtype` 用于控制 SafeTensors -> GGUF 自动转换的输出类型，视觉模型的 `mmproj` 也会跟随同一 `dtype` 一起转换。
 
 ## 响应
 

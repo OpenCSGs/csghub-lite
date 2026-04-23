@@ -419,7 +419,10 @@
                 "model": "Qwen/Qwen3-0.6B-GGUF",
                 "stream": false,
                 "num_ctx": 131072,
-                "num_parallel": 1
+                "num_parallel": 1,
+                "cache_type_k": "q8_0",
+                "cache_type_v": "q8_0",
+                "dtype": "q8_0"
               }
             }
           }
@@ -2384,6 +2387,18 @@
           },
           "num_ctx": {
             "type": "integer"
+          },
+          "num_parallel": {
+            "type": "integer"
+          },
+          "cache_type_k": {
+            "type": "string"
+          },
+          "cache_type_v": {
+            "type": "string"
+          },
+          "dtype": {
+            "type": "string"
           }
         }
       },
@@ -2723,6 +2738,15 @@
           "num_parallel": {
             "type": "integer",
             "minimum": 1
+          },
+          "cache_type_k": {
+            "type": "string"
+          },
+          "cache_type_v": {
+            "type": "string"
+          },
+          "dtype": {
+            "type": "string"
           }
         }
       },
@@ -3894,6 +3918,18 @@
           },
           "num_ctx": {
             "type": "integer"
+          },
+          "num_parallel": {
+            "type": "integer"
+          },
+          "cache_type_k": {
+            "type": "string"
+          },
+          "cache_type_v": {
+            "type": "string"
+          },
+          "dtype": {
+            "type": "string"
           },
           "seed": {
             "type": "integer"

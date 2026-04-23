@@ -11,6 +11,15 @@ func TestNewRunCmdExposesContextFlags(t *testing.T) {
 	if f := cmd.Flags().Lookup("num-parallel"); f == nil {
 		t.Fatal("expected --num-parallel flag")
 	}
+	if f := cmd.Flags().Lookup("cache-type-k"); f == nil {
+		t.Fatal("expected --cache-type-k flag")
+	}
+	if f := cmd.Flags().Lookup("cache-type-v"); f == nil {
+		t.Fatal("expected --cache-type-v flag")
+	}
+	if f := cmd.Flags().Lookup("dtype"); f == nil {
+		t.Fatal("expected --dtype flag")
+	}
 }
 
 func TestValidateInteractiveModelOverrides(t *testing.T) {
@@ -18,19 +27,25 @@ func TestValidateInteractiveModelOverrides(t *testing.T) {
 		name        string
 		numCtx      int
 		numParallel int
+		cacheTypeK  string
+		cacheTypeV  string
+		dtype       string
 		wantErr     bool
 	}{
 		{name: "unset", numCtx: 0, numParallel: 0},
-		{name: "valid explicit overrides", numCtx: 131072, numParallel: 1},
+		{name: "valid explicit overrides", numCtx: 131072, numParallel: 1, cacheTypeK: "q8_0", cacheTypeV: "bf16", dtype: "q8_0"},
 		{name: "reject too small ctx", numCtx: 512, numParallel: 0, wantErr: true},
 		{name: "reject negative parallel", numCtx: 0, numParallel: -1, wantErr: true},
+		{name: "reject invalid cache type k", cacheTypeK: "fp8", wantErr: true},
+		{name: "reject invalid cache type v", cacheTypeV: "int8", wantErr: true},
+		{name: "reject invalid dtype", dtype: "q4_k_m", wantErr: true},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := validateInteractiveModelOverrides(tt.numCtx, tt.numParallel)
+			err := validateInteractiveModelOverrides(tt.numCtx, tt.numParallel, tt.cacheTypeK, tt.cacheTypeV, tt.dtype)
 			if (err != nil) != tt.wantErr {
-				t.Fatalf("validateInteractiveModelOverrides(%d, %d) error = %v, wantErr %v", tt.numCtx, tt.numParallel, err, tt.wantErr)
+				t.Fatalf("validateInteractiveModelOverrides(%d, %d, %q, %q, %q) error = %v, wantErr %v", tt.numCtx, tt.numParallel, tt.cacheTypeK, tt.cacheTypeV, tt.dtype, err, tt.wantErr)
 			}
 		})
 	}

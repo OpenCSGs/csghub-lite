@@ -16,6 +16,7 @@ import (
 	"github.com/opencsgs/csghub-lite/internal/apps"
 	"github.com/opencsgs/csghub-lite/internal/cloud"
 	"github.com/opencsgs/csghub-lite/internal/config"
+	"github.com/opencsgs/csghub-lite/internal/convert"
 	"github.com/opencsgs/csghub-lite/internal/dataset"
 	"github.com/opencsgs/csghub-lite/internal/inference"
 	"github.com/opencsgs/csghub-lite/internal/model"
@@ -30,6 +31,9 @@ type managedEngine struct {
 	engine      inference.Engine
 	numCtx      int
 	numParallel int
+	cacheTypeK  string
+	cacheTypeV  string
+	dtype       string
 	lastUsed    time.Time
 	keepAlive   time.Duration
 }
@@ -181,26 +185,39 @@ func (s *Server) touchEngine(modelID string) {
 }
 
 func (s *Server) getOrLoadEngine(modelID string) (inference.Engine, error) {
-	return s.getOrLoadEngineFull(modelID, nil, 0, 0)
+	return s.getOrLoadEngineFull(modelID, nil, 0, 0, "", "", "")
 }
 
 func (s *Server) getOrLoadEngineWithProgress(modelID string, progress inference.ConvertProgressFunc) (inference.Engine, error) {
-	return s.getOrLoadEngineFull(modelID, progress, 0, 0)
+	return s.getOrLoadEngineFull(modelID, progress, 0, 0, "", "", "")
 }
 
 func (s *Server) getOrLoadEngineWithNumCtx(modelID string, numCtx int) (inference.Engine, error) {
-	return s.getOrLoadEngineFull(modelID, nil, numCtx, 0)
+	return s.getOrLoadEngineFull(modelID, nil, numCtx, 0, "", "", "")
 }
 
-func (s *Server) getOrLoadEngineWithOpts(modelID string, numCtx, numParallel int) (inference.Engine, error) {
-	return s.getOrLoadEngineFull(modelID, nil, numCtx, numParallel)
+func (s *Server) getOrLoadEngineWithOpts(modelID string, numCtx, numParallel int, cacheTypeK, cacheTypeV, dtype string) (inference.Engine, error) {
+	return s.getOrLoadEngineFull(modelID, nil, numCtx, numParallel, cacheTypeK, cacheTypeV, dtype)
 }
 
-func (s *Server) getOrLoadEngineWithProgressAndOpts(modelID string, progress inference.ConvertProgressFunc, numCtx, numParallel int) (inference.Engine, error) {
-	return s.getOrLoadEngineFull(modelID, progress, numCtx, numParallel)
+func (s *Server) getOrLoadEngineWithProgressAndOpts(modelID string, progress inference.ConvertProgressFunc, numCtx, numParallel int, cacheTypeK, cacheTypeV, dtype string) (inference.Engine, error) {
+	return s.getOrLoadEngineFull(modelID, progress, numCtx, numParallel, cacheTypeK, cacheTypeV, dtype)
 }
 
-func (s *Server) getOrLoadEngineFull(modelID string, progress inference.ConvertProgressFunc, numCtx, numParallel int) (inference.Engine, error) {
+func (s *Server) getOrLoadEngineFull(modelID string, progress inference.ConvertProgressFunc, numCtx, numParallel int, cacheTypeK, cacheTypeV, dtype string) (inference.Engine, error) {
+	normalizedCacheTypeK, err := inference.NormalizeCacheType(cacheTypeK)
+	if err != nil {
+		return nil, err
+	}
+	normalizedCacheTypeV, err := inference.NormalizeCacheType(cacheTypeV)
+	if err != nil {
+		return nil, err
+	}
+	normalizedDType, err := convert.NormalizeDType(dtype)
+	if err != nil {
+		return nil, err
+	}
+
 	modelDir, err := s.manager.ModelPath(modelID)
 	if err != nil {
 		return nil, fmt.Errorf("model %q not found locally; use 'csghub-lite pull %s' first", modelID, modelID)
@@ -212,7 +229,7 @@ func (s *Server) getOrLoadEngineFull(modelID string, progress inference.ConvertP
 	me, ok := s.engines[modelID]
 	s.mu.RUnlock()
 	if ok {
-		if me.numCtx == effectiveNumCtx && me.numParallel == effectiveNumParallel {
+		if me.numCtx == effectiveNumCtx && me.numParallel == effectiveNumParallel && me.cacheTypeK == normalizedCacheTypeK && me.cacheTypeV == normalizedCacheTypeV && me.dtype == normalizedDType {
 			return me.engine, nil
 		}
 		// fall through to replace engine with changed settings
@@ -222,10 +239,10 @@ func (s *Server) getOrLoadEngineFull(modelID string, progress inference.ConvertP
 	defer s.mu.Unlock()
 
 	if me, ok := s.engines[modelID]; ok {
-		if me.numCtx == effectiveNumCtx && me.numParallel == effectiveNumParallel {
+		if me.numCtx == effectiveNumCtx && me.numParallel == effectiveNumParallel && me.cacheTypeK == normalizedCacheTypeK && me.cacheTypeV == normalizedCacheTypeV && me.dtype == normalizedDType {
 			return me.engine, nil
 		}
-		log.Printf("reloading model %s due to config change (num_ctx %d->%d, parallel %d->%d)", modelID, me.numCtx, effectiveNumCtx, me.numParallel, effectiveNumParallel)
+		log.Printf("reloading model %s due to config change (num_ctx %d->%d, parallel %d->%d, cache_type_k %q->%q, cache_type_v %q->%q, dtype %q->%q)", modelID, me.numCtx, effectiveNumCtx, me.numParallel, effectiveNumParallel, me.cacheTypeK, normalizedCacheTypeK, me.cacheTypeV, normalizedCacheTypeV, me.dtype, normalizedDType)
 		me.engine.Close()
 		delete(s.engines, modelID)
 	}
@@ -235,7 +252,7 @@ func (s *Server) getOrLoadEngineFull(modelID string, progress inference.ConvertP
 		return nil, err
 	}
 
-	eng, err := inference.LoadEngineWithProgress(modelDir, lm, progress, false, effectiveNumCtx, effectiveNumParallel)
+	eng, err := inference.LoadEngineWithProgress(modelDir, lm, progress, false, effectiveNumCtx, effectiveNumParallel, normalizedCacheTypeK, normalizedCacheTypeV, normalizedDType)
 	if err != nil {
 		return nil, err
 	}
@@ -244,6 +261,9 @@ func (s *Server) getOrLoadEngineFull(modelID string, progress inference.ConvertP
 		engine:      eng,
 		numCtx:      effectiveNumCtx,
 		numParallel: effectiveNumParallel,
+		cacheTypeK:  normalizedCacheTypeK,
+		cacheTypeV:  normalizedCacheTypeV,
+		dtype:       normalizedDType,
 		lastUsed:    time.Now(),
 		keepAlive:   DefaultKeepAlive,
 	}

@@ -29,6 +29,26 @@ const (
 	defaultLlamaParallel     = 4
 )
 
+var allowedLlamaCacheTypes = []string{
+	"f32",
+	"f16",
+	"bf16",
+	"q8_0",
+	"q4_0",
+	"q4_1",
+	"iq4_nl",
+	"q5_0",
+	"q5_1",
+}
+
+var allowedLlamaCacheTypeSet = func() map[string]struct{} {
+	allowed := make(map[string]struct{}, len(allowedLlamaCacheTypes))
+	for _, v := range allowedLlamaCacheTypes {
+		allowed[v] = struct{}{}
+	}
+	return allowed
+}()
+
 // cappedWriter keeps only the last maxBytes of data written to it.
 // Safe for concurrent use.
 type cappedWriter struct {
@@ -178,6 +198,23 @@ func ResolveNumParallel(requested int) int {
 	return defaultLlamaParallel
 }
 
+// AllowedCacheTypes returns the llama-server KV cache dtypes accepted by csghub-lite.
+func AllowedCacheTypes() []string {
+	return append([]string(nil), allowedLlamaCacheTypes...)
+}
+
+// NormalizeCacheType returns a lower-case llama-server cache dtype or "" when unset.
+func NormalizeCacheType(value string) (string, error) {
+	normalized := strings.ToLower(strings.TrimSpace(value))
+	if normalized == "" {
+		return "", nil
+	}
+	if _, ok := allowedLlamaCacheTypeSet[normalized]; ok {
+		return normalized, nil
+	}
+	return "", fmt.Errorf("unsupported cache type %q (allowed: %s)", value, strings.Join(allowedLlamaCacheTypes, ", "))
+}
+
 func modelMaxPositionEmbeddings(modelDir string) int {
 	data, err := os.ReadFile(filepath.Join(modelDir, "config.json"))
 	if err != nil {
@@ -193,7 +230,7 @@ func modelMaxPositionEmbeddings(modelDir string) int {
 	return cfg.MaxPositionEmbeddings
 }
 
-func newLlamaEngine(modelPath, modelName string, verbose bool, progress ConvertProgressFunc, numCtx, numParallel int, mmproj ...string) (*llamaEngine, error) {
+func newLlamaEngine(modelPath, modelName string, verbose bool, progress ConvertProgressFunc, numCtx, numParallel int, cacheTypeK, cacheTypeV string, mmproj ...string) (*llamaEngine, error) {
 	binary := findLlamaBinary()
 	if binary == "" {
 		return nil, fmt.Errorf("llama-server not found in PATH.\n" +
@@ -216,6 +253,14 @@ func newLlamaEngine(modelPath, modelName string, verbose bool, progress ConvertP
 	}
 	effectiveNumCtx := ResolveNumCtx(filepath.Dir(modelPath), numCtx)
 	effectiveNumParallel := ResolveNumParallel(numParallel)
+	normalizedCacheTypeK, err := NormalizeCacheType(cacheTypeK)
+	if err != nil {
+		return nil, err
+	}
+	normalizedCacheTypeV, err := NormalizeCacheType(cacheTypeV)
+	if err != nil {
+		return nil, err
+	}
 	totalCtx := effectiveNumCtx * effectiveNumParallel
 
 	args := []string{
@@ -224,6 +269,12 @@ func newLlamaEngine(modelPath, modelName string, verbose bool, progress ConvertP
 		"--port", fmt.Sprintf("%d", port),
 		"-c", strconv.Itoa(totalCtx),
 		"--parallel", strconv.Itoa(effectiveNumParallel),
+	}
+	if normalizedCacheTypeK != "" {
+		args = append(args, "--cache-type-k", normalizedCacheTypeK)
+	}
+	if normalizedCacheTypeV != "" {
+		args = append(args, "--cache-type-v", normalizedCacheTypeV)
 	}
 	if len(mmproj) > 0 && mmproj[0] != "" {
 		args = append(args, "--mmproj", mmproj[0])
