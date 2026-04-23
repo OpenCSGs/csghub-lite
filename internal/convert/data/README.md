@@ -42,7 +42,8 @@ Optional: set **`CSGHUB_LITE_CONVERTER_URL`** at runtime to a raw mirror URL ins
 One-time install (same as the CLI error text):
 
 ```bash
-pip3 install torch safetensors gguf transformers
+pip3 install --index-url https://download.pytorch.org/whl/cpu torch
+pip3 install safetensors gguf transformers
 ```
 
 On macOS/Linux the tool tries `python3.13` … `python3.10`, then `python3` / `python`, plus common Homebrew paths. On Windows it looks for `python` / `python3` on `PATH`.

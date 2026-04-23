@@ -21,11 +21,12 @@ import (
 // (no GitHub access required at runtime).
 
 const (
-	pythonDepsInstallArgs = "torch safetensors gguf transformers"
-	regionCN              = "CN"
-	regionINTL            = "INTL"
-	llamaCppGitHubRepo    = "https://github.com/ggml-org/llama.cpp"
-	llamaCppGiteeRepo     = "https://gitee.com/xzgan/llama.cpp"
+	pythonCPUOnlyTorchInstallArgs = "--index-url https://download.pytorch.org/whl/cpu torch"
+	pythonDepsInstallArgs         = "safetensors gguf transformers"
+	regionCN                      = "CN"
+	regionINTL                    = "INTL"
+	llamaCppGitHubRepo            = "https://github.com/ggml-org/llama.cpp"
+	llamaCppGiteeRepo             = "https://gitee.com/xzgan/llama.cpp"
 )
 
 type converterRepairResult struct {
@@ -60,11 +61,17 @@ func pythonInstallHint() string {
 func pythonDepsInstallHint() string {
 	return fmt.Sprintf(
 		"  pip3 install %s\n"+
+			"  pip3 install %s\n"+
 			"  If `pip3` is unavailable, try:\n"+
 			"    python3 -m pip install %s\n"+
+			"    python3 -m pip install %s\n"+
+			"    py -m pip install %s (Windows)\n"+
 			"    py -m pip install %s (Windows)",
+		pythonCPUOnlyTorchInstallArgs,
 		pythonDepsInstallArgs,
+		pythonCPUOnlyTorchInstallArgs,
 		pythonDepsInstallArgs,
+		pythonCPUOnlyTorchInstallArgs,
 		pythonDepsInstallArgs,
 	)
 }

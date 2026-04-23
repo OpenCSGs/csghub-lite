@@ -156,7 +156,8 @@ csghub-lite config set server_url https://my-private-csghub.example.com
 SafeTensors checkpoints are converted once using the bundled llama.cpp `convert_hf_to_gguf.py` and **system Python** (PyTorch is not shipped inside the release binary). Install these packages once:
 
 ```bash
-pip3 install torch safetensors gguf transformers
+pip3 install --index-url https://download.pytorch.org/whl/cpu torch
+pip3 install safetensors gguf transformers
 ```
 
 Use Python 3.10+ on `PATH` (Windows: `python` or `python3`). If `gguf` is too old for the bundled converter, `csghub-lite` now fetches the matching `gguf-py` from the `llama.cpp` source tag (`CSGHUB_LITE_REGION=CN` prefers `https://gitee.com/xzgan/llama.cpp`, other regions prefer GitHub) and retries once automatically. If `transformers` is too old for a new architecture, `csghub-lite` still tries `python -m pip install -U transformers` before retrying. Some models may need extra packages (for example `sentencepiece`); see [`internal/convert/data/README.md`](internal/convert/data/README.md) for the full list and troubleshooting (`gguf` version mismatch, optional `CSGHUB_LITE_CONVERTER_URL`).
