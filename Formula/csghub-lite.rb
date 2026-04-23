@@ -1,30 +1,30 @@
 class CsghubLite < Formula
   desc "Lightweight tool for running LLMs locally with CSGHub platform"
   homepage "https://github.com/opencsgs/csghub-lite"
-  version "0.7.9"
+  version "0.8.2"
   license "Apache-2.0"
 
   on_macos do
     on_arm do
       url "https://github.com/OpenCSGs/csghub-lite/releases/download/v#{version}/csghub-lite_#{version}_darwin-arm64.tar.gz"
-      sha256 "36338b1c9321bbafc8620f2d7a9d66ee0ae1de940806888226de55b2bf3a2f81"
+      sha256 "888fbce8e9eba95d53842f652f222295a02a5ad7b55b112a252f78eeba0176f2"
     end
 
     on_intel do
       url "https://github.com/OpenCSGs/csghub-lite/releases/download/v#{version}/csghub-lite_#{version}_darwin-amd64.tar.gz"
-      sha256 "16aeb66a4bef0e1ed2fa25272e12a26a19feacc298e2086a1c837f56d0edac3a"
+      sha256 "a7d662aa8f6b3f1fea1916d647cd485e1b901d35b5e5627fb14c643f9946fa55"
     end
   end
 
   on_linux do
     on_arm do
       url "https://github.com/OpenCSGs/csghub-lite/releases/download/v#{version}/csghub-lite_#{version}_linux-arm64.tar.gz"
-      sha256 "5da0440c46eaa3f510b3545ea37692e223d7c16b21219ab5c380dd7f5451711c"
+      sha256 "a4c36690b952acd6d9b81b3fa185437371d8069cbeebf93a900e6c480b69e383"
     end
 
     on_intel do
       url "https://github.com/OpenCSGs/csghub-lite/releases/download/v#{version}/csghub-lite_#{version}_linux-amd64.tar.gz"
-      sha256 "99754e994b590d87d0b3e5f757812bd58609f266f7cafc76d685656147bfbee9"
+      sha256 "dee88c0f8f96ffdf97580dc879b2f2ed9deb61e489ecc08e86d68dfbe402bc8e"
     end
   end
 
