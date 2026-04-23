@@ -306,7 +306,7 @@ func ConvertPython(modelDir string, progress ProgressFunc, dtype string) (string
 	outputName := generateOutputName(modelDir, effectiveDType)
 	outputPath := filepath.Join(modelDir, outputName)
 
-	progress("Converting with official converter", 0, 0)
+	progress(fmt.Sprintf("Converting with official converter to GGUF (dtype: %s)", effectiveDType), 0, 0)
 	if err := convertModelWithAutoRepair(python, script, modelDir, outputPath, effectiveDType, progress); err != nil {
 		return "", err
 	}
@@ -327,7 +327,7 @@ func ConvertPython(modelDir string, progress ProgressFunc, dtype string) (string
 		if _, ok, err := FindMMProjForDType(modelDir, effectiveDType); err != nil {
 			return "", err
 		} else if !ok {
-			progress("Converting vision encoder (mmproj)", 0, 0)
+			progress(fmt.Sprintf("Converting vision encoder (mmproj) to GGUF (dtype: %s)", effectiveDType), 0, 0)
 			mmOut, mmErr := runMMProjConverter(python, script, modelDir, effectiveDType)
 			if mmErr != nil {
 				log.Printf("mmproj conversion failed (non-fatal): %s\n%s", mmErr, lastNLines(mmOut, 5))
@@ -370,7 +370,7 @@ func convertModelWithAutoRepair(python, script, modelDir, outputPath, dtype stri
 	repair := attemptConverterAutoRepair(python, output, progress)
 	if repair.attempted && repair.succeeded {
 		_ = os.Remove(outputPath)
-		progress("Retrying converter after automatic repair", 0, 0)
+		progress(fmt.Sprintf("Retrying converter after automatic repair (dtype: %s)", dtype), 0, 0)
 		output, err = runModelConverter(python, script, modelDir, outputPath, dtype)
 		if err == nil {
 			return nil

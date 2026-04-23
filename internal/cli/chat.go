@@ -67,7 +67,7 @@ func runChat(cmd *cobra.Command, args []string, systemPrompt string, numCtx, num
 	fmt.Printf("Loading %s...\n", modelID)
 
 	if modelDir, err := mgr.ModelPath(modelID); err == nil && convert.NeedsConversion(modelDir) {
-		fmt.Println("Converting model to GGUF format (first time only, this may take a moment)...")
+		fmt.Println(convertStatusMessage(dtype))
 	}
 
 	serverURL, err := ensureServer(cfg)

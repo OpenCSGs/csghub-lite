@@ -22,6 +22,16 @@ func TestNormalizeDTypeRejectsUnknownValues(t *testing.T) {
 	}
 }
 
+func TestResolveDTypeUsesDefaultWhenUnset(t *testing.T) {
+	got, err := ResolveDType("")
+	if err != nil {
+		t.Fatalf("ResolveDType returned error: %v", err)
+	}
+	if got != "f16" {
+		t.Fatalf("ResolveDType = %q, want f16", got)
+	}
+}
+
 func TestGenerateOutputNameUsesRequestedDType(t *testing.T) {
 	if got := generateOutputName("/tmp/model", "q8_0"); got != "model-q8_0.gguf" {
 		t.Fatalf("generateOutputName = %q, want model-q8_0.gguf", got)

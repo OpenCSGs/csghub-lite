@@ -55,6 +55,20 @@ func convertDTypeHelp() string {
 	return "allowed: " + strings.Join(convert.AllowedDTypes(), ", ")
 }
 
+func convertStatusMessage(dtype string) string {
+	effectiveDType, err := convert.ResolveDType(dtype)
+	if err != nil {
+		effectiveDType = dtype
+		if strings.TrimSpace(effectiveDType) == "" {
+			effectiveDType = "unknown"
+		}
+	}
+	return fmt.Sprintf(
+		"Converting model to GGUF format (output dtype: %s, first time only, this may take a moment)...",
+		effectiveDType,
+	)
+}
+
 func validateInteractiveModelOverrides(numCtx, numParallel int, cacheTypeK, cacheTypeV, dtype string) error {
 	if numCtx > 0 && numCtx < 1024 {
 		return fmt.Errorf("--num-ctx must be at least 1024 when set")
@@ -99,7 +113,7 @@ func runRun(cmd *cobra.Command, args []string, numCtx, numParallel int, cacheTyp
 	fmt.Printf("Loading %s...\n", modelID)
 
 	if modelDir, err := mgr.ModelPath(modelID); err == nil && convert.NeedsConversion(modelDir) {
-		fmt.Println("Converting model to GGUF format (first time only, this may take a moment)...")
+		fmt.Println(convertStatusMessage(dtype))
 	}
 
 	serverURL, err := ensureServer(cfg)

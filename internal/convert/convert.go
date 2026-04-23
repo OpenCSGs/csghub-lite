@@ -55,7 +55,9 @@ func NormalizeDType(value string) (string, error) {
 	return "", fmt.Errorf("unsupported dtype %q (allowed: %s)", value, strings.Join(allowedConvertDTypes, ", "))
 }
 
-func resolveDType(value string) (string, error) {
+// ResolveDType returns the effective converter dtype, falling back to the
+// project default when the flag is unset.
+func ResolveDType(value string) (string, error) {
 	normalized, err := NormalizeDType(value)
 	if err != nil {
 		return "", err
@@ -64,6 +66,10 @@ func resolveDType(value string) (string, error) {
 		return defaultConvertDType, nil
 	}
 	return normalized, nil
+}
+
+func resolveDType(value string) (string, error) {
+	return ResolveDType(value)
 }
 
 // HasGGUF checks if a GGUF file already exists in the model directory.

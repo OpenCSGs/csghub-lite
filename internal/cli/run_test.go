@@ -50,3 +50,17 @@ func TestValidateInteractiveModelOverrides(t *testing.T) {
 		})
 	}
 }
+
+func TestConvertStatusMessageUsesEffectiveDType(t *testing.T) {
+	got := convertStatusMessage("")
+	want := "Converting model to GGUF format (output dtype: f16, first time only, this may take a moment)..."
+	if got != want {
+		t.Fatalf("convertStatusMessage(\"\") = %q, want %q", got, want)
+	}
+
+	got = convertStatusMessage("Q8_0")
+	want = "Converting model to GGUF format (output dtype: q8_0, first time only, this may take a moment)..."
+	if got != want {
+		t.Fatalf("convertStatusMessage(\"Q8_0\") = %q, want %q", got, want)
+	}
+}
