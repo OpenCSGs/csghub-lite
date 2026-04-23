@@ -39,6 +39,7 @@ type StopRequest struct {
 type LoadRequest struct {
 	Model       string `json:"model"`
 	Stream      *bool  `json:"stream,omitempty"`
+	KeepAlive   string `json:"keep_alive,omitempty"`
 	NumCtx      int    `json:"num_ctx,omitempty"`
 	NumParallel int    `json:"num_parallel,omitempty"`
 	CacheTypeK  string `json:"cache_type_k,omitempty"`

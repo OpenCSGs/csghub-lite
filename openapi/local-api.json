@@ -2731,6 +2731,9 @@
             "type": "boolean",
             "default": false
           },
+          "keep_alive": {
+            "type": "string"
+          },
           "num_ctx": {
             "type": "integer",
             "minimum": 1

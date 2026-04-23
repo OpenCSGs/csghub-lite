@@ -259,6 +259,63 @@ func TestHandleLoad_InvalidDType(t *testing.T) {
 	}
 }
 
+func TestHandleLoad_InvalidKeepAlive(t *testing.T) {
+	s := newTestServer(t)
+
+	body := `{"model":"test/model","keep_alive":"later"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/load", strings.NewReader(body))
+	w := httptest.NewRecorder()
+
+	s.handleLoad(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d body=%s", w.Code, http.StatusBadRequest, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "keep_alive") {
+		t.Fatalf("body = %q, want keep_alive validation error", w.Body.String())
+	}
+}
+
+func TestHandleLoad_ForeverKeepAliveOnExistingEngine(t *testing.T) {
+	s := newTestServer(t)
+	s.engines["test/model"] = &managedEngine{
+		engine:    &fakeChatCompletionEngine{},
+		lastUsed:  time.Now().Add(-time.Hour),
+		keepAlive: DefaultKeepAlive,
+	}
+
+	body := `{"model":"test/model","keep_alive":"-1"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/load", strings.NewReader(body))
+	w := httptest.NewRecorder()
+
+	s.handleLoad(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d body=%s", w.Code, http.StatusOK, w.Body.String())
+	}
+	if got := s.engines["test/model"].keepAlive; got != api.KeepAliveForever {
+		t.Fatalf("keepAlive = %s, want forever", got)
+	}
+	if !s.engines["test/model"].expiresAt().IsZero() {
+		t.Fatalf("expiresAt = %v, want zero time for forever keep-alive", s.engines["test/model"].expiresAt())
+	}
+}
+
+func TestEvictExpiredSkipsForeverKeepAlive(t *testing.T) {
+	s := newTestServer(t)
+	s.engines["test/model"] = &managedEngine{
+		engine:    &fakeChatCompletionEngine{},
+		lastUsed:  time.Now().Add(-24 * time.Hour),
+		keepAlive: api.KeepAliveForever,
+	}
+
+	s.evictExpired(time.Now())
+
+	if _, ok := s.engines["test/model"]; !ok {
+		t.Fatal("expected forever keep-alive engine to remain loaded")
+	}
+}
+
 func TestHandleChat_InvalidBody(t *testing.T) {
 	s := newTestServer(t)
 

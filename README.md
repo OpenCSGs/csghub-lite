@@ -49,6 +49,9 @@ Download the latest binary for your platform from the [Releases](https://github.
 # Run a model — downloads, starts server, and chats (all automatic)
 csghub-lite run Qwen/Qwen3-0.6B-GGUF
 
+# Keep a model loaded until you stop it manually
+csghub-lite run Qwen/Qwen3-0.6B-GGUF --keep-alive -1
+
 # Search for models on CSGHub
 csghub-lite search "qwen"
 
@@ -86,7 +89,7 @@ Model names use the format `namespace/name`, e.g. `Qwen/Qwen3-0.6B-GGUF`.
 
 ### run vs chat
 
-- **`run`** — Downloads the model if not present, auto-starts the background server, and opens a chat session. After you exit, the model stays loaded for 5 minutes (configurable) so the next `run` is instant.
+- **`run`** — Downloads the model if not present, auto-starts the background server, and opens a chat session. After you exit, the model stays loaded for 5 minutes by default so the next `run` is instant. Use `--keep-alive -1` to keep it loaded until you stop it manually.
 - **`chat`** — Starts a chat session with a model that is already downloaded. Supports `--system` flag for custom system prompts.
 
 ```bash
@@ -95,6 +98,9 @@ csghub-lite run Qwen/Qwen3-0.6B-GGUF
 
 # Exit chat, model stays loaded — reconnect instantly
 csghub-lite run Qwen/Qwen3-0.6B-GGUF
+
+# Keep the model loaded until `csghub-lite stop`
+csghub-lite run Qwen/Qwen3-0.6B-GGUF --keep-alive -1
 
 # Check which models are still loaded
 csghub-lite ps

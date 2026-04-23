@@ -143,11 +143,12 @@ func ServerPID() int {
 // preloadModel sends a request to the server to eagerly load (and convert if
 // necessary) the model, so it is ready before the first chat request.
 // It uses SSE streaming to display conversion progress.
-func preloadModel(serverURL, modelID string, numCtx, numParallel int, cacheTypeK, cacheTypeV, dtype string) error {
+func preloadModel(serverURL, modelID string, numCtx, numParallel int, cacheTypeK, cacheTypeV, dtype, keepAlive string) error {
 	stream := true
 	body, _ := json.Marshal(api.LoadRequest{
 		Model:       modelID,
 		Stream:      &stream,
+		KeepAlive:   keepAlive,
 		NumCtx:      numCtx,
 		NumParallel: numParallel,
 		CacheTypeK:  cacheTypeK,

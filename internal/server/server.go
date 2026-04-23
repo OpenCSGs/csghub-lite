@@ -38,7 +38,14 @@ type managedEngine struct {
 	keepAlive   time.Duration
 }
 
+func (m *managedEngine) keepAliveForever() bool {
+	return m.keepAlive < 0
+}
+
 func (m *managedEngine) expiresAt() time.Time {
+	if m.keepAliveForever() {
+		return time.Time{}
+	}
 	return m.lastUsed.Add(m.keepAlive)
 }
 
@@ -166,6 +173,9 @@ func (s *Server) evictExpired(now time.Time) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for id, me := range s.engines {
+		if me.keepAliveForever() {
+			continue
+		}
 		if now.After(me.expiresAt()) {
 			log.Printf("evicting idle model %s (unused for %s)", id, me.keepAlive)
 			me.engine.Close()
@@ -180,6 +190,14 @@ func (s *Server) touchEngine(modelID string) {
 	s.mu.Lock()
 	if me, ok := s.engines[modelID]; ok {
 		me.lastUsed = time.Now()
+	}
+	s.mu.Unlock()
+}
+
+func (s *Server) setEngineKeepAlive(modelID string, keepAlive time.Duration) {
+	s.mu.Lock()
+	if me, ok := s.engines[modelID]; ok {
+		me.keepAlive = keepAlive
 	}
 	s.mu.Unlock()
 }

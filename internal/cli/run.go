@@ -11,6 +11,7 @@ import (
 	"github.com/opencsgs/csghub-lite/internal/convert"
 	"github.com/opencsgs/csghub-lite/internal/inference"
 	"github.com/opencsgs/csghub-lite/internal/model"
+	"github.com/opencsgs/csghub-lite/pkg/api"
 	"github.com/spf13/cobra"
 )
 
@@ -20,6 +21,7 @@ func newRunCmd() *cobra.Command {
 	var cacheTypeK string
 	var cacheTypeV string
 	var dtype string
+	var keepAlive string
 
 	cmd := &cobra.Command{
 		Use:   "run MODEL",
@@ -33,10 +35,13 @@ Use --num-ctx, --num-parallel, --cache-type-k, and --cache-type-v to override
 llama-server runtime settings for this run only.
 
 Use --dtype to control SafeTensors -> GGUF conversion output type when a model
-needs conversion.`,
+needs conversion.
+
+Use --keep-alive to control how long the model stays loaded after you exit
+(-1 keeps it loaded until you stop it manually).`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runRun(cmd, args, numCtx, numParallel, cacheTypeK, cacheTypeV, dtype)
+			return runRun(cmd, args, numCtx, numParallel, cacheTypeK, cacheTypeV, dtype, keepAlive)
 		},
 	}
 	cmd.Flags().IntVar(&numCtx, "num-ctx", 0, "set the per-model context length for this run only (for example 131072)")
@@ -44,6 +49,7 @@ needs conversion.`,
 	cmd.Flags().StringVar(&cacheTypeK, "cache-type-k", "", "set llama-server --cache-type-k for this run only ("+llamaRuntimeCacheTypeHelp()+")")
 	cmd.Flags().StringVar(&cacheTypeV, "cache-type-v", "", "set llama-server --cache-type-v for this run only ("+llamaRuntimeCacheTypeHelp()+")")
 	cmd.Flags().StringVar(&dtype, "dtype", "", "set SafeTensors -> GGUF conversion dtype for this run only ("+convertDTypeHelp()+")")
+	cmd.Flags().StringVar(&keepAlive, "keep-alive", "", "keep the model loaded after exit for this run (for example 5m, 1h, or -1 to keep it loaded until stopped)")
 	return cmd
 }
 
@@ -88,8 +94,18 @@ func validateInteractiveModelOverrides(numCtx, numParallel int, cacheTypeK, cach
 	return nil
 }
 
-func runRun(cmd *cobra.Command, args []string, numCtx, numParallel int, cacheTypeK, cacheTypeV, dtype string) error {
+func validateRunOverrides(numCtx, numParallel int, cacheTypeK, cacheTypeV, dtype, keepAlive string) error {
 	if err := validateInteractiveModelOverrides(numCtx, numParallel, cacheTypeK, cacheTypeV, dtype); err != nil {
+		return err
+	}
+	if _, _, err := api.ParseKeepAlive(keepAlive); err != nil {
+		return fmt.Errorf("--keep-alive %w", err)
+	}
+	return nil
+}
+
+func runRun(cmd *cobra.Command, args []string, numCtx, numParallel int, cacheTypeK, cacheTypeV, dtype, keepAlive string) error {
+	if err := validateRunOverrides(numCtx, numParallel, cacheTypeK, cacheTypeV, dtype, keepAlive); err != nil {
 		return err
 	}
 
@@ -121,7 +137,7 @@ func runRun(cmd *cobra.Command, args []string, numCtx, numParallel int, cacheTyp
 		return fmt.Errorf("starting server: %w", err)
 	}
 
-	if err := preloadModel(serverURL, modelID, numCtx, numParallel, cacheTypeK, cacheTypeV, dtype); err != nil {
+	if err := preloadModel(serverURL, modelID, numCtx, numParallel, cacheTypeK, cacheTypeV, dtype, keepAlive); err != nil {
 		return fmt.Errorf("loading model: %w", err)
 	}
 

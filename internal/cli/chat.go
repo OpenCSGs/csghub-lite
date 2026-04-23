@@ -75,7 +75,7 @@ func runChat(cmd *cobra.Command, args []string, systemPrompt string, numCtx, num
 		return fmt.Errorf("starting server: %w", err)
 	}
 
-	if err := preloadModel(serverURL, modelID, numCtx, numParallel, cacheTypeK, cacheTypeV, dtype); err != nil {
+	if err := preloadModel(serverURL, modelID, numCtx, numParallel, cacheTypeK, cacheTypeV, dtype, ""); err != nil {
 		return fmt.Errorf("loading model: %w", err)
 	}
 

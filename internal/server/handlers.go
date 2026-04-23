@@ -222,6 +222,11 @@ func (s *Server) handleLoad(w http.ResponseWriter, r *http.Request) {
 	requestedCacheTypeK := ""
 	requestedCacheTypeV := ""
 	requestedDType := ""
+	requestedKeepAlive, keepAliveSet, err := api.ParseKeepAlive(req.KeepAlive)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "keep_alive "+err.Error())
+		return
+	}
 	if req.NumCtx > 0 {
 		requestedNumCtx = req.NumCtx
 	}
@@ -247,6 +252,9 @@ func (s *Server) handleLoad(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		s.touchEngine(req.Model)
+		if keepAliveSet {
+			s.setEngineKeepAlive(req.Model, requestedKeepAlive)
+		}
 		writeJSON(w, http.StatusOK, api.LoadResponse{Status: "ready"})
 		return
 	}
@@ -273,13 +281,16 @@ func (s *Server) handleLoad(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
-	_, err := s.getOrLoadEngineWithProgressAndOpts(req.Model, progress, requestedNumCtx, requestedNumParallel, requestedCacheTypeK, requestedCacheTypeV, requestedDType)
+	_, err = s.getOrLoadEngineWithProgressAndOpts(req.Model, progress, requestedNumCtx, requestedNumParallel, requestedCacheTypeK, requestedCacheTypeV, requestedDType)
 	if err != nil {
 		log.Printf("load %s failed: %v", req.Model, err)
 		safeSSE(api.LoadResponse{Status: "error: " + err.Error()})
 		return
 	}
 	s.touchEngine(req.Model)
+	if keepAliveSet {
+		s.setEngineKeepAlive(req.Model, requestedKeepAlive)
+	}
 
 	safeSSE(api.LoadResponse{Status: "ready"})
 }

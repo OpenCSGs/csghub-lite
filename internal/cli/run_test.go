@@ -20,6 +20,9 @@ func TestNewRunCmdExposesContextFlags(t *testing.T) {
 	if f := cmd.Flags().Lookup("dtype"); f == nil {
 		t.Fatal("expected --dtype flag")
 	}
+	if f := cmd.Flags().Lookup("keep-alive"); f == nil {
+		t.Fatal("expected --keep-alive flag")
+	}
 }
 
 func TestValidateInteractiveModelOverrides(t *testing.T) {
@@ -46,6 +49,29 @@ func TestValidateInteractiveModelOverrides(t *testing.T) {
 			err := validateInteractiveModelOverrides(tt.numCtx, tt.numParallel, tt.cacheTypeK, tt.cacheTypeV, tt.dtype)
 			if (err != nil) != tt.wantErr {
 				t.Fatalf("validateInteractiveModelOverrides(%d, %d, %q, %q, %q) error = %v, wantErr %v", tt.numCtx, tt.numParallel, tt.cacheTypeK, tt.cacheTypeV, tt.dtype, err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestValidateRunOverrides(t *testing.T) {
+	tests := []struct {
+		name      string
+		keepAlive string
+		wantErr   bool
+	}{
+		{name: "unset"},
+		{name: "forever", keepAlive: "-1"},
+		{name: "duration", keepAlive: "1h"},
+		{name: "reject invalid keep alive", keepAlive: "later", wantErr: true},
+		{name: "reject unsupported negative keep alive", keepAlive: "-5m", wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := validateRunOverrides(0, 0, "", "", "", tt.keepAlive)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("validateRunOverrides(keepAlive=%q) error = %v, wantErr %v", tt.keepAlive, err, tt.wantErr)
 			}
 		})
 	}
