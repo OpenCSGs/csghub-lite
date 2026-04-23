@@ -37,8 +37,10 @@ type StopRequest struct {
 }
 
 type LoadRequest struct {
-	Model  string `json:"model"`
-	Stream *bool  `json:"stream,omitempty"`
+	Model       string `json:"model"`
+	Stream      *bool  `json:"stream,omitempty"`
+	NumCtx      int    `json:"num_ctx,omitempty"`
+	NumParallel int    `json:"num_parallel,omitempty"`
 }
 
 type LoadResponse struct {

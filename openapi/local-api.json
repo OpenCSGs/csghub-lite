@@ -417,7 +417,9 @@
               },
               "example": {
                 "model": "Qwen/Qwen3-0.6B-GGUF",
-                "stream": false
+                "stream": false,
+                "num_ctx": 131072,
+                "num_parallel": 1
               }
             }
           }
@@ -2713,6 +2715,14 @@
           "stream": {
             "type": "boolean",
             "default": false
+          },
+          "num_ctx": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "num_parallel": {
+            "type": "integer",
+            "minimum": 1
           }
         }
       },

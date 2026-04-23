@@ -217,10 +217,19 @@ func (s *Server) handleLoad(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	requestedNumCtx := 0
+	requestedNumParallel := 0
+	if req.NumCtx > 0 {
+		requestedNumCtx = req.NumCtx
+	}
+	if req.NumParallel > 0 {
+		requestedNumParallel = req.NumParallel
+	}
+
 	stream := req.Stream != nil && *req.Stream
 
 	if !stream {
-		_, err := s.getOrLoadEngine(req.Model)
+		_, err := s.getOrLoadEngineFull(req.Model, nil, requestedNumCtx, requestedNumParallel)
 		if err != nil {
 			writeError(w, http.StatusBadRequest, err.Error())
 			return
@@ -252,7 +261,7 @@ func (s *Server) handleLoad(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
-	_, err := s.getOrLoadEngineWithProgress(req.Model, progress)
+	_, err := s.getOrLoadEngineWithProgressAndOpts(req.Model, progress, requestedNumCtx, requestedNumParallel)
 	if err != nil {
 		log.Printf("load %s failed: %v", req.Model, err)
 		safeSSE(api.LoadResponse{Status: "error: " + err.Error()})

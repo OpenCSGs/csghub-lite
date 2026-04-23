@@ -196,8 +196,8 @@ func (s *Server) getOrLoadEngineWithOpts(modelID string, numCtx, numParallel int
 	return s.getOrLoadEngineFull(modelID, nil, numCtx, numParallel)
 }
 
-func (s *Server) getOrLoadEngineWithProgressAndNumCtx(modelID string, progress inference.ConvertProgressFunc, numCtx int) (inference.Engine, error) {
-	return s.getOrLoadEngineFull(modelID, progress, numCtx, 0)
+func (s *Server) getOrLoadEngineWithProgressAndOpts(modelID string, progress inference.ConvertProgressFunc, numCtx, numParallel int) (inference.Engine, error) {
+	return s.getOrLoadEngineFull(modelID, progress, numCtx, numParallel)
 }
 
 func (s *Server) getOrLoadEngineFull(modelID string, progress inference.ConvertProgressFunc, numCtx, numParallel int) (inference.Engine, error) {

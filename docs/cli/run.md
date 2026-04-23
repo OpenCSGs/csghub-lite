@@ -5,7 +5,7 @@
 ## 用法
 
 ```bash
-csghub-lite run <model>
+csghub-lite run <model> [flags]
 ```
 
 ## 参数
@@ -13,6 +13,13 @@ csghub-lite run <model>
 | 参数 | 说明 |
 |------|------|
 | `<model>` | 模型名称，格式 `namespace/name` |
+
+## 选项
+
+| 选项 | 说明 | 默认值 |
+|------|------|--------|
+| `--num-ctx <n>` | 仅对本次 `run` 生效的上下文长度 | 使用服务默认值 |
+| `--num-parallel <n>` | 仅对本次 `run` 生效的并行槽数；设为 `1` 可优先给单会话更大上下文 | 使用服务默认值 |
 
 ## 说明
 
@@ -42,6 +49,9 @@ csghub-lite run <model>
 ```bash
 # 运行 Qwen3-0.6B 模型
 csghub-lite run Qwen/Qwen3-0.6B-GGUF
+
+# 为单次运行显式指定更大的上下文
+csghub-lite run Qwen/Qwen3-0.6B-GGUF --num-ctx 131072 --num-parallel 1
 
 # 运行后进入交互模式
 >>> 用一句话介绍你自己

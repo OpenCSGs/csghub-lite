@@ -15,20 +15,44 @@ import (
 )
 
 func newRunCmd() *cobra.Command {
+	var numCtx int
+	var numParallel int
+
 	cmd := &cobra.Command{
 		Use:   "run MODEL",
 		Short: "Download (if needed) and chat with a model",
 		Long: `Download a model from CSGHub if not already present, then start an interactive
 chat session. Type your message and press Enter to send. Use '/bye' to exit.
 
-Multiline input: end a line with '\' to continue on the next line.`,
+Multiline input: end a line with '\' to continue on the next line.
+
+Use --num-ctx and --num-parallel to override llama-server context settings for
+this run only.`,
 		Args: cobra.ExactArgs(1),
-		RunE: runRun,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runRun(cmd, args, numCtx, numParallel)
+		},
 	}
+	cmd.Flags().IntVar(&numCtx, "num-ctx", 0, "set the per-model context length for this run only (for example 131072)")
+	cmd.Flags().IntVar(&numParallel, "num-parallel", 0, "set the llama-server parallel slots for this run only (use 1 to maximize single-session context)")
 	return cmd
 }
 
-func runRun(cmd *cobra.Command, args []string) error {
+func validateInteractiveModelOverrides(numCtx, numParallel int) error {
+	if numCtx > 0 && numCtx < 1024 {
+		return fmt.Errorf("--num-ctx must be at least 1024 when set")
+	}
+	if numParallel < 0 {
+		return fmt.Errorf("--num-parallel must be at least 1 when set")
+	}
+	return nil
+}
+
+func runRun(cmd *cobra.Command, args []string, numCtx, numParallel int) error {
+	if err := validateInteractiveModelOverrides(numCtx, numParallel); err != nil {
+		return err
+	}
+
 	cfg, err := config.Load()
 	if err != nil {
 		return fmt.Errorf("loading config: %w", err)
@@ -57,11 +81,11 @@ func runRun(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("starting server: %w", err)
 	}
 
-	if err := preloadModel(serverURL, modelID); err != nil {
+	if err := preloadModel(serverURL, modelID, numCtx, numParallel); err != nil {
 		return fmt.Errorf("loading model: %w", err)
 	}
 
-	eng := inference.NewRemoteEngine(serverURL, modelID)
+	eng := inference.NewRemoteEngine(serverURL, modelID, numCtx, numParallel)
 
 	fmt.Printf("Model %s ready. Type '/bye' to exit, '/clear' to reset context.\n\n", modelID)
 

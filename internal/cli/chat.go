@@ -55,11 +55,11 @@ func runChat(cmd *cobra.Command, args []string, systemPrompt string) error {
 		return fmt.Errorf("starting server: %w", err)
 	}
 
-	if err := preloadModel(serverURL, modelID); err != nil {
+	if err := preloadModel(serverURL, modelID, 0, 0); err != nil {
 		return fmt.Errorf("loading model: %w", err)
 	}
 
-	eng := inference.NewRemoteEngine(serverURL, modelID)
+	eng := inference.NewRemoteEngine(serverURL, modelID, 0, 0)
 
 	fmt.Printf("Model %s ready. Type '/bye' to exit, '/clear' to reset context, '/help' for more.\n\n", modelID)
 

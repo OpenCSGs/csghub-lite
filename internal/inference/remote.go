@@ -17,17 +17,21 @@ import (
 // API server over HTTP. The server manages the actual llama-server subprocess
 // and its lifecycle (keep-alive, eviction).
 type remoteEngine struct {
-	baseURL   string
-	modelName string
-	client    *http.Client
+	baseURL     string
+	modelName   string
+	client      *http.Client
+	numCtx      int
+	numParallel int
 }
 
 // NewRemoteEngine creates an Engine that delegates to a running csghub-lite server.
-func NewRemoteEngine(baseURL, modelName string) Engine {
+func NewRemoteEngine(baseURL, modelName string, numCtx, numParallel int) Engine {
 	return &remoteEngine{
-		baseURL:   strings.TrimRight(baseURL, "/"),
-		modelName: modelName,
-		client:    &http.Client{Timeout: 0},
+		baseURL:     strings.TrimRight(baseURL, "/"),
+		modelName:   modelName,
+		client:      &http.Client{Timeout: 0},
+		numCtx:      numCtx,
+		numParallel: numParallel,
 	}
 }
 
@@ -80,6 +84,12 @@ func (e *remoteEngine) Chat(ctx context.Context, messages []Message, opts Option
 			TopK:        opts.TopK,
 			MaxTokens:   opts.MaxTokens,
 		},
+	}
+	if e.numCtx > 0 {
+		reqBody.Options.NumCtx = e.numCtx
+	}
+	if e.numParallel > 0 {
+		reqBody.Options.NumParallel = e.numParallel
 	}
 
 	body, err := json.Marshal(reqBody)
