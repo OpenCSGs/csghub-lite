@@ -40,3 +40,15 @@ func TestResolveNumCtxFallsBackToDefault(t *testing.T) {
 		t.Fatalf("ResolveNumCtx returned %d, want %d", got, 8192)
 	}
 }
+
+func TestResolveNGPULayersUsesExplicitRequest(t *testing.T) {
+	if got := ResolveNGPULayers(42); got != 42 {
+		t.Fatalf("ResolveNGPULayers returned %d, want %d", got, 42)
+	}
+}
+
+func TestNormalizeNGPULayersRejectsLessThanUnset(t *testing.T) {
+	if _, err := NormalizeNGPULayers(-2); err == nil {
+		t.Fatal("expected invalid n_gpu_layers error")
+	}
+}

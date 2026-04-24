@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"net"
 	"strings"
 	"testing"
 )
@@ -20,5 +21,31 @@ func TestPsOpenAIAPIUsageFallsBackToPlaceholderModel(t *testing.T) {
 	}
 	if want := "\"model\":\"<model-id>\""; !strings.Contains(got, want) {
 		t.Fatalf("psOpenAIAPIUsage() = %q, want substring %q", got, want)
+	}
+}
+
+type timeoutNetError struct{}
+
+func (timeoutNetError) Error() string   { return "timeout" }
+func (timeoutNetError) Timeout() bool   { return true }
+func (timeoutNetError) Temporary() bool { return true }
+
+func TestFormatPsRequestErrorUsesBusyMessageForTimeout(t *testing.T) {
+	err := formatPsRequestError("http://127.0.0.1:11435", timeoutNetError{})
+	if err == nil {
+		t.Fatal("formatPsRequestError() returned nil")
+	}
+	if !strings.Contains(err.Error(), "did not respond within 5s") {
+		t.Fatalf("formatPsRequestError() = %q, want timeout hint", err)
+	}
+}
+
+func TestFormatPsRequestErrorUsesConnectionMessageForRefused(t *testing.T) {
+	err := formatPsRequestError("http://127.0.0.1:11435", &net.OpError{Op: "dial", Err: net.ErrClosed})
+	if err == nil {
+		t.Fatal("formatPsRequestError() returned nil")
+	}
+	if !strings.Contains(err.Error(), "cannot connect to csghub-lite server") {
+		t.Fatalf("formatPsRequestError() = %q, want connection hint", err)
 	}
 }

@@ -20,6 +20,7 @@ csghub-lite run <model> [flags]
 |------|------|--------|
 | `--num-ctx <n>` | 仅对本次 `run` 生效的上下文长度 | 使用服务默认值 |
 | `--num-parallel <n>` | 仅对本次 `run` 生效的并行槽数；设为 `1` 可优先给单会话更大上下文 | 使用服务默认值 |
+| `--n-gpu-layers <n>` | 仅对本次 `run` 生效的 llama-server `--n-gpu-layers`；可用 `0` 禁用 GPU offload，或指定层数例如 `40` | GPU 环境下默认尽量全量 offload，CPU 环境下不设置 |
 | `--cache-type-k <type>` | 仅对本次 `run` 生效的 llama-server `--cache-type-k`，可用值：`f32`、`f16`、`bf16`、`q8_0`、`q4_0`、`q4_1`、`iq4_nl`、`q5_0`、`q5_1` | llama-server 默认值 |
 | `--cache-type-v <type>` | 仅对本次 `run` 生效的 llama-server `--cache-type-v`，可用值：`f32`、`f16`、`bf16`、`q8_0`、`q4_0`、`q4_1`、`iq4_nl`、`q5_0`、`q5_1` | llama-server 默认值 |
 | `--dtype <type>` | 仅对本次 `run` 生效的 SafeTensors -> GGUF 转换输出类型，可用值：`f32`、`f16`、`bf16`、`q8_0`、`tq1_0`、`tq2_0`、`auto` | `f16` |
@@ -57,6 +58,9 @@ csghub-lite run Qwen/Qwen3-0.6B-GGUF
 
 # 为单次运行显式指定更大的上下文
 csghub-lite run Qwen/Qwen3-0.6B-GGUF --num-ctx 131072 --num-parallel 1
+
+# 控制 GPU offload 层数
+csghub-lite run Qwen/Qwen3-0.6B-GGUF --n-gpu-layers 40
 
 # 显存紧张时，压缩 KV cache dtype
 csghub-lite run Qwen/Qwen3-0.6B-GGUF --cache-type-k q8_0 --cache-type-v q8_0

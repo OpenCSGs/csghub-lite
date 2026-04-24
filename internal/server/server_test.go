@@ -13,9 +13,24 @@ import (
 
 	"github.com/opencsgs/csghub-lite/internal/cloud"
 	"github.com/opencsgs/csghub-lite/internal/config"
+	"github.com/opencsgs/csghub-lite/internal/inference"
 	"github.com/opencsgs/csghub-lite/internal/model"
 	"github.com/opencsgs/csghub-lite/pkg/api"
 )
+
+type fakeEngine struct{}
+
+func (f *fakeEngine) Generate(context.Context, string, inference.Options, inference.TokenCallback) (string, error) {
+	return "", nil
+}
+
+func (f *fakeEngine) Chat(context.Context, []inference.Message, inference.Options, inference.TokenCallback) (string, error) {
+	return "", nil
+}
+
+func (f *fakeEngine) Close() error { return nil }
+
+func (f *fakeEngine) ModelName() string { return "fake" }
 
 func TestMain(m *testing.M) {
 	_ = os.Setenv(config.DisableFileLoggingEnv, "1")
@@ -67,7 +82,7 @@ func TestGetChatEngineReusesLoadedEngineWhenOverridesOmitted(t *testing.T) {
 		keepAlive:   DefaultKeepAlive,
 	}
 
-	got, err := s.getChatEngine(context.Background(), "test/model", "", 0, 0, "", "", "")
+	got, err := s.getChatEngine(context.Background(), "test/model", "", 0, 0, -1, "", "", "")
 	if err != nil {
 		t.Fatalf("getChatEngine returned error: %v", err)
 	}
@@ -79,6 +94,136 @@ func TestGetChatEngineReusesLoadedEngineWhenOverridesOmitted(t *testing.T) {
 	}
 	if s.engines["test/model"].numParallel != 4 {
 		t.Fatalf("numParallel = %d, want 4", s.engines["test/model"].numParallel)
+	}
+}
+
+func TestHandlePsRemainsResponsiveWhileModelLoads(t *testing.T) {
+	s := newTestServer(t)
+	lm := &model.LocalModel{
+		Namespace: "test",
+		Name:      "slow",
+		Format:    model.FormatSafeTensors,
+		Size:      123,
+		Files:     []string{"model.safetensors"},
+	}
+	if err := model.SaveManifest(s.cfg.ModelDir, lm); err != nil {
+		t.Fatalf("SaveManifest() error = %v", err)
+	}
+	modelDir := filepath.Join(s.cfg.ModelDir, "test", "slow")
+	if err := os.MkdirAll(modelDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+
+	origLoader := loadEngineWithProgress
+	defer func() { loadEngineWithProgress = origLoader }()
+
+	started := make(chan struct{})
+	release := make(chan struct{})
+	loadEngineWithProgress = func(string, *model.LocalModel, inference.ConvertProgressFunc, bool, int, int, int, string, string, string) (inference.Engine, error) {
+		close(started)
+		<-release
+		return &fakeEngine{}, nil
+	}
+
+	errCh := make(chan error, 1)
+	go func() {
+		_, err := s.getOrLoadEngineWithOpts("test/slow", 0, 0, -1, "", "", "")
+		errCh <- err
+	}()
+
+	select {
+	case <-started:
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for model load to start")
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/ps", nil)
+	w := httptest.NewRecorder()
+	done := make(chan struct{})
+	go func() {
+		s.handlePs(w, req)
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(200 * time.Millisecond):
+		t.Fatal("handlePs blocked while model load was in progress")
+	}
+
+	close(release)
+	if err := <-errCh; err != nil {
+		t.Fatalf("getOrLoadEngineWithOpts() error = %v", err)
+	}
+}
+
+func TestConcurrentLoadsShareSingleInFlightLoad(t *testing.T) {
+	s := newTestServer(t)
+	lm := &model.LocalModel{
+		Namespace: "test",
+		Name:      "shared",
+		Format:    model.FormatSafeTensors,
+		Size:      123,
+		Files:     []string{"model.safetensors"},
+	}
+	if err := model.SaveManifest(s.cfg.ModelDir, lm); err != nil {
+		t.Fatalf("SaveManifest() error = %v", err)
+	}
+	modelDir := filepath.Join(s.cfg.ModelDir, "test", "shared")
+	if err := os.MkdirAll(modelDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+
+	origLoader := loadEngineWithProgress
+	defer func() { loadEngineWithProgress = origLoader }()
+
+	var (
+		calls   int
+		engine  = &fakeEngine{}
+		started = make(chan struct{})
+		release = make(chan struct{})
+	)
+	loadEngineWithProgress = func(string, *model.LocalModel, inference.ConvertProgressFunc, bool, int, int, int, string, string, string) (inference.Engine, error) {
+		calls++
+		select {
+		case <-started:
+		default:
+			close(started)
+		}
+		<-release
+		return engine, nil
+	}
+
+	type result struct {
+		eng inference.Engine
+		err error
+	}
+	results := make(chan result, 2)
+	for i := 0; i < 2; i++ {
+		go func() {
+			eng, err := s.getOrLoadEngineWithOpts("test/shared", 0, 0, -1, "", "", "")
+			results <- result{eng: eng, err: err}
+		}()
+	}
+
+	select {
+	case <-started:
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for shared load to start")
+	}
+	close(release)
+
+	for i := 0; i < 2; i++ {
+		res := <-results
+		if res.err != nil {
+			t.Fatalf("getOrLoadEngineWithOpts() error = %v", res.err)
+		}
+		if res.eng != engine {
+			t.Fatalf("engine = %#v, want shared engine %#v", res.eng, engine)
+		}
+	}
+	if calls != 1 {
+		t.Fatalf("loadEngineWithProgress call count = %d, want 1", calls)
 	}
 }
 

@@ -46,13 +46,13 @@ type ConvertProgressFunc func(step string, current, total int)
 // By default, llama-server output is not mirrored to stderr, but it is still
 // captured for diagnostics and appended to the llama-server log file.
 func LoadEngine(modelDir string, lm *model.LocalModel) (Engine, error) {
-	return LoadEngineWithProgress(modelDir, lm, nil, false, 0, 0, "", "", "")
+	return LoadEngineWithProgress(modelDir, lm, nil, false, 0, 0, -1, "", "", "")
 }
 
 // LoadEngineWithProgress is like LoadEngine but accepts a progress callback
 // for SafeTensors → GGUF conversion. When verbose is true, llama-server
 // output is printed to stderr.
-func LoadEngineWithProgress(modelDir string, lm *model.LocalModel, progress ConvertProgressFunc, verbose bool, numCtx, numParallel int, cacheTypeK, cacheTypeV, dtype string) (Engine, error) {
+func LoadEngineWithProgress(modelDir string, lm *model.LocalModel, progress ConvertProgressFunc, verbose bool, numCtx, numParallel, nGPULayers int, cacheTypeK, cacheTypeV, dtype string) (Engine, error) {
 	normalizedDType, err := convert.NormalizeDType(dtype)
 	if err != nil {
 		return nil, err
@@ -80,7 +80,7 @@ func LoadEngineWithProgress(modelDir string, lm *model.LocalModel, progress Conv
 			if err != nil {
 				return nil, err
 			}
-			return newLlamaEngine(ggufPath, lm.FullName(), verbose, progress, numCtx, numParallel, cacheTypeK, cacheTypeV, mmproj)
+			return newLlamaEngine(ggufPath, lm.FullName(), verbose, progress, numCtx, numParallel, nGPULayers, cacheTypeK, cacheTypeV, mmproj)
 		}
 		if convert.HasSafeTensors(modelDir) {
 			ggufPath, err := convertSafeTensors(modelDir, progress, normalizedDType)
@@ -91,7 +91,7 @@ func LoadEngineWithProgress(modelDir string, lm *model.LocalModel, progress Conv
 			if err != nil {
 				return nil, err
 			}
-			eng, err := newLlamaEngine(ggufPath, lm.FullName(), verbose, progress, numCtx, numParallel, cacheTypeK, cacheTypeV, mmproj)
+			eng, err := newLlamaEngine(ggufPath, lm.FullName(), verbose, progress, numCtx, numParallel, nGPULayers, cacheTypeK, cacheTypeV, mmproj)
 			if err != nil {
 				removeConvertedGGUFIfInvalid(ggufPath, err)
 				return nil, err
@@ -117,7 +117,7 @@ func LoadEngineWithProgress(modelDir string, lm *model.LocalModel, progress Conv
 		if err != nil {
 			return nil, err
 		}
-		return newLlamaEngine(modelFile, lm.FullName(), verbose, progress, numCtx, numParallel, cacheTypeK, cacheTypeV, mmproj)
+		return newLlamaEngine(modelFile, lm.FullName(), verbose, progress, numCtx, numParallel, nGPULayers, cacheTypeK, cacheTypeV, mmproj)
 
 	case model.FormatSafeTensors:
 		ggufPath, err := convertSafeTensors(modelDir, progress, normalizedDType)
@@ -128,7 +128,7 @@ func LoadEngineWithProgress(modelDir string, lm *model.LocalModel, progress Conv
 		if err != nil {
 			return nil, err
 		}
-		eng, err := newLlamaEngine(ggufPath, lm.FullName(), verbose, progress, numCtx, numParallel, cacheTypeK, cacheTypeV, mmproj)
+		eng, err := newLlamaEngine(ggufPath, lm.FullName(), verbose, progress, numCtx, numParallel, nGPULayers, cacheTypeK, cacheTypeV, mmproj)
 		if err != nil {
 			removeConvertedGGUFIfInvalid(ggufPath, err)
 			return nil, err

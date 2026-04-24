@@ -47,7 +47,7 @@ func (s *Server) handleOpenAIResponses(w http.ResponseWriter, r *http.Request) {
 		opts.MaxTokens = *req.MaxOutputTokens
 	}
 
-	eng, err := s.getChatEngine(r.Context(), req.Model, "", 0, 0, "", "", "")
+	eng, err := s.getChatEngine(r.Context(), req.Model, "", 0, 0, -1, "", "", "")
 	if err != nil {
 		if inference.HTTPStatusCode(err) != 0 {
 			writeOpenAIInferenceError(w, err)

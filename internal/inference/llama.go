@@ -29,6 +29,8 @@ const (
 	defaultLlamaCtxSize      = 8192
 	autoExpandedLlamaCtxSize = 16384
 	defaultLlamaParallel     = 4
+	unsetNGPULayers          = -1
+	defaultNGPULayers        = 9999
 )
 
 var allowedLlamaCacheTypes = []string{
@@ -201,6 +203,28 @@ func ResolveNumParallel(requested int) int {
 	return defaultLlamaParallel
 }
 
+// ResolveNGPULayers returns the effective llama-server GPU layer offload count.
+// Explicit requests win; otherwise GPU-capable hosts default to offloading all
+// layers and CPU-only hosts leave the flag unset.
+func ResolveNGPULayers(requested int) int {
+	if requested >= 0 {
+		return requested
+	}
+	if hasGPU() {
+		return defaultNGPULayers
+	}
+	return 0
+}
+
+// NormalizeNGPULayers accepts -1 (unset) or any non-negative llama-server
+// --n-gpu-layers value.
+func NormalizeNGPULayers(requested int) (int, error) {
+	if requested < unsetNGPULayers {
+		return 0, fmt.Errorf("unsupported n_gpu_layers %d (must be >= 0 when set)", requested)
+	}
+	return requested, nil
+}
+
 // AllowedCacheTypes returns the llama-server KV cache dtypes accepted by csghub-lite.
 func AllowedCacheTypes() []string {
 	return append([]string(nil), allowedLlamaCacheTypes...)
@@ -233,7 +257,7 @@ func ModelMaxPositionEmbeddings(modelDir string) int {
 	return cfg.MaxPositionEmbeddings
 }
 
-func newLlamaEngine(modelPath, modelName string, verbose bool, progress ConvertProgressFunc, numCtx, numParallel int, cacheTypeK, cacheTypeV string, mmproj ...string) (*llamaEngine, error) {
+func newLlamaEngine(modelPath, modelName string, verbose bool, progress ConvertProgressFunc, numCtx, numParallel, nGPULayers int, cacheTypeK, cacheTypeV string, mmproj ...string) (*llamaEngine, error) {
 	binary := findLlamaBinary()
 	if binary == "" {
 		return nil, fmt.Errorf("llama-server not found in PATH.\n" +
@@ -256,6 +280,7 @@ func newLlamaEngine(modelPath, modelName string, verbose bool, progress ConvertP
 	}
 	effectiveNumCtx := ResolveNumCtx(filepath.Dir(modelPath), numCtx)
 	effectiveNumParallel := ResolveNumParallel(numParallel)
+	effectiveNGPULayers := ResolveNGPULayers(nGPULayers)
 	normalizedCacheTypeK, err := NormalizeCacheType(cacheTypeK)
 	if err != nil {
 		return nil, err
@@ -283,8 +308,8 @@ func newLlamaEngine(modelPath, modelName string, verbose bool, progress ConvertP
 		args = append(args, "--mmproj", mmproj[0])
 		engine.hasMultimodal = true
 	}
-	if hasGPU() {
-		args = append(args, "-ngl", "9999")
+	if effectiveNGPULayers > 0 {
+		args = append(args, "-ngl", strconv.Itoa(effectiveNGPULayers))
 	}
 
 	engine.cmd = exec.Command(binary, args...)

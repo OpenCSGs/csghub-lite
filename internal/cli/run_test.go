@@ -11,6 +11,9 @@ func TestNewRunCmdExposesContextFlags(t *testing.T) {
 	if f := cmd.Flags().Lookup("num-parallel"); f == nil {
 		t.Fatal("expected --num-parallel flag")
 	}
+	if f := cmd.Flags().Lookup("n-gpu-layers"); f == nil {
+		t.Fatal("expected --n-gpu-layers flag")
+	}
 	if f := cmd.Flags().Lookup("cache-type-k"); f == nil {
 		t.Fatal("expected --cache-type-k flag")
 	}
@@ -30,15 +33,17 @@ func TestValidateInteractiveModelOverrides(t *testing.T) {
 		name        string
 		numCtx      int
 		numParallel int
+		nGPULayers  int
 		cacheTypeK  string
 		cacheTypeV  string
 		dtype       string
 		wantErr     bool
 	}{
-		{name: "unset", numCtx: 0, numParallel: 0},
-		{name: "valid explicit overrides", numCtx: 131072, numParallel: 1, cacheTypeK: "q8_0", cacheTypeV: "bf16", dtype: "q8_0"},
+		{name: "unset", numCtx: 0, numParallel: 0, nGPULayers: -1},
+		{name: "valid explicit overrides", numCtx: 131072, numParallel: 1, nGPULayers: 40, cacheTypeK: "q8_0", cacheTypeV: "bf16", dtype: "q8_0"},
 		{name: "reject too small ctx", numCtx: 512, numParallel: 0, wantErr: true},
-		{name: "reject negative parallel", numCtx: 0, numParallel: -1, wantErr: true},
+		{name: "reject negative parallel", numCtx: 0, numParallel: -1, nGPULayers: -1, wantErr: true},
+		{name: "reject invalid n gpu layers", nGPULayers: -2, wantErr: true},
 		{name: "reject invalid cache type k", cacheTypeK: "fp8", wantErr: true},
 		{name: "reject invalid cache type v", cacheTypeV: "int8", wantErr: true},
 		{name: "reject invalid dtype", dtype: "q4_k_m", wantErr: true},
@@ -46,9 +51,9 @@ func TestValidateInteractiveModelOverrides(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := validateInteractiveModelOverrides(tt.numCtx, tt.numParallel, tt.cacheTypeK, tt.cacheTypeV, tt.dtype)
+			err := validateInteractiveModelOverrides(tt.numCtx, tt.numParallel, tt.nGPULayers, tt.cacheTypeK, tt.cacheTypeV, tt.dtype)
 			if (err != nil) != tt.wantErr {
-				t.Fatalf("validateInteractiveModelOverrides(%d, %d, %q, %q, %q) error = %v, wantErr %v", tt.numCtx, tt.numParallel, tt.cacheTypeK, tt.cacheTypeV, tt.dtype, err, tt.wantErr)
+				t.Fatalf("validateInteractiveModelOverrides(%d, %d, %d, %q, %q, %q) error = %v, wantErr %v", tt.numCtx, tt.numParallel, tt.nGPULayers, tt.cacheTypeK, tt.cacheTypeV, tt.dtype, err, tt.wantErr)
 			}
 		})
 	}
@@ -69,7 +74,7 @@ func TestValidateRunOverrides(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := validateRunOverrides(0, 0, "", "", "", tt.keepAlive)
+			err := validateRunOverrides(0, 0, -1, "", "", "", tt.keepAlive)
 			if (err != nil) != tt.wantErr {
 				t.Fatalf("validateRunOverrides(keepAlive=%q) error = %v, wantErr %v", tt.keepAlive, err, tt.wantErr)
 			}

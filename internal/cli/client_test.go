@@ -25,7 +25,7 @@ func TestPreloadModelIncludesRequestedContextOptions(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	if err := preloadModel(ts.URL, "Qwen/Qwen3-0.6B-GGUF", 131072, 1, "q8_0", "bf16", "q8_0", "-1"); err != nil {
+	if err := preloadModel(ts.URL, "Qwen/Qwen3-0.6B-GGUF", 131072, 1, 40, "q8_0", "bf16", "q8_0", "-1"); err != nil {
 		t.Fatalf("preloadModel returned error: %v", err)
 	}
 
@@ -43,6 +43,9 @@ func TestPreloadModelIncludesRequestedContextOptions(t *testing.T) {
 	}
 	if got.NumParallel != 1 {
 		t.Fatalf("num_parallel = %d, want 1", got.NumParallel)
+	}
+	if got.NGPULayers == nil || *got.NGPULayers != 40 {
+		t.Fatalf("n_gpu_layers = %#v, want 40", got.NGPULayers)
 	}
 	if got.CacheTypeK != "q8_0" {
 		t.Fatalf("cache_type_k = %q, want q8_0", got.CacheTypeK)

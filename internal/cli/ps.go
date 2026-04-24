@@ -2,7 +2,9 @@ package cli
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"os"
 	"strings"
@@ -35,7 +37,7 @@ func runPs(cmd *cobra.Command, args []string) error {
 
 	resp, err := client.Get(serverURL + "/api/ps")
 	if err != nil {
-		return fmt.Errorf("cannot connect to csghub-lite server at %s. Is it running? Start it with 'csghub-lite serve'", serverURL)
+		return formatPsRequestError(serverURL, err)
 	}
 	defer resp.Body.Close()
 
@@ -65,6 +67,14 @@ func runPs(cmd *cobra.Command, args []string) error {
 	}
 	fmt.Print(psOpenAIAPIUsage(serverURL, psResp.Models[0].Model))
 	return nil
+}
+
+func formatPsRequestError(serverURL string, err error) error {
+	var netErr net.Error
+	if errors.As(err, &netErr) && netErr.Timeout() {
+		return fmt.Errorf("csghub-lite server at %s did not respond within 5s. It may be busy loading or reloading a model; try again in a moment", serverURL)
+	}
+	return fmt.Errorf("cannot connect to csghub-lite server at %s. Is it running? Start it with 'csghub-lite serve'", serverURL)
 }
 
 func psOpenAIAPIUsage(serverURL, modelID string) string {

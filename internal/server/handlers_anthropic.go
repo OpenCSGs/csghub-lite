@@ -38,7 +38,7 @@ func (s *Server) handleAnthropicMessages(w http.ResponseWriter, r *http.Request)
 		opts.Stop = req.StopSequences
 	}
 
-	eng, err := s.getChatEngine(r.Context(), req.Model, "", s.anthropicPreferredNumCtx(req.Model), 0, "", "", "")
+	eng, err := s.getChatEngine(r.Context(), req.Model, "", s.anthropicPreferredNumCtx(req.Model), 0, -1, "", "", "")
 	if err != nil {
 		writeAnthropicInferenceError(w, err)
 		return

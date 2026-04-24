@@ -14,6 +14,7 @@ func newChatCmd() *cobra.Command {
 	var systemPrompt string
 	var numCtx int
 	var numParallel int
+	var nGPULayers int
 	var cacheTypeK string
 	var cacheTypeV string
 	var dtype string
@@ -27,28 +28,29 @@ Unlike 'run', this command does not auto-download missing models.
 Type your message and press Enter to send. Use '/bye' to exit.
 Multiline input: end a line with '\' to continue on the next line.
 
-Use --num-ctx, --num-parallel, --cache-type-k, and --cache-type-v to override
+Use --num-ctx, --num-parallel, --n-gpu-layers, --cache-type-k, and --cache-type-v to override
 llama-server runtime settings for this chat session only.
 
 Use --dtype to control SafeTensors -> GGUF conversion output type when a model
 needs conversion.`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runChat(cmd, args, systemPrompt, numCtx, numParallel, cacheTypeK, cacheTypeV, dtype)
+			return runChat(cmd, args, systemPrompt, numCtx, numParallel, nGPULayers, cacheTypeK, cacheTypeV, dtype)
 		},
 	}
 
 	cmd.Flags().StringVar(&systemPrompt, "system", "", "set a custom system prompt")
 	cmd.Flags().IntVar(&numCtx, "num-ctx", 0, "set the per-model context length for this chat session only (for example 131072)")
 	cmd.Flags().IntVar(&numParallel, "num-parallel", 0, "set the llama-server parallel slots for this chat session only (use 1 to maximize single-session context)")
+	cmd.Flags().IntVar(&nGPULayers, "n-gpu-layers", -1, "set llama-server --n-gpu-layers for this chat session only (for example 40; use 0 to disable GPU offload)")
 	cmd.Flags().StringVar(&cacheTypeK, "cache-type-k", "", "set llama-server --cache-type-k for this chat session only ("+llamaRuntimeCacheTypeHelp()+")")
 	cmd.Flags().StringVar(&cacheTypeV, "cache-type-v", "", "set llama-server --cache-type-v for this chat session only ("+llamaRuntimeCacheTypeHelp()+")")
 	cmd.Flags().StringVar(&dtype, "dtype", "", "set SafeTensors -> GGUF conversion dtype for this chat session only ("+convertDTypeHelp()+")")
 	return cmd
 }
 
-func runChat(cmd *cobra.Command, args []string, systemPrompt string, numCtx, numParallel int, cacheTypeK, cacheTypeV, dtype string) error {
-	if err := validateInteractiveModelOverrides(numCtx, numParallel, cacheTypeK, cacheTypeV, dtype); err != nil {
+func runChat(cmd *cobra.Command, args []string, systemPrompt string, numCtx, numParallel, nGPULayers int, cacheTypeK, cacheTypeV, dtype string) error {
+	if err := validateInteractiveModelOverrides(numCtx, numParallel, nGPULayers, cacheTypeK, cacheTypeV, dtype); err != nil {
 		return err
 	}
 
@@ -75,11 +77,11 @@ func runChat(cmd *cobra.Command, args []string, systemPrompt string, numCtx, num
 		return fmt.Errorf("starting server: %w", err)
 	}
 
-	if err := preloadModel(serverURL, modelID, numCtx, numParallel, cacheTypeK, cacheTypeV, dtype, ""); err != nil {
+	if err := preloadModel(serverURL, modelID, numCtx, numParallel, nGPULayers, cacheTypeK, cacheTypeV, dtype, ""); err != nil {
 		return fmt.Errorf("loading model: %w", err)
 	}
 
-	eng := inference.NewRemoteEngine(serverURL, modelID, numCtx, numParallel, cacheTypeK, cacheTypeV, dtype)
+	eng := inference.NewRemoteEngine(serverURL, modelID, numCtx, numParallel, nGPULayers, cacheTypeK, cacheTypeV, dtype)
 
 	fmt.Printf("Model %s ready. Type '/bye' to exit, '/clear' to reset context, '/help' for more.\n\n", modelID)
 
