@@ -82,7 +82,7 @@ csghub-lite login
 | `csghub-lite config set <key> <value>` | Set configuration |
 | `csghub-lite config get <key>` | Get a configuration value |
 | `csghub-lite config show` | Show current configuration |
-| `csghub-lite uninstall` | Remove csghub-lite, llama-server, and all data |
+| `csghub-lite uninstall` | Remove csghub-lite and llama-server, preserving local data unless `--all` is set |
 | `csghub-lite --version` | Show version information |
 
 Model names use the format `namespace/name`, e.g. `Qwen/Qwen3-0.6B-GGUF`.

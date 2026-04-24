@@ -15,26 +15,33 @@ import (
 
 func newUninstallCmd() *cobra.Command {
 	var yes bool
+	var removeAll bool
 	cmd := &cobra.Command{
 		Use:   "uninstall",
-		Short: "Remove csghub-lite, llama-server, and all local data",
-		Long: `Completely remove csghub-lite and its dependencies:
+		Short: "Remove csghub-lite and llama-server",
+		Long: `Remove csghub-lite and its local inference dependencies:
 
   - csghub-lite binary
   - llama-server binary and shared libraries
-  - Configuration directory (~/.csghub-lite)
-  - All downloaded models
 
+By default, local data under ~/.csghub-lite is preserved, including:
+
+  - Configuration
+  - Downloaded models and datasets
+  - Logs
+
+Use --all to also remove ~/.csghub-lite and everything in it.
 Use --yes to skip confirmation prompts.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runUninstall(yes)
+			return runUninstall(yes, removeAll)
 		},
 	}
 	cmd.Flags().BoolVarP(&yes, "yes", "y", false, "Skip confirmation prompts")
+	cmd.Flags().BoolVar(&removeAll, "all", false, "Also remove local data under ~/.csghub-lite")
 	return cmd
 }
 
-func runUninstall(skipConfirm bool) error {
+func runUninstall(skipConfirm, removeAll bool) error {
 	appHome, err := config.AppHome()
 	if err != nil {
 		return fmt.Errorf("resolving app home: %w", err)
@@ -55,11 +62,19 @@ func runUninstall(skipConfirm bool) error {
 	for _, lib := range llamaLibs {
 		fmt.Printf("  Library:      %s\n", lib)
 	}
-	fmt.Printf("  Data dir:     %s\n", appHome)
+	if removeAll {
+		fmt.Printf("  Data dir:     %s\n", appHome)
+	} else {
+		fmt.Printf("  Data dir:     %s (preserved; use --all to remove)\n", appHome)
+	}
 	fmt.Println()
 
 	if !skipConfirm {
-		fmt.Print("Are you sure you want to uninstall? [y/N] ")
+		if removeAll {
+			fmt.Print("Are you sure you want to uninstall and remove all local data? [y/N] ")
+		} else {
+			fmt.Print("Are you sure you want to uninstall binaries and keep local data? [y/N] ")
+		}
 		scanner := bufio.NewScanner(os.Stdin)
 		if !scanner.Scan() {
 			return nil
@@ -88,11 +103,13 @@ func runUninstall(skipConfirm bool) error {
 		}
 	}
 
-	if info, err := os.Stat(appHome); err == nil && info.IsDir() {
-		if err := os.RemoveAll(appHome); err != nil {
-			errors = append(errors, fmt.Sprintf("remove %s: %v", appHome, err))
-		} else {
-			fmt.Printf("  Removed %s\n", appHome)
+	if removeAll {
+		if info, err := os.Stat(appHome); err == nil && info.IsDir() {
+			if err := os.RemoveAll(appHome); err != nil {
+				errors = append(errors, fmt.Sprintf("remove %s: %v", appHome, err))
+			} else {
+				fmt.Printf("  Removed %s\n", appHome)
+			}
 		}
 	}
 
@@ -125,7 +142,11 @@ func runUninstall(skipConfirm bool) error {
 		return fmt.Errorf("uninstall completed with %d error(s)", len(errors))
 	}
 
-	fmt.Println("csghub-lite has been completely uninstalled.")
+	if removeAll {
+		fmt.Println("csghub-lite has been completely uninstalled, including local data.")
+	} else {
+		fmt.Printf("csghub-lite and llama-server have been uninstalled. Local data was preserved at %s.\n", appHome)
+	}
 	return nil
 }
 
