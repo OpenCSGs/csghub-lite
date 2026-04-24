@@ -13,6 +13,8 @@ import (
 	"github.com/spf13/cobra"
 )
 
+var stopBackgroundServiceForUninstall = stopBackgroundServiceIfRunning
+
 func newUninstallCmd() *cobra.Command {
 	var yes bool
 	var removeAll bool
@@ -84,6 +86,10 @@ func runUninstall(skipConfirm, removeAll bool) error {
 			fmt.Println("Aborted.")
 			return nil
 		}
+	}
+
+	if err := stopBackgroundServiceForUninstall(); err != nil {
+		return fmt.Errorf("stopping csghub-lite service before uninstall: %w", err)
 	}
 
 	var errors []string

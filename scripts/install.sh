@@ -724,6 +724,26 @@ check_python_optional() {
     fi
 }
 
+has_running_named_processes() {
+    _proc_name="$1"
+    if ! command -v pgrep >/dev/null 2>&1; then
+        return 1
+    fi
+    pgrep -x "$_proc_name" >/dev/null 2>&1
+}
+
+force_stop_named_processes() {
+    _proc_name="$1"
+    if ! command -v pkill >/dev/null 2>&1; then
+        return 1
+    fi
+    pkill -x "$_proc_name" 2>/dev/null || true
+    sleep 1
+    pkill -9 -x "$_proc_name" 2>/dev/null || true
+    sleep 1
+    ! has_running_named_processes "$_proc_name"
+}
+
 check_existing() {
     _existing="$(command -v "$BINARY_NAME" 2>/dev/null || true)"
     if [ -z "$_existing" ]; then
@@ -738,7 +758,7 @@ check_existing() {
     printf "  ${BOLD}Version:${NC} %s\n" "$_old_ver"
 
     _has_running=false
-    if pgrep -x "$BINARY_NAME" >/dev/null 2>&1; then
+    if has_running_named_processes "$BINARY_NAME"; then
         _has_running=true
         warn "Running ${BINARY_NAME} process(es) detected."
     fi
@@ -746,9 +766,7 @@ check_existing() {
     if [ "${CSGHUB_LITE_FORCE:-}" = "1" ]; then
         if [ "$_has_running" = true ]; then
             info "Force mode: stopping running processes..."
-            pkill -x "$BINARY_NAME" 2>/dev/null || true
-            sleep 1
-            pkill -9 -x "$BINARY_NAME" 2>/dev/null || true
+            force_stop_named_processes "$BINARY_NAME" || true
         fi
         return 0
     fi
@@ -775,9 +793,7 @@ check_existing() {
         [yY]|[yY][eE][sS])
             if [ "$_has_running" = true ]; then
                 info "Stopping running processes..."
-                pkill -x "$BINARY_NAME" 2>/dev/null || true
-                sleep 1
-                pkill -9 -x "$BINARY_NAME" 2>/dev/null || true
+                force_stop_named_processes "$BINARY_NAME" || true
             fi
             ;;
         *)
@@ -789,11 +805,37 @@ check_existing() {
     printf "\n"
 }
 
+restart_running_csghub_lite_server() {
+    _server_bin="$1"
+    if ! "$_server_bin" ps >/dev/null 2>&1 && ! has_running_named_processes "$BINARY_NAME"; then
+        return 1
+    fi
+
+    info "Existing csghub-lite service detected. Restarting it to load the new version..."
+    if "$_server_bin" stop-service >/dev/null 2>&1; then
+        sleep 1
+        if ! "$_server_bin" ps >/dev/null 2>&1 && ! has_running_named_processes "$BINARY_NAME"; then
+            return 0
+        fi
+    fi
+
+    warn "Graceful stop-service did not complete; forcing running ${BINARY_NAME} processes to exit..."
+    force_stop_named_processes "$BINARY_NAME" || true
+    if "$_server_bin" ps >/dev/null 2>&1 || has_running_named_processes "$BINARY_NAME"; then
+        warn "Could not stop the existing csghub-lite service automatically."
+        warn "Restart it manually to use the new binary: ${_server_bin} stop-service && ${_server_bin} serve"
+        SERVER_START_STATUS="stale"
+        return 1
+    fi
+    return 0
+}
+
 start_csghub_lite_server() {
     _server_bin="$1"
-    if "$_server_bin" ps >/dev/null 2>&1; then
-        info "csghub-lite server is already running."
-        SERVER_START_STATUS="running"
+    _restarted=false
+    if restart_running_csghub_lite_server "$_server_bin"; then
+        _restarted=true
+    elif [ "${SERVER_START_STATUS:-}" = "stale" ]; then
         return 0
     fi
 
@@ -805,10 +847,19 @@ start_csghub_lite_server() {
 
     sleep 1
     if "$_server_bin" ps >/dev/null 2>&1; then
-        info "Started csghub-lite server in background."
-        SERVER_START_STATUS="started"
+        if [ "$_restarted" = true ]; then
+            info "Restarted csghub-lite server in background."
+            SERVER_START_STATUS="restarted"
+        else
+            info "Started csghub-lite server in background."
+            SERVER_START_STATUS="started"
+        fi
     else
-        warn "Could not verify background server startup. Try: ${_server_bin} serve"
+        if [ "$_restarted" = true ]; then
+            warn "Could not verify background server restart. Try: ${_server_bin} serve"
+        else
+            warn "Could not verify background server startup. Try: ${_server_bin} serve"
+        fi
         SERVER_START_STATUS="failed"
     fi
 }
@@ -918,7 +969,7 @@ main() {
     fi
 
     printf "${BOLD}Quick start:${NC}\n"
-    if [ "$SERVER_START_STATUS" = "started" ] || [ "$SERVER_START_STATUS" = "running" ]; then
+    if [ "$SERVER_START_STATUS" = "started" ] || [ "$SERVER_START_STATUS" = "restarted" ] || [ "$SERVER_START_STATUS" = "running" ]; then
         printf "  %s run Qwen/Qwen3-0.6B-GGUF    # Run a model\n" "$QUICKSTART_BIN"
         printf "  %s ps                          # List running models\n" "$QUICKSTART_BIN"
         printf "  %s stop-service                # Stop background server\n" "$QUICKSTART_BIN"
@@ -931,7 +982,9 @@ main() {
     printf "  %s --help                      # Show all commands\n" "$QUICKSTART_BIN"
     printf "\n"
     printf "${BOLD}Web UI:${NC}\n"
-    if [ "$SERVER_START_STATUS" = "started" ] || [ "$SERVER_START_STATUS" = "running" ]; then
+    if [ "$SERVER_START_STATUS" = "stale" ]; then
+        printf "  Existing server could not be restarted automatically. Run ${CYAN}%s stop-service && %s serve${NC}.\n" "$QUICKSTART_BIN" "$QUICKSTART_BIN"
+    elif [ "$SERVER_START_STATUS" = "started" ] || [ "$SERVER_START_STATUS" = "restarted" ] || [ "$SERVER_START_STATUS" = "running" ]; then
         printf "  Server is already running. Open ${CYAN}http://localhost:11435${NC} in your browser.\n"
     else
         printf "  Start the server and open ${CYAN}http://localhost:11435${NC} in your browser.\n"

@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -31,6 +32,46 @@ func TestRunUninstallPreservesDataByDefault(t *testing.T) {
 	}
 	assertFileExists(t, appHome)
 	assertFileExists(t, dataFile)
+}
+
+func TestRunUninstallStopsBackgroundServiceBeforeRemovingFiles(t *testing.T) {
+	_, _, csghubBin, llamaBin, llamaLibs := setupUninstallTestEnv(t)
+
+	restore := stubStopBackgroundServiceForUninstall(func() error {
+		assertFileExists(t, csghubBin)
+		assertFileExists(t, llamaBin)
+		for _, lib := range llamaLibs {
+			assertFileExists(t, lib)
+		}
+		return nil
+	})
+	defer restore()
+
+	if err := runUninstall(true, false); err != nil {
+		t.Fatalf("runUninstall returned error: %v", err)
+	}
+}
+
+func TestRunUninstallDoesNotRemoveFilesWhenStopFails(t *testing.T) {
+	appHome, dataFile, csghubBin, llamaBin, llamaLibs := setupUninstallTestEnv(t)
+
+	restore := stubStopBackgroundServiceForUninstall(func() error {
+		return errors.New("boom")
+	})
+	defer restore()
+
+	err := runUninstall(true, false)
+	if err == nil {
+		t.Fatal("expected runUninstall to fail when stopping background service fails")
+	}
+
+	assertFileExists(t, appHome)
+	assertFileExists(t, dataFile)
+	assertFileExists(t, csghubBin)
+	assertFileExists(t, llamaBin)
+	for _, lib := range llamaLibs {
+		assertFileExists(t, lib)
+	}
 }
 
 func TestRunUninstallAllRemovesData(t *testing.T) {
@@ -119,5 +160,13 @@ func assertFileMissing(t *testing.T, path string) {
 	t.Helper()
 	if _, err := os.Stat(path); !os.IsNotExist(err) {
 		t.Fatalf("expected %s to be removed, got err=%v", path, err)
+	}
+}
+
+func stubStopBackgroundServiceForUninstall(fn func() error) func() {
+	prev := stopBackgroundServiceForUninstall
+	stopBackgroundServiceForUninstall = fn
+	return func() {
+		stopBackgroundServiceForUninstall = prev
 	}
 }
