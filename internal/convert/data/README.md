@@ -4,7 +4,7 @@ This file is embedded into the `csghub-lite` binary (`go:embed`) so SafeTensors 
 
 | Field | Value |
 |-------|--------|
-| Upstream tag | `b8797` (see `BundledConverterLLamacppRef` in `bundled_converter.go`) |
+| Upstream tag | `b8914` (see `BundledConverterLLamacppRef` in `bundled_converter.go`) |
 
 ## Refreshing from llama.cpp
 
@@ -19,7 +19,7 @@ This file is embedded into the `csghub-lite` binary (`go:embed`) so SafeTensors 
 
    ```bash
    source ~/.myshrc
-   ./scripts/sync-llama-converter.sh --tag b8797
+   ./scripts/sync-llama-converter.sh --tag b8914
    ```
 
 2. Review the updated `convert_hf_to_gguf.py`, `bundled_converter.go`, and this README.
@@ -36,7 +36,7 @@ Optional: set **`CSGHUB_LITE_CONVERTER_URL`** at runtime to a raw mirror URL ins
 |---------|------|
 | `torch` | Load tensors / weights |
 | `safetensors` | Read `.safetensors` checkpoints |
-| `gguf` | Write GGUF; if it is too old for the bundled converter, `csghub-lite` fetches matching `gguf-py` from the `llama.cpp` source tag and retries once (`CSGHUB_LITE_REGION=CN` prefers `https://gitee.com/xzgan/llama.cpp`, other regions prefer GitHub) |
+| `gguf` | Write GGUF; if it is too old for the bundled converter, `csghub-lite` prefers matching `gguf-py` from the `llama.cpp` source tag, and only falls back to `python -m pip install -U gguf` if that repository repair fails before retrying once (`CSGHUB_LITE_REGION=CN` prefers `https://gitee.com/xzgan/llama.cpp`, other regions prefer GitHub) |
 | `transformers` | `AutoConfig`, tokenizers, etc.; if it is too old to recognize a new architecture, `csghub-lite` auto-runs `python -m pip install -U transformers` and retries once |
 
 One-time install (same as the CLI error text):

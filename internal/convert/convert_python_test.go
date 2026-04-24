@@ -13,7 +13,10 @@ AttributeError: GEMMA4. Did you mean: 'GEMMA'?
 `
 
 	got := repairPlanForConverterFailure(output)
-	want := converterRepairPlan{installBundledGGUFPy: true}
+	want := converterRepairPlan{
+		installBundledGGUFPy: true,
+		upgradePackages:      []string{"gguf"},
+	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("repairPlanForConverterFailure() = %#v, want %#v", got, want)
 	}
@@ -28,7 +31,10 @@ ModuleNotFoundError: No module named 'gguf'
 `
 
 	got := repairPlanForConverterFailure(output)
-	want := converterRepairPlan{installBundledGGUFPy: true}
+	want := converterRepairPlan{
+		installBundledGGUFPy: true,
+		upgradePackages:      []string{"gguf"},
+	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("repairPlanForConverterFailure() = %#v, want %#v", got, want)
 	}
@@ -58,7 +64,7 @@ AttributeError: GEMMA4. Did you mean: 'GEMMA'?
 	got := repairPlanForConverterFailure(output)
 	want := converterRepairPlan{
 		installBundledGGUFPy: true,
-		upgradePackages:      []string{"transformers"},
+		upgradePackages:      []string{"gguf", "transformers"},
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("repairPlanForConverterFailure() = %#v, want %#v", got, want)

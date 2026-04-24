@@ -407,66 +407,92 @@ func attemptConverterAutoRepair(python, combined string, progress ProgressFunc) 
 	}
 
 	var notes []string
+	var failures []string
+	ggufUpgradeFallback := false
+	var otherPackages []string
+	for _, pkg := range plan.upgradePackages {
+		if pkg == "gguf" {
+			ggufUpgradeFallback = true
+			continue
+		}
+		otherPackages = append(otherPackages, pkg)
+	}
+
 	if plan.installBundledGGUFPy {
 		region := detectLlamaCppSourceRegion()
 		progress("Preparing matching gguf-py from llama.cpp", 0, 0)
 		sourceName, err := ensureBundledGGUFPy(region)
 		if err != nil {
-			return converterRepairResult{
-				attempted: true,
-				note: fmt.Sprintf(
-					"\n\ncsghub-lite detected that this bundled converter needs matching `gguf-py` from llama.cpp tag `%s`.\n"+
-						"It tried these sources in order for region `%s`: %s.\n\n"+
-						"Automatic repair failed: %s",
-					BundledConverterLLamacppRef,
-					region,
-					strings.Join(llamaCppSourceNames(region), ", "),
-					err,
-				),
-			}
+			failures = append(failures, fmt.Sprintf(
+				"csghub-lite detected that this bundled converter needs matching `gguf-py` from llama.cpp tag `%s`.\n"+
+					"It tried these sources in order for region `%s`: %s.\n\n"+
+					"Automatic gguf-py download failed: %s",
+				BundledConverterLLamacppRef,
+				region,
+				strings.Join(llamaCppSourceNames(region), ", "),
+				err,
+			))
+		} else {
+			notes = append(notes, fmt.Sprintf("prepared matching gguf-py from %s", sourceName))
+			// Prefer the matching repository copy over the stale PyPI fallback.
+			ggufUpgradeFallback = false
 		}
-		notes = append(notes, fmt.Sprintf("prepared matching gguf-py from %s", sourceName))
 	}
 
-	if len(plan.upgradePackages) > 0 {
-		progress(fmt.Sprintf("Upgrading Python package%s: %s", pluralSuffix(len(plan.upgradePackages)), strings.Join(plan.upgradePackages, ", ")), 0, 0)
-		pipOutput, pipErr := upgradePythonPackages(python, plan.upgradePackages)
-		command := fmt.Sprintf("%s -m pip install --upgrade %s", python, strings.Join(plan.upgradePackages, " "))
+	if len(otherPackages) > 0 {
+		progress(fmt.Sprintf("Upgrading Python package%s: %s", pluralSuffix(len(otherPackages)), strings.Join(otherPackages, ", ")), 0, 0)
+		pipOutput, pipErr := upgradePythonPackages(python, otherPackages)
+		command := fmt.Sprintf("%s -m pip install --upgrade %s", python, strings.Join(otherPackages, " "))
 
 		if pipErr != nil {
 			pipSummary := lastNLines(pipOutput, 10)
 			if pipSummary == "" {
 				pipSummary = "(no pip output)"
 			}
-			note := fmt.Sprintf(
-				"\n\ncsghub-lite detected a Python package version mismatch and tried to run:\n  %s\n\n"+
-					"Automatic upgrade failed: %s\n%s",
+			failures = append(failures, fmt.Sprintf(
+				"csghub-lite tried to run:\n  %s\n\n"+
+					"Automatic package upgrade failed: %s\n%s",
 				command,
 				pipErr,
 				pipSummary,
-			)
-			if len(notes) > 0 {
-				note = fmt.Sprintf("\n\ncsghub-lite auto-repaired part of the converter environment (%s), but a follow-up package upgrade failed.%s",
-					strings.Join(notes, ", "),
-					note,
-				)
-			}
-			return converterRepairResult{
-				attempted: true,
-				note:      note,
-			}
+			))
+		} else {
+			notes = append(notes, fmt.Sprintf("upgraded %s", strings.Join(otherPackages, ", ")))
 		}
+	}
 
-		notes = append(notes, fmt.Sprintf("upgraded %s", strings.Join(plan.upgradePackages, ", ")))
+	if ggufUpgradeFallback {
+		progress("Upgrading Python package: gguf (fallback)", 0, 0)
+		pipOutput, pipErr := upgradePythonPackages(python, []string{"gguf"})
+		command := fmt.Sprintf("%s -m pip install --upgrade gguf", python)
+		if pipErr != nil {
+			pipSummary := lastNLines(pipOutput, 10)
+			if pipSummary == "" {
+				pipSummary = "(no pip output)"
+			}
+			failures = append(failures, fmt.Sprintf(
+				"csghub-lite fell back to PyPI for `gguf` and tried to run:\n  %s\n\n"+
+					"Automatic package upgrade failed: %s\n%s",
+				command,
+				pipErr,
+				pipSummary,
+			))
+		} else {
+			notes = append(notes, "upgraded gguf from PyPI as fallback")
+		}
+	}
+
+	if len(notes) == 0 {
+		return converterRepairResult{
+			attempted: true,
+			note:      repairFailureNote(failures),
+		}
 	}
 
 	return converterRepairResult{
 		attempted: true,
 		succeeded: true,
-		note: fmt.Sprintf(
-			"\n\ncsghub-lite auto-repaired the converter environment (%s) and retried once.",
-			strings.Join(notes, ", "),
-		),
+		note:      repairSuccessNote(notes, failures),
 	}
 }
 
@@ -500,6 +526,7 @@ func repairPlanForConverterFailure(combined string) converterRepairPlan {
 		strings.Contains(lower, "no module named 'gguf'") ||
 		strings.Contains(lower, "no module named \"gguf\"") {
 		plan.installBundledGGUFPy = true
+		add("gguf")
 	}
 	if strings.Contains(combined, "Transformers does not recognize this architecture") ||
 		strings.Contains(combined, "pip install --upgrade transformers") ||
@@ -509,6 +536,25 @@ func repairPlanForConverterFailure(combined string) converterRepairPlan {
 	}
 
 	return plan
+}
+
+func repairFailureNote(failures []string) string {
+	if len(failures) == 0 {
+		return ""
+	}
+	return "\n\nAutomatic repair failed:\n\n" + strings.Join(failures, "\n\n")
+}
+
+func repairSuccessNote(notes, failures []string) string {
+	note := fmt.Sprintf(
+		"\n\ncsghub-lite auto-repaired the converter environment (%s) and retried once.",
+		strings.Join(notes, ", "),
+	)
+	if len(failures) > 0 {
+		note += "\n\nSome automatic repair steps still failed, so manual cleanup may still be needed:\n\n" +
+			strings.Join(failures, "\n\n")
+	}
+	return note
 }
 
 func detectLlamaCppSourceRegion() string {
