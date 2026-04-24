@@ -2,6 +2,7 @@ package convert
 
 import (
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -88,6 +89,28 @@ func TestLlamaCppSourcesPreferGitHubOutsideCN(t *testing.T) {
 	}
 	if got[0].name != "GitHub upstream" || got[1].name != "Gitee mirror" {
 		t.Fatalf("llamaCppSources(INTL) order = %#v", got)
+	}
+}
+
+func TestGGUFRepoInstallHintIncludesCopyableCommands(t *testing.T) {
+	got := ggufRepoInstallHint(regionCN)
+	if !strings.Contains(got, `git+https://gitee.com/xzgan/llama.cpp.git@`+BundledConverterLLamacppRef+`#subdirectory=gguf-py`) {
+		t.Fatalf("ggufRepoInstallHint(CN) missing Gitee command: %q", got)
+	}
+	if !strings.Contains(got, `git+https://github.com/ggml-org/llama.cpp.git@`+BundledConverterLLamacppRef+`#subdirectory=gguf-py`) {
+		t.Fatalf("ggufRepoInstallHint(CN) missing GitHub fallback: %q", got)
+	}
+}
+
+func TestHintForConverterScriptFailureIncludesGGUFRepoInstallExample(t *testing.T) {
+	output := `
+INFO:hf-to-gguf:Model architecture: Gemma4ForConditionalGeneration
+model_arch = gguf.MODEL_ARCH.GEMMA4
+AttributeError: GEMMA4. Did you mean: 'GEMMA'?
+`
+	got := hintForConverterScriptFailure(output)
+	if !strings.Contains(got, `git+https://gitee.com/xzgan/llama.cpp.git@`+BundledConverterLLamacppRef+`#subdirectory=gguf-py`) {
+		t.Fatalf("hintForConverterScriptFailure() missing Gitee install example: %q", got)
 	}
 }
 

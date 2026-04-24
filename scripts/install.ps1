@@ -7,6 +7,7 @@ $ErrorActionPreference = "Stop"
 $Repo = "OpenCSGs/csghub-lite"
 $BinaryName = "csghub-lite.exe"
 $LlamaCppRepo = "ggml-org/llama.cpp"
+$LlamaCppDefaultTag = if ($env:CSGHUB_LITE_LLAMA_CPP_TAG) { $env:CSGHUB_LITE_LLAMA_CPP_TAG } else { "b8914" }
 
 $GitHubApi = "https://api.github.com/repos"
 $GitLabHost = "https://git-devops.opencsg.com"
@@ -233,16 +234,13 @@ function Install-LlamaServer {
         }
     }
 
-    # Get latest llama.cpp release tag
-    $ghUrl = "$GitHubApi/$LlamaCppRepo/releases/latest"
-    $glUrl = "$GitLabApi/$GitLabLlamaId/releases/permalink/latest"
+    $llamaTag = $LlamaCppDefaultTag
+    $ghUrl = "$GitHubApi/$LlamaCppRepo/releases/tags/$llamaTag"
+    $glUrl = "$GitLabApi/$GitLabLlamaId/releases/$llamaTag"
     $release = Region-DownloadText -GitHubUrl $ghUrl -GitLabUrl $glUrl
-    if (-not $release -or -not $release.tag_name) {
-        Warn "Failed to query llama.cpp release metadata."
-        return
+    if (-not $release) {
+        Warn "Failed to query llama.cpp release metadata for $llamaTag. Continuing with the pinned tag."
     }
-
-    $llamaTag = $release.tag_name
 
     # Compare local and remote versions to skip unnecessary downloads.
     # llama-server --version prints "version: <n> (<hash>)". Release tags: "b<n>".
@@ -293,7 +291,7 @@ function Install-LlamaServer {
         }
     }
 
-    Info "llama.cpp release: $llamaTag"
+    Info "llama.cpp release: $llamaTag (aligned with bundled converter)"
 
     $arch = $env:PROCESSOR_ARCHITECTURE
     $archToken = if ($arch -eq "AMD64") { "x64" } elseif ($arch -eq "ARM64") { "arm64" } else { $null }
@@ -356,7 +354,7 @@ function Install-LlamaServer {
         Warn "Asset $tryAsset not available, trying next option..."
     }
     if (-not $downloaded) {
-        Warn "Failed to download llama.cpp."
+        Warn "Failed to download llama.cpp $llamaTag."
         return
     }
     Info "Downloaded $assetName"

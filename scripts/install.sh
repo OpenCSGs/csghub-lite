@@ -9,6 +9,7 @@ INSTALL_DIR_DEFAULT="/usr/local/bin"
 BINARY_NAME="${BINARY_NAME:-csghub-lite}"
 EE="${EE:-}"
 LLAMA_CPP_REPO="ggml-org/llama.cpp"
+LLAMA_CPP_DEFAULT_TAG="${CSGHUB_LITE_LLAMA_CPP_TAG:-b8914}"
 INSTALL_PATH_PROFILE=""
 INSTALL_PATH_DIR=""
 
@@ -489,19 +490,12 @@ install_llama_server() {
     OS="$(detect_os)"
     ARCH="$(detect_arch)"
 
-    _gh_url="${GITHUB_API}/${LLAMA_CPP_REPO}/releases/latest"
-    _gl_url="${GITLAB_API}/${GITLAB_LLAMA_ID}/releases/permalink/latest"
+    _llama_tag="${LLAMA_CPP_DEFAULT_TAG}"
+    _gh_url="${GITHUB_API}/${LLAMA_CPP_REPO}/releases/tags/${_llama_tag}"
+    _gl_url="${GITLAB_API}/${GITLAB_LLAMA_ID}/releases/${_llama_tag}"
     _llama_json="$(region_download_text "$_gh_url" "$_gl_url" 2>/dev/null || true)"
     if [ -z "$_llama_json" ]; then
-        warn "Failed to query llama.cpp release metadata."
-        warn "Install manually from: https://github.com/${LLAMA_CPP_REPO}/releases"
-        return
-    fi
-
-    _llama_tag="$(printf "%s\n" "$_llama_json" | grep '"tag_name"' | sed -E 's/.*"tag_name": *"([^"]+)".*/\1/')"
-    if [ -z "$_llama_tag" ]; then
-        warn "Failed to parse llama.cpp release tag."
-        return
+        warn "Failed to query llama.cpp release metadata for ${_llama_tag}; continuing with the pinned tag."
     fi
 
     # Compare local and remote versions to skip unnecessary downloads.
@@ -548,7 +542,7 @@ install_llama_server() {
         fi
     fi
 
-    info "Downloading llama.cpp for ${OS}/${ARCH}..."
+    info "Downloading llama.cpp ${_llama_tag} for ${OS}/${ARCH}..."
 
     # Build ordered list of candidate asset names (best match first)
     _candidates=""
@@ -587,8 +581,8 @@ install_llama_server() {
             fi ;;
     esac
     if [ -z "$_candidates" ]; then
-        warn "No compatible llama.cpp asset for ${OS}/${ARCH}."
-        warn "Install manually from: https://github.com/${LLAMA_CPP_REPO}/releases"
+        warn "No compatible llama.cpp asset for ${OS}/${ARCH} at ${_llama_tag}."
+        warn "Install manually from: https://github.com/${LLAMA_CPP_REPO}/releases/tag/${_llama_tag}"
         return
     fi
 
@@ -607,8 +601,8 @@ install_llama_server() {
         warn "Asset ${_candidate} not available, trying next option..."
     done
     if [ "$_downloaded" = false ]; then
-        warn "Failed to download llama.cpp."
-        warn "Install manually from: https://github.com/${LLAMA_CPP_REPO}/releases"
+        warn "Failed to download llama.cpp ${_llama_tag}."
+        warn "Install manually from: https://github.com/${LLAMA_CPP_REPO}/releases/tag/${_llama_tag}"
         rm -rf "$_tmpdir"
         return
     fi

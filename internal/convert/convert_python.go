@@ -42,6 +42,7 @@ type converterRepairPlan struct {
 
 type llamaCppSource struct {
 	name       string
+	repoURL    string
 	archiveURL string
 }
 
@@ -74,6 +75,40 @@ func pythonDepsInstallHint() string {
 		pythonCPUOnlyTorchInstallArgs,
 		pythonDepsInstallArgs,
 	)
+}
+
+func preferredPipInstallCommand() string {
+	if runtime.GOOS == "windows" {
+		return "py -m pip install --upgrade"
+	}
+	return "python3 -m pip install --upgrade"
+}
+
+func ggufRepoInstallCommand(repoURL string) string {
+	return fmt.Sprintf(
+		`%s "gguf @ git+%s.git@%s#subdirectory=gguf-py"`,
+		preferredPipInstallCommand(),
+		repoURL,
+		BundledConverterLLamacppRef,
+	)
+}
+
+func ggufRepoInstallHint(region string) string {
+	sources := llamaCppSources(region)
+	if len(sources) == 0 {
+		return ""
+	}
+	lines := []string{
+		"Install the matching `gguf-py` directly from the llama.cpp repo:",
+		"  " + ggufRepoInstallCommand(sources[0].repoURL),
+	}
+	if len(sources) > 1 {
+		lines = append(lines,
+			"  If that mirror is unavailable, try:",
+			"    "+ggufRepoInstallCommand(sources[1].repoURL),
+		)
+	}
+	return strings.Join(lines, "\n")
 }
 
 func converterCacheDir() string {
@@ -426,11 +461,13 @@ func attemptConverterAutoRepair(python, combined string, progress ProgressFunc) 
 			failures = append(failures, fmt.Sprintf(
 				"csghub-lite detected that this bundled converter needs matching `gguf-py` from llama.cpp tag `%s`.\n"+
 					"It tried these sources in order for region `%s`: %s.\n\n"+
-					"Automatic gguf-py download failed: %s",
+					"Automatic gguf-py download failed: %s\n\n"+
+					"%s",
 				BundledConverterLLamacppRef,
 				region,
 				strings.Join(llamaCppSourceNames(region), ", "),
 				err,
+				ggufRepoInstallHint(region),
 			))
 		} else {
 			notes = append(notes, fmt.Sprintf("prepared matching gguf-py from %s", sourceName))
@@ -589,10 +626,12 @@ func detectLlamaCppSourceRegion() string {
 func llamaCppSources(region string) []llamaCppSource {
 	gitee := llamaCppSource{
 		name:       "Gitee mirror",
+		repoURL:    llamaCppGiteeRepo,
 		archiveURL: fmt.Sprintf("%s/archive/refs/tags/%s.tar.gz", llamaCppGiteeRepo, BundledConverterLLamacppRef),
 	}
 	github := llamaCppSource{
 		name:       "GitHub upstream",
+		repoURL:    llamaCppGitHubRepo,
 		archiveURL: fmt.Sprintf("%s/archive/refs/tags/%s.tar.gz", llamaCppGitHubRepo, BundledConverterLLamacppRef),
 	}
 	if strings.EqualFold(region, regionCN) {
@@ -821,11 +860,13 @@ func hintForConverterScriptFailure(combined string) string {
 		return fmt.Sprintf(
 			"\n\nLikely the `gguf` Python package is older than this converter script expects.\n"+
 				"csghub-lite now prefers matching `gguf-py` from llama.cpp tag `%s` (CN: %s, INTL: %s).\n"+
+				"%s\n"+
 				"If the automatic repair did not fix it, point CSGHUB_LITE_REGION to `CN` or `INTL` and retry.\n"+
 				"To reset the bundled copy, delete the bundled converter cache under %s\n",
 			BundledConverterLLamacppRef,
 			llamaCppGiteeRepo,
 			llamaCppGitHubRepo,
+			ggufRepoInstallHint(regionCN),
 			bundledConverterDir(),
 		)
 	}
