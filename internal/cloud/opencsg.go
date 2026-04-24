@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -27,7 +28,13 @@ type Service struct {
 
 	mu       sync.RWMutex
 	cached   []api.ModelInfo
+	limits   map[string]ModelTokenLimits
 	cachedAt time.Time
+}
+
+type ModelTokenLimits struct {
+	MaxInputTokens int
+	MaxTokens      int
 }
 
 type modelListResponse struct {
@@ -36,14 +43,19 @@ type modelListResponse struct {
 }
 
 type remoteModel struct {
-	ID          string                 `json:"id"`
-	Object      string                 `json:"object"`
-	Created     int64                  `json:"created"`
-	OwnedBy     string                 `json:"owned_by"`
-	Task        string                 `json:"task"`
-	DisplayName string                 `json:"display_name"`
-	Public      bool                   `json:"public"`
-	Metadata    map[string]interface{} `json:"metadata"`
+	ID              string                 `json:"id"`
+	Object          string                 `json:"object"`
+	Created         int64                  `json:"created"`
+	OwnedBy         string                 `json:"owned_by"`
+	Task            string                 `json:"task"`
+	DisplayName     string                 `json:"display_name"`
+	Public          bool                   `json:"public"`
+	MaxInputTokens  int                    `json:"max_input_tokens"`
+	MaxTokens       int                    `json:"max_tokens"`
+	MaxOutputTokens int                    `json:"max_output_tokens"`
+	ContextWindow   int                    `json:"context_window"`
+	ContextLength   int                    `json:"context_length"`
+	Metadata        map[string]interface{} `json:"metadata"`
 }
 
 func NewService(baseURL string) *Service {
@@ -84,8 +96,22 @@ func (s *Service) InvalidateChatModels() {
 	}
 	s.mu.Lock()
 	s.cached = nil
+	s.limits = nil
 	s.cachedAt = time.Time{}
 	s.mu.Unlock()
+}
+
+func (s *Service) ChatModelTokenLimits(modelID string) (ModelTokenLimits, bool) {
+	if s == nil {
+		return ModelTokenLimits{}, false
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	limits, ok := s.limits[strings.TrimSpace(modelID)]
+	if !ok {
+		return ModelTokenLimits{}, false
+	}
+	return limits, limits.MaxInputTokens > 0 || limits.MaxTokens > 0
 }
 
 func (s *Service) cachedModels() ([]api.ModelInfo, bool) {
@@ -121,16 +147,19 @@ func (s *Service) refresh(ctx context.Context) ([]api.ModelInfo, error) {
 	}
 
 	models := make([]api.ModelInfo, 0, len(payload.Data))
+	limits := make(map[string]ModelTokenLimits, len(payload.Data))
 	for _, item := range payload.Data {
 		info, ok := modelInfoFromRemote(item)
 		if !ok {
 			continue
 		}
 		models = append(models, info)
+		limits[strings.TrimSpace(info.Model)] = modelTokenLimitsFromRemote(item)
 	}
 
 	s.mu.Lock()
 	s.cached = cloneModels(models)
+	s.limits = limits
 	s.cachedAt = time.Now()
 	s.mu.Unlock()
 
@@ -179,6 +208,118 @@ func supportsChat(item remoteModel) bool {
 	default:
 		return false
 	}
+}
+
+func modelTokenLimitsFromRemote(item remoteModel) ModelTokenLimits {
+	input := firstPositive(
+		item.MaxInputTokens,
+		item.ContextWindow,
+		item.ContextLength,
+		extractTokenLimit(item.Metadata,
+			"max_input_tokens",
+			"max_input_token",
+			"context_window",
+			"context_length",
+			"max_context_tokens",
+			"max_context_length",
+			"input_token_limit",
+			"input_tokens_limit",
+			"num_ctx",
+			"n_ctx",
+		),
+	)
+	output := firstPositive(
+		item.MaxOutputTokens,
+		item.MaxTokens,
+		extractTokenLimit(item.Metadata,
+			"max_output_tokens",
+			"max_output_token",
+			"max_completion_tokens",
+			"max_completion_token",
+			"output_token_limit",
+			"completion_token_limit",
+			"max_tokens",
+		),
+	)
+	return ModelTokenLimits{
+		MaxInputTokens: input,
+		MaxTokens:      output,
+	}
+}
+
+func extractTokenLimit(metadata map[string]interface{}, keys ...string) int {
+	if len(metadata) == 0 {
+		return 0
+	}
+	wanted := make(map[string]struct{}, len(keys))
+	for _, key := range keys {
+		wanted[normalizeMetadataKey(key)] = struct{}{}
+	}
+	return extractTokenLimitValue(metadata, wanted)
+}
+
+func extractTokenLimitValue(value interface{}, wanted map[string]struct{}) int {
+	switch v := value.(type) {
+	case map[string]interface{}:
+		for key, child := range v {
+			if _, ok := wanted[normalizeMetadataKey(key)]; ok {
+				if limit := numericTokenLimit(child); limit > 0 {
+					return limit
+				}
+			}
+		}
+		for _, child := range v {
+			if limit := extractTokenLimitValue(child, wanted); limit > 0 {
+				return limit
+			}
+		}
+	case []interface{}:
+		for _, child := range v {
+			if limit := extractTokenLimitValue(child, wanted); limit > 0 {
+				return limit
+			}
+		}
+	}
+	return 0
+}
+
+func numericTokenLimit(value interface{}) int {
+	switch v := value.(type) {
+	case float64:
+		return int(v)
+	case float32:
+		return int(v)
+	case int:
+		return v
+	case int64:
+		return int(v)
+	case int32:
+		return int(v)
+	case json.Number:
+		if n, err := v.Int64(); err == nil {
+			return int(n)
+		}
+	case string:
+		if n, err := strconv.Atoi(strings.TrimSpace(v)); err == nil {
+			return n
+		}
+	}
+	return 0
+}
+
+func normalizeMetadataKey(key string) string {
+	key = strings.TrimSpace(strings.ToLower(key))
+	replacer := strings.NewReplacer("_", "", "-", "", " ", "")
+	return replacer.Replace(key)
+}
+
+func firstPositive(values ...int) int {
+	for _, value := range values {
+		if value > 0 {
+			return value
+		}
+	}
+	return 0
 }
 
 func cloneModels(models []api.ModelInfo) []api.ModelInfo {

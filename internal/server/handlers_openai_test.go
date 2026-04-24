@@ -355,6 +355,13 @@ func TestHandleModelsAnthropicFormatIncludesCloudModels(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("save model manifest: %v", err)
 	}
+	modelDir := filepath.Join(cfg.ModelDir, "Qwen", "Qwen3.5-2B")
+	if err := os.MkdirAll(modelDir, 0o755); err != nil {
+		t.Fatalf("mkdir model dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(modelDir, "config.json"), []byte(`{"max_position_embeddings":65536}`), 0o644); err != nil {
+		t.Fatalf("write config.json: %v", err)
+	}
 
 	apiServer := newCloudOpenAIAPIServer(t, "test-token")
 	defer apiServer.Close()
@@ -390,8 +397,124 @@ func TestHandleModelsAnthropicFormatIncludesCloudModels(t *testing.T) {
 	if resp.Data[1].Type != "model" {
 		t.Fatalf("cloud model type = %q, want model", resp.Data[1].Type)
 	}
+	if resp.Data[0].MaxInputTokens != defaultAnthropicMaxInputTokens {
+		t.Fatalf("local max_input_tokens = %d, want %d", resp.Data[0].MaxInputTokens, defaultAnthropicMaxInputTokens)
+	}
 	if resp.FirstID != "Qwen/Qwen3.5-2B" || resp.LastID != "cloud/model" {
 		t.Fatalf("unexpected pagination metadata: %#v", resp)
+	}
+}
+
+func TestHandleModelsAnthropicFormatUsesCloudTokenLimits(t *testing.T) {
+	apiServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/v1/models":
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"object": "list",
+				"data": []map[string]any{
+					{
+						"id":           "provider/model",
+						"task":         "text-generation",
+						"display_name": "Provider Model",
+						"metadata": map[string]any{
+							"contextWindow":   262144,
+							"maxOutputTokens": 12288,
+						},
+					},
+				},
+			})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer apiServer.Close()
+
+	cfg := &config.Config{ModelDir: t.TempDir()}
+	s := New(cfg, "test")
+	s.cloud = cloud.NewService(apiServer.URL)
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/models", nil)
+	req.Header.Set("Anthropic-Version", "2023-06-01")
+	w := httptest.NewRecorder()
+
+	s.handleModels(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("unexpected status code: %d body=%s", w.Code, w.Body.String())
+	}
+
+	var resp api.AnthropicModelListResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if len(resp.Data) != 1 {
+		t.Fatalf("expected one model, got %#v", resp.Data)
+	}
+	if resp.Data[0].ID != "provider/model" {
+		t.Fatalf("model id = %q, want provider/model", resp.Data[0].ID)
+	}
+	if resp.Data[0].MaxInputTokens != 262144 {
+		t.Fatalf("max_input_tokens = %d, want 262144", resp.Data[0].MaxInputTokens)
+	}
+	if resp.Data[0].MaxTokens != 12288 {
+		t.Fatalf("max_tokens = %d, want 12288", resp.Data[0].MaxTokens)
+	}
+}
+
+func TestHandleModelsAnthropicFormatUsesLoadedContextWhenLarger(t *testing.T) {
+	cfg := &config.Config{ModelDir: t.TempDir()}
+	if err := model.SaveManifest(cfg.ModelDir, &model.LocalModel{
+		Namespace:    "MiniMaxAI",
+		Name:         "MiniMax-M2.5",
+		Format:       model.FormatGGUF,
+		Size:         4_000_000_000,
+		Files:        []string{"model.gguf", "config.json"},
+		DownloadedAt: time.Unix(123, 0),
+	}); err != nil {
+		t.Fatalf("save model manifest: %v", err)
+	}
+	modelDir := filepath.Join(cfg.ModelDir, "MiniMaxAI", "MiniMax-M2.5")
+	if err := os.MkdirAll(modelDir, 0o755); err != nil {
+		t.Fatalf("mkdir model dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(modelDir, "config.json"), []byte(`{"max_position_embeddings":196608}`), 0o644); err != nil {
+		t.Fatalf("write config.json: %v", err)
+	}
+
+	s := New(cfg, "test")
+	s.engines["MiniMaxAI/MiniMax-M2.5"] = &managedEngine{
+		engine:      &fakeChatCompletionEngine{},
+		numCtx:      160000,
+		numParallel: 4,
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/models", nil)
+	req.Header.Set("Anthropic-Version", "2023-06-01")
+	w := httptest.NewRecorder()
+
+	s.handleModels(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("unexpected status code: %d body=%s", w.Code, w.Body.String())
+	}
+
+	var resp api.AnthropicModelListResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	var target *api.AnthropicModelInfo
+	for i := range resp.Data {
+		if resp.Data[i].ID == "MiniMaxAI/MiniMax-M2.5" {
+			target = &resp.Data[i]
+			break
+		}
+	}
+	if target == nil {
+		t.Fatalf("MiniMax model not found in %#v", resp.Data)
+	}
+	if target.MaxInputTokens != 160000 {
+		t.Fatalf("local max_input_tokens = %d, want 160000", target.MaxInputTokens)
 	}
 }
 

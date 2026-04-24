@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -15,6 +16,11 @@ import (
 	"github.com/opencsgs/csghub-lite/internal/model"
 	"github.com/opencsgs/csghub-lite/pkg/api"
 )
+
+func TestMain(m *testing.M) {
+	_ = os.Setenv(config.DisableFileLoggingEnv, "1")
+	os.Exit(m.Run())
+}
 
 func newTestServer(t *testing.T) *Server {
 	t.Helper()

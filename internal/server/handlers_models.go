@@ -50,7 +50,7 @@ func (s *Server) handleAnthropicModels(w http.ResponseWriter, r *http.Request) {
 
 	data := make([]api.AnthropicModelInfo, 0, len(models))
 	for _, item := range models {
-		data = append(data, anthropicModelFromInfo(item))
+		data = append(data, s.anthropicModelFromInfo(item))
 	}
 
 	resp := api.AnthropicModelListResponse{
@@ -64,7 +64,7 @@ func (s *Server) handleAnthropicModels(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, resp)
 }
 
-func anthropicModelFromInfo(item api.ModelInfo) api.AnthropicModelInfo {
+func (s *Server) anthropicModelFromInfo(item api.ModelInfo) api.AnthropicModelInfo {
 	createdAt := time.Unix(0, 0).UTC().Format(time.RFC3339)
 	if !item.ModifiedAt.IsZero() {
 		createdAt = item.ModifiedAt.UTC().Format(time.RFC3339)
@@ -77,14 +77,15 @@ func anthropicModelFromInfo(item api.ModelInfo) api.AnthropicModelInfo {
 
 	supportsVision := item.HasMMProj || strings.EqualFold(strings.TrimSpace(item.PipelineTag), "image-text-to-text")
 	supportsThinking := strings.Contains(strings.ToLower(item.Model), "thinking")
+	maxInputTokens, maxTokens := s.anthropicTokenLimitsForInfo(item)
 
 	return api.AnthropicModelInfo{
 		ID:             strings.TrimSpace(item.Model),
 		Type:           "model",
 		DisplayName:    displayName,
 		CreatedAt:      createdAt,
-		MaxInputTokens: defaultAnthropicMaxInputTokens,
-		MaxTokens:      defaultAnthropicMaxTokens,
+		MaxInputTokens: maxInputTokens,
+		MaxTokens:      maxTokens,
 		Capabilities: api.AnthropicModelCapabilities{
 			Batch:             api.AnthropicCapabilitySupport{Supported: false},
 			Citations:         api.AnthropicCapabilitySupport{Supported: false},

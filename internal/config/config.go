@@ -121,8 +121,9 @@ func Load() (*Config, error) {
 	var loadErr error
 	configOnce.Do(func() {
 		globalConfig = &Config{
-			ServerURL:  DefaultServerURL,
-			ListenAddr: DefaultListenAddr,
+			ServerURL:            DefaultServerURL,
+			ListenAddr:           DefaultListenAddr,
+			AIAppPreferredModels: map[string]string{},
 		}
 
 		modelDir, err := DefaultModelDir()

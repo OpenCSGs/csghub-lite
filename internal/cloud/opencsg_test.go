@@ -67,6 +67,40 @@ func TestModelInfoFromRemote_AllowsBlankTaskAsTextGeneration(t *testing.T) {
 	}
 }
 
+func TestModelTokenLimitsFromRemoteMetadata(t *testing.T) {
+	limits := modelTokenLimitsFromRemote(remoteModel{
+		ID: "provider/model",
+		Metadata: map[string]interface{}{
+			"limits": map[string]interface{}{
+				"contextWindow":   200000,
+				"maxOutputTokens": "16384",
+			},
+		},
+	})
+
+	if limits.MaxInputTokens != 200000 {
+		t.Fatalf("MaxInputTokens = %d, want 200000", limits.MaxInputTokens)
+	}
+	if limits.MaxTokens != 16384 {
+		t.Fatalf("MaxTokens = %d, want 16384", limits.MaxTokens)
+	}
+}
+
+func TestModelTokenLimitsFromRemoteTopLevelFields(t *testing.T) {
+	limits := modelTokenLimitsFromRemote(remoteModel{
+		ID:              "provider/model",
+		MaxInputTokens:  131072,
+		MaxOutputTokens: 8192,
+	})
+
+	if limits.MaxInputTokens != 131072 {
+		t.Fatalf("MaxInputTokens = %d, want 131072", limits.MaxInputTokens)
+	}
+	if limits.MaxTokens != 8192 {
+		t.Fatalf("MaxTokens = %d, want 8192", limits.MaxTokens)
+	}
+}
+
 func TestRefreshChatModelsBypassesCache(t *testing.T) {
 	requests := 0
 	apiServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -109,5 +143,46 @@ func TestRefreshChatModelsBypassesCache(t *testing.T) {
 	}
 	if len(cached) != 1 || cached[0].Model != "fresh/model" {
 		t.Fatalf("cached models = %#v, want fresh/model", cached)
+	}
+}
+
+func TestRefreshChatModelsCachesTokenLimits(t *testing.T) {
+	apiServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"object": "list",
+			"data": []map[string]any{
+				{
+					"id":           "fresh/model",
+					"task":         "text-generation",
+					"display_name": "Fresh Model",
+					"metadata": map[string]any{
+						"context_window":    262144,
+						"max_output_tokens": 12288,
+					},
+				},
+			},
+		})
+	}))
+	defer apiServer.Close()
+
+	svc := NewService(apiServer.URL)
+	models, err := svc.RefreshChatModels(context.Background())
+	if err != nil {
+		t.Fatalf("RefreshChatModels returned error: %v", err)
+	}
+	if len(models) != 1 || models[0].Model != "fresh/model" {
+		t.Fatalf("models = %#v, want fresh/model", models)
+	}
+
+	limits, ok := svc.ChatModelTokenLimits("fresh/model")
+	if !ok {
+		t.Fatal("expected cached token limits for fresh/model")
+	}
+	if limits.MaxInputTokens != 262144 {
+		t.Fatalf("MaxInputTokens = %d, want 262144", limits.MaxInputTokens)
+	}
+	if limits.MaxTokens != 12288 {
+		t.Fatalf("MaxTokens = %d, want 12288", limits.MaxTokens)
 	}
 }

@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/opencsgs/csghub-lite/internal/config"
+	"github.com/opencsgs/csghub-lite/internal/logutil"
 	"github.com/opencsgs/csghub-lite/pkg/api"
 )
 
@@ -68,9 +69,20 @@ func startBackgroundServer(cfg *config.Config) error {
 	}
 
 	cmd := exec.Command(self, args...)
-	cmd.Stdout = nil
-	cmd.Stderr = nil
 	cmd.Stdin = nil
+
+	if config.FileLoggingEnabled() {
+		if path, err := config.ServerLogPath(); err != nil {
+			fmt.Fprintf(os.Stderr, "warning: could not resolve csghub-lite log path: %v\n", err)
+		} else if file, err := logutil.OpenAppendFile(path); err != nil {
+			fmt.Fprintf(os.Stderr, "warning: could not open csghub-lite log file %s: %v\n", path, err)
+		} else {
+			cmd.Stdout = file
+			cmd.Stderr = file
+			cmd.Env = append(os.Environ(), config.LogStderrEnv+"=0")
+			defer file.Close()
+		}
+	}
 
 	detachProcess(cmd)
 

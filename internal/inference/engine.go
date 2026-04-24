@@ -42,7 +42,8 @@ type ConvertProgressFunc func(step string, current, total int)
 
 // LoadEngine loads a model and returns an Engine for inference.
 // If the model is SafeTensors, it auto-converts to GGUF first.
-// The llama-server output is suppressed by default.
+// By default, llama-server output is not mirrored to stderr, but it is still
+// captured for diagnostics and appended to the llama-server log file.
 func LoadEngine(modelDir string, lm *model.LocalModel) (Engine, error) {
 	return LoadEngineWithProgress(modelDir, lm, nil, false, 0, 0, "", "", "")
 }

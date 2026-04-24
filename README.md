@@ -130,6 +130,13 @@ For full endpoint details and examples, see the [REST API Reference](docs/api/ov
 If the local server is running, you can also open the interactive API docs in your browser:
 [http://localhost:11435/api-docs.html](http://localhost:11435/api-docs.html)
 
+## Logs
+
+By default, csghub-lite writes logs under `~/.csghub-lite/logs/`:
+
+- `csghub-lite.log` — API server logs
+- `llama-server.log` — llama-server subprocess logs
+
 ## Configuration
 
 Configuration is stored at `~/.csghub-lite/config.json`.

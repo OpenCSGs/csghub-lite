@@ -20,7 +20,9 @@ import (
 	"sync"
 	"time"
 
+	"github.com/opencsgs/csghub-lite/internal/config"
 	"github.com/opencsgs/csghub-lite/internal/hardware"
+	"github.com/opencsgs/csghub-lite/internal/logutil"
 )
 
 const (
@@ -89,6 +91,7 @@ type llamaEngine struct {
 	modelName     string
 	client        *http.Client
 	logBuf        *cappedWriter
+	logFile       *os.File
 	hasMultimodal bool
 }
 
@@ -177,7 +180,7 @@ func ResolveNumCtx(modelDir string, requested int) int {
 		}
 	}
 
-	if maxPos := modelMaxPositionEmbeddings(modelDir); maxPos >= autoExpandedLlamaCtxSize {
+	if maxPos := ModelMaxPositionEmbeddings(modelDir); maxPos >= autoExpandedLlamaCtxSize {
 		return min(maxPos, autoExpandedLlamaCtxSize)
 	}
 
@@ -215,7 +218,7 @@ func NormalizeCacheType(value string) (string, error) {
 	return "", fmt.Errorf("unsupported cache type %q (allowed: %s)", value, strings.Join(allowedLlamaCacheTypes, ", "))
 }
 
-func modelMaxPositionEmbeddings(modelDir string) int {
+func ModelMaxPositionEmbeddings(modelDir string) int {
 	data, err := os.ReadFile(filepath.Join(modelDir, "config.json"))
 	if err != nil {
 		return 0
@@ -285,14 +288,36 @@ func newLlamaEngine(modelPath, modelName string, verbose bool, progress ConvertP
 	}
 
 	engine.cmd = exec.Command(binary, args...)
+	if config.FileLoggingEnabled() {
+		if path, err := config.LlamaServerLogPath(); err != nil {
+			log.Printf("warning: could not resolve llama-server log path: %v", err)
+		} else if file, err := logutil.OpenAppendFile(path); err != nil {
+			log.Printf("warning: could not open llama-server log file %s: %v", path, err)
+		} else {
+			engine.logFile = file
+		}
+	}
+
 	if verbose {
-		engine.cmd.Stdout = os.Stderr
-		engine.cmd.Stderr = os.Stderr
+		stdout := io.Writer(os.Stderr)
+		stderr := io.Writer(os.Stderr)
+		if engine.logFile != nil {
+			stdout = io.MultiWriter(stdout, engine.logFile)
+			stderr = io.MultiWriter(stderr, engine.logFile)
+		}
+		engine.cmd.Stdout = stdout
+		engine.cmd.Stderr = stderr
 	} else {
 		// Large models print long tensor/KV lists; keep more tail for error diagnosis.
 		w := newCappedWriter(64 * 1024)
-		engine.cmd.Stdout = w
-		engine.cmd.Stderr = w
+		stdout := io.Writer(w)
+		stderr := io.Writer(w)
+		if engine.logFile != nil {
+			stdout = io.MultiWriter(stdout, engine.logFile)
+			stderr = io.MultiWriter(stderr, engine.logFile)
+		}
+		engine.cmd.Stdout = stdout
+		engine.cmd.Stderr = stderr
 		engine.logBuf = w
 	}
 
@@ -310,6 +335,10 @@ func newLlamaEngine(modelPath, modelName string, verbose bool, progress ConvertP
 	engine.cmd.Env = env
 
 	if err := engine.cmd.Start(); err != nil {
+		if engine.logFile != nil {
+			_ = engine.logFile.Close()
+			engine.logFile = nil
+		}
 		return nil, fmt.Errorf("starting llama-server: %w", err)
 	}
 
@@ -751,6 +780,10 @@ func (e *llamaEngine) Close() error {
 		case <-time.After(5 * time.Second):
 			// Process stuck in uninterruptible state; abandon it.
 		}
+	}
+	if e.logFile != nil {
+		_ = e.logFile.Close()
+		e.logFile = nil
 	}
 	return nil
 }

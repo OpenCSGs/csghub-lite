@@ -39,8 +39,36 @@ func newAnthropicProxyTestServer(t *testing.T, engine inference.Engine) *Server 
 	}
 
 	s := New(cfg, "test")
-	s.engines["test/model"] = &managedEngine{engine: engine, numCtx: 16384, numParallel: 4}
+	s.engines["test/model"] = &managedEngine{engine: engine, numCtx: defaultAnthropicMaxInputTokens, numParallel: 4}
 	return s
+}
+
+func TestAnthropicPreferredNumCtxPromotesLocalModelDefault(t *testing.T) {
+	s := newAnthropicProxyTestServer(t, &fakeChatCompletionEngine{})
+	s.engines["test/model"].numCtx = 16384
+
+	if got := s.anthropicPreferredNumCtx("test/model"); got != defaultAnthropicMaxInputTokens {
+		t.Fatalf("anthropicPreferredNumCtx = %d, want %d", got, defaultAnthropicMaxInputTokens)
+	}
+}
+
+func TestAnthropicPreferredNumCtxPrefersLargerLoadedEngine(t *testing.T) {
+	s := newAnthropicProxyTestServer(t, &fakeChatCompletionEngine{})
+	s.engines["test/model"].numCtx = 160000
+
+	if got := s.anthropicPreferredNumCtx("test/model"); got != 160000 {
+		t.Fatalf("anthropicPreferredNumCtx = %d, want 160000", got)
+	}
+}
+
+func TestAnthropicPreferredNumCtxRespectsExplicitEnvOverride(t *testing.T) {
+	t.Setenv("CSGHUB_LITE_LLAMA_NUM_CTX", "24576")
+	s := newAnthropicProxyTestServer(t, &fakeChatCompletionEngine{})
+	s.engines["test/model"].numCtx = 16384
+
+	if got := s.anthropicPreferredNumCtx("test/model"); got != 24576 {
+		t.Fatalf("anthropicPreferredNumCtx = %d, want 24576", got)
+	}
 }
 
 func TestAnthropicMessagesToOpenAI_ToolLoop(t *testing.T) {

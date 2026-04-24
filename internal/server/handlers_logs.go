@@ -5,9 +5,15 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"os"
 	"sync"
 	"time"
+
+	"github.com/opencsgs/csghub-lite/internal/config"
+	"github.com/opencsgs/csghub-lite/internal/logutil"
 )
+
+var baseLogWriter = log.Writer()
 
 // LogBuffer is a thread-safe ring buffer for log lines, supporting SSE subscribers.
 type LogBuffer struct {
@@ -15,8 +21,8 @@ type LogBuffer struct {
 	lines   []string
 	maxSize int
 
-	subMu   sync.Mutex
-	subs    map[chan string]struct{}
+	subMu sync.Mutex
+	subs  map[chan string]struct{}
 }
 
 func NewLogBuffer(maxSize int) *LogBuffer {
@@ -121,10 +127,29 @@ func trimNewline(s string) string {
 	return s
 }
 
-// SetupLogging redirects log output to both stderr and the log buffer.
+// SetupLogging redirects log output to the in-memory buffer and, by default,
+// mirrors it to stderr and ~/.csghub-lite/logs/csghub-lite.log.
 func SetupLogging(buf *LogBuffer) {
-	w := io.MultiWriter(log.Writer(), buf)
-	log.SetOutput(w)
+	writers := make([]io.Writer, 0, 3)
+	if config.LogStderrEnabled() {
+		writers = append(writers, baseLogWriter)
+	}
+	if buf != nil {
+		writers = append(writers, buf)
+	}
+	if config.FileLoggingEnabled() {
+		if path, err := config.ServerLogPath(); err != nil {
+			fmt.Fprintf(os.Stderr, "warning: could not resolve csghub-lite log path: %v\n", err)
+		} else if file, err := logutil.OpenAppendFile(path); err != nil {
+			fmt.Fprintf(os.Stderr, "warning: could not open csghub-lite log file %s: %v\n", path, err)
+		} else {
+			writers = append(writers, file)
+		}
+	}
+	if len(writers) == 0 {
+		writers = append(writers, io.Discard)
+	}
+	log.SetOutput(io.MultiWriter(writers...))
 	log.SetFlags(log.LstdFlags)
 }
 

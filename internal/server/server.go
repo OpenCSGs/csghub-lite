@@ -122,11 +122,11 @@ func (s *Server) Run(ctx context.Context) error {
 		if strings.HasPrefix(addr, ":") {
 			addr = "localhost" + addr
 		}
-		fmt.Printf("csghub-lite server listening on %s\n", s.cfg.ListenAddr)
-		fmt.Printf("  Web UI:     http://%s/\n", addr)
-		fmt.Printf("  Ollama API: http://%s/api/chat\n", addr)
-		fmt.Printf("  OpenAI API: http://%s/v1/chat/completions\n", addr)
-		fmt.Printf("  Anthropic API: http://%s/v1/messages\n", addr)
+		log.Printf("csghub-lite server listening on %s", s.cfg.ListenAddr)
+		log.Printf("  Web UI: %s", "http://"+addr+"/")
+		log.Printf("  Ollama API: %s", "http://"+addr+"/api/chat")
+		log.Printf("  OpenAI API: %s", "http://"+addr+"/v1/chat/completions")
+		log.Printf("  Anthropic API: %s", "http://"+addr+"/v1/messages")
 		if err := s.http.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			errCh <- err
 		}
