@@ -1,6 +1,7 @@
 package convert
 
 import (
+	"fmt"
 	"reflect"
 	"strings"
 	"testing"
@@ -111,6 +112,31 @@ AttributeError: GEMMA4. Did you mean: 'GEMMA'?
 	got := hintForConverterScriptFailure(output)
 	if !strings.Contains(got, `git+https://gitee.com/xzgan/llama.cpp.git@`+BundledConverterLLamacppRef+`#subdirectory=gguf-py`) {
 		t.Fatalf("hintForConverterScriptFailure() missing Gitee install example: %q", got)
+	}
+}
+
+func TestConverterErrorfIncludesBundledVersion(t *testing.T) {
+	got := converterErrorf("example failure").Error()
+	if !strings.Contains(got, "Converter version: llama.cpp "+BundledConverterLLamacppRef) {
+		t.Fatalf("converterErrorf() missing llama.cpp tag: %q", got)
+	}
+	if !strings.Contains(got, fmt.Sprintf("bundled revision %d", bundledConverterRevision)) {
+		t.Fatalf("converterErrorf() missing bundled revision: %q", got)
+	}
+}
+
+func TestConverterErrorfUsesCustomConverterSource(t *testing.T) {
+	t.Setenv("CSGHUB_LITE_CONVERTER_URL", "https://example.com/convert_hf_to_gguf.py")
+	got := converterErrorf("example failure").Error()
+	if !strings.Contains(got, "Converter source: CSGHUB_LITE_CONVERTER_URL=https://example.com/convert_hf_to_gguf.py") {
+		t.Fatalf("converterErrorf() missing custom converter source: %q", got)
+	}
+}
+
+func TestFormatConverterFailureIncludesConverterVersion(t *testing.T) {
+	got := formatConverterFailure(fmt.Errorf("exit status 1"), "Traceback\nline2", "").Error()
+	if !strings.Contains(got, "Converter version: llama.cpp "+BundledConverterLLamacppRef) {
+		t.Fatalf("formatConverterFailure() missing llama.cpp tag: %q", got)
 	}
 }
 

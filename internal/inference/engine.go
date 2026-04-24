@@ -7,6 +7,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strings"
 
 	"github.com/opencsgs/csghub-lite/internal/convert"
 	"github.com/opencsgs/csghub-lite/internal/model"
@@ -92,8 +93,7 @@ func LoadEngineWithProgress(modelDir string, lm *model.LocalModel, progress Conv
 			}
 			eng, err := newLlamaEngine(ggufPath, lm.FullName(), verbose, progress, numCtx, numParallel, cacheTypeK, cacheTypeV, mmproj)
 			if err != nil {
-				log.Printf("removing invalid converted GGUF: %s", ggufPath)
-				os.Remove(ggufPath)
+				removeConvertedGGUFIfInvalid(ggufPath, err)
 				return nil, err
 			}
 			return eng, nil
@@ -130,8 +130,7 @@ func LoadEngineWithProgress(modelDir string, lm *model.LocalModel, progress Conv
 		}
 		eng, err := newLlamaEngine(ggufPath, lm.FullName(), verbose, progress, numCtx, numParallel, cacheTypeK, cacheTypeV, mmproj)
 		if err != nil {
-			log.Printf("removing invalid converted GGUF: %s", ggufPath)
-			os.Remove(ggufPath)
+			removeConvertedGGUFIfInvalid(ggufPath, err)
 			return nil, err
 		}
 		return eng, nil
@@ -154,4 +153,68 @@ func convertSafeTensors(modelDir string, progress ConvertProgressFunc, dtype str
 	}
 
 	return convert.Convert(modelDir, progressFn, dtype)
+}
+
+func removeConvertedGGUFIfInvalid(ggufPath string, err error) {
+	if !shouldRemoveConvertedGGUF(err) {
+		log.Printf("keeping converted GGUF after llama-server load failure: %s", ggufPath)
+		return
+	}
+	log.Printf("removing invalid converted GGUF: %s", ggufPath)
+	if removeErr := os.Remove(ggufPath); removeErr != nil && !errors.Is(removeErr, os.ErrNotExist) {
+		log.Printf("warning: could not remove invalid converted GGUF %s: %v", ggufPath, removeErr)
+	}
+}
+
+func shouldRemoveConvertedGGUF(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	lower := strings.ToLower(err.Error())
+
+	// Runtime/resource failures should keep the converted file so retries do not
+	// pay the conversion cost again.
+	keepMarkers := []string{
+		"out of memory",
+		"cudaMalloc failed",
+		"hipmalloc failed",
+		"failed to fit params to free device memory",
+		"unable to allocate",
+		"no such device",
+		"device busy",
+		"insufficient memory",
+		"timeout waiting for llama-server",
+		"address already in use",
+	}
+	for _, marker := range keepMarkers {
+		if strings.Contains(lower, strings.ToLower(marker)) {
+			return false
+		}
+	}
+
+	// Only clean up when the failure looks like the GGUF itself is invalid or
+	// incomplete, so the next attempt can reconvert a fresh copy.
+	removeMarkers := []string{
+		"invalid magic characters",
+		"invalid gguf",
+		"failed to read magic",
+		"failed to load model",
+		"unknown model architecture",
+		"unknown model arch",
+		"unknown tensor type",
+		"tensor data is not within file bounds",
+		"failed to open gguf",
+		"gguf file is",
+		"not a gguf file",
+		"corrupt",
+		"truncated",
+	}
+	for _, marker := range removeMarkers {
+		if strings.Contains(lower, strings.ToLower(marker)) {
+			return true
+		}
+	}
+
+	return false
 }

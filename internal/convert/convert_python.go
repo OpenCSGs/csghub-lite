@@ -111,6 +111,28 @@ func ggufRepoInstallHint(region string) string {
 	return strings.Join(lines, "\n")
 }
 
+func bundledConverterVersionString() string {
+	return fmt.Sprintf("llama.cpp %s (bundled revision %d)", BundledConverterLLamacppRef, bundledConverterRevision)
+}
+
+func converterContextSummary() string {
+	if rawURL := strings.TrimSpace(os.Getenv("CSGHUB_LITE_CONVERTER_URL")); rawURL != "" {
+		return fmt.Sprintf("Converter source: CSGHUB_LITE_CONVERTER_URL=%s", rawURL)
+	}
+	return fmt.Sprintf("Converter version: %s", bundledConverterVersionString())
+}
+
+func converterProgressSummary() string {
+	if strings.TrimSpace(os.Getenv("CSGHUB_LITE_CONVERTER_URL")) != "" {
+		return "official converter from CSGHUB_LITE_CONVERTER_URL"
+	}
+	return fmt.Sprintf("official converter from %s", bundledConverterVersionString())
+}
+
+func converterErrorf(format string, args ...any) error {
+	return fmt.Errorf("%s\n%s", converterContextSummary(), fmt.Sprintf(format, args...))
+}
+
 func converterCacheDir() string {
 	home, _ := os.UserHomeDir()
 	return filepath.Join(home, ".csghub-lite", "tools")
@@ -301,7 +323,7 @@ func ConvertPython(modelDir string, progress ProgressFunc, dtype string) (string
 
 	python, missingDeps := findPythonEnv()
 	if python == "" {
-		return "", fmt.Errorf(
+		return "", converterErrorf(
 			"this checkpoint is SafeTensors-only; csghub-lite converts it to GGUF once using the official llama.cpp Python script.\n"+
 				"The Python runtime and conversion packages are not bundled with the release binary.\n\n"+
 				"python3 was not found on PATH.\n"+
@@ -316,7 +338,7 @@ func ConvertPython(modelDir string, progress ProgressFunc, dtype string) (string
 		)
 	}
 	if missingDeps != "" {
-		return "", fmt.Errorf(
+		return "", converterErrorf(
 			"this checkpoint is SafeTensors-only; csghub-lite converts it to GGUF once using the official llama.cpp Python script.\n"+
 				"Those Python packages are not bundled with the release binary.\n\n"+
 				"Missing: %s\n\n"+
@@ -328,20 +350,20 @@ func ConvertPython(modelDir string, progress ProgressFunc, dtype string) (string
 		)
 	}
 
-	step := "Preparing converter (bundled)"
+	step := fmt.Sprintf("Preparing converter (%s)", bundledConverterVersionString())
 	if strings.TrimSpace(os.Getenv("CSGHUB_LITE_CONVERTER_URL")) != "" {
-		step = "Downloading converter"
+		step = "Downloading converter from CSGHUB_LITE_CONVERTER_URL"
 	}
 	progress(step, 0, 0)
 	script, err := ensureConverterScript()
 	if err != nil {
-		return "", err
+		return "", converterErrorf("%v", err)
 	}
 
 	outputName := generateOutputName(modelDir, effectiveDType)
 	outputPath := filepath.Join(modelDir, outputName)
 
-	progress(fmt.Sprintf("Converting with official converter to GGUF (dtype: %s)", effectiveDType), 0, 0)
+	progress(fmt.Sprintf("Converting with %s to GGUF (dtype: %s)", converterProgressSummary(), effectiveDType), 0, 0)
 	if err := convertModelWithAutoRepair(python, script, modelDir, outputPath, effectiveDType, progress); err != nil {
 		return "", err
 	}
@@ -352,10 +374,10 @@ func ConvertPython(modelDir string, progress ProgressFunc, dtype string) (string
 		} else if ok {
 			outputPath = existingPath
 		} else {
-			return "", fmt.Errorf("converter finished but output file not found for dtype %q", effectiveDType)
+			return "", converterErrorf("converter finished but output file not found for dtype %q", effectiveDType)
 		}
 	} else if _, err := os.Stat(outputPath); err != nil {
-		return "", fmt.Errorf("converter finished but output file not found: %s", outputPath)
+		return "", converterErrorf("converter finished but output file not found: %s", outputPath)
 	}
 
 	if hasVisionConfig(modelDir) {
@@ -834,7 +856,7 @@ func lastNLines(s string, n int) string {
 }
 
 func formatConverterFailure(err error, output string, repairNote string) error {
-	return fmt.Errorf(
+	return converterErrorf(
 		"convert_hf_to_gguf.py failed: %s\n%s%s%s",
 		err,
 		lastNLines(output, 5),
