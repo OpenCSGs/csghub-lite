@@ -7,24 +7,24 @@ class CsghubLite < Formula
   on_macos do
     on_arm do
       url "https://github.com/OpenCSGs/csghub-lite/releases/download/v#{version}/csghub-lite_#{version}_darwin-arm64.tar.gz"
-      sha256 "75e24a4c0f39ffd1c7eea996146b9d9a6339cbdc63eadeddcc9440f8e152d64e"
+      sha256 "0a13e87bf029317480b95ada7de7d0db305f1d736dfb194ef277b038a4821b14"
     end
 
     on_intel do
       url "https://github.com/OpenCSGs/csghub-lite/releases/download/v#{version}/csghub-lite_#{version}_darwin-amd64.tar.gz"
-      sha256 "e5113b797b407e05ef411dcef5b76f0e4081299ac74bf6374cccdf589717f3de"
+      sha256 "eaaf522898f6f9883466e250e9f4bd9301e50ea88cc51ac553ba206c0282fca1"
     end
   end
 
   on_linux do
     on_arm do
       url "https://github.com/OpenCSGs/csghub-lite/releases/download/v#{version}/csghub-lite_#{version}_linux-arm64.tar.gz"
-      sha256 "03b60203bb48e934bab81aa1147ffc9236715c98341d1bc150e7a5ba22de263f"
+      sha256 "59a5370f40914994f46314c472af2d0f22b67218fd11610ba5394821b4cbf971"
     end
 
     on_intel do
       url "https://github.com/OpenCSGs/csghub-lite/releases/download/v#{version}/csghub-lite_#{version}_linux-amd64.tar.gz"
-      sha256 "d87c1ed298674233b92763df7384e2443e720dc554438ffde18f8abada1c4715"
+      sha256 "ebff95f3140ec78086e01c95f79a4a3953cc12072689d08b236330c9ba35eb2d"
     end
   end
 
