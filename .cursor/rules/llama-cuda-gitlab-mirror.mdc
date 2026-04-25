@@ -1,5 +1,5 @@
 ---
-description: Build and upload custom llama.cpp Ubuntu CUDA tarballs to GitLab correctly
+description: Sync and upload llama.cpp Ubuntu CUDA tarballs to GitLab correctly
 alwaysApply: true
 ---
 
@@ -8,7 +8,10 @@ alwaysApply: true
 - When mirroring `llama.cpp` Ubuntu CUDA tarballs to GitLab, first extract and compare the existing GitLab reference packages:
   - `b8429/llama-b8429-bin-ubuntu-cuda-12.4-arm64.tar.gz`
   - `b8429/llama-b8429-bin-ubuntu-cuda-12.4-x64.tar.gz`
-- Upstream GitHub does not publish these Linux CUDA tarballs; build them locally in Docker, then upload them to the GitLab generic package registry and add release links.
+- Upstream `ggml-org/llama.cpp` does not publish Linux CUDA tarballs. First sync matching Ubuntu CUDA assets from `https://github.com/hybridgroup/llama-cpp-builder/releases/tag/<tag>` and reuse them for the GitLab mirror when available.
+- `hybridgroup/llama-cpp-builder` uses `llama-<tag>-bin-ubuntu-cuda-<arch>.tar.gz` for CUDA 12.9 and `llama-<tag>-bin-ubuntu-cuda-13-<arch>.tar.gz` for CUDA 13.0.88.
+- If `hybridgroup/llama-cpp-builder` does not have the target tag or architecture, build the missing tarball locally in Docker, then upload it to the GitLab generic package registry and add a release link.
+- When reusing `hybridgroup/llama-cpp-builder` assets, preserve their published names, verify the CUDA version/name mapping, and re-pack only when needed to match the reference layout.
 - Load `GITLAB_TOKEN` only from `local/secrets.env`. Use direct connection for GitLab API/package uploads; do not keep external proxy enabled for GitLab operations.
 - Build `arm64` and `x64` separately. Their tar layouts must match the GitLab reference:
   - `arm64`: tar root `llama-<tag>-bin-ubuntu-cuda-12.4-arm64/` with only `bin/{llama-bench,llama-cli,llama-embedding,llama-quantize,llama-server}` plus `lib/` symlink chains for `libggml-base`, `libggml-cpu`, `libggml-cuda`, `libggml`, `libllama`, and `libmtmd`.

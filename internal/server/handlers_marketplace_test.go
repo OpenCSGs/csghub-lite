@@ -47,6 +47,59 @@ func TestHandleMarketplaceModelsMapsFrameworkToTagFilter(t *testing.T) {
 	}
 }
 
+func TestHandleMarketplaceModelsServesCachedListOnUpstreamRateLimit(t *testing.T) {
+	marketplaceListCache.Lock()
+	marketplaceListCache.entries = make(map[string]marketplaceListCacheEntry)
+	marketplaceListCache.Unlock()
+
+	requests := 0
+	apiServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		if requests > 1 {
+			http.Error(w, "Rate limit exceeded. Please try again later.", http.StatusTooManyRequests)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(csghub.ListResponse[csghub.Model]{
+			Msg:   "OK",
+			Data:  []csghub.Model{{ID: 1, Path: "ns/model"}},
+			Total: 1,
+		})
+	}))
+	defer apiServer.Close()
+
+	s := newTestServer(t)
+	s.cfg.ServerURL = apiServer.URL
+
+	req := httptest.NewRequest(http.MethodGet, "/api/marketplace/models?page=9", nil)
+	w := httptest.NewRecorder()
+	s.handleMarketplaceModels(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("first status = %d, want %d body=%s", w.Code, http.StatusOK, w.Body.String())
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/api/marketplace/models?page=9", nil)
+	w = httptest.NewRecorder()
+	s.handleMarketplaceModels(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("second status = %d, want cached %d body=%s", w.Code, http.StatusOK, w.Body.String())
+	}
+	if got := w.Header().Get("X-CSGHUB-Lite-Cache"); got != "fresh" {
+		t.Fatalf("cache header = %q, want fresh", got)
+	}
+
+	var resp struct {
+		Data  []csghub.Model `json:"data"`
+		Total int            `json:"total"`
+	}
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if len(resp.Data) != 1 || resp.Data[0].Path != "ns/model" {
+		t.Fatalf("cached data = %#v, want ns/model", resp.Data)
+	}
+}
+
 func TestHandleMarketplaceModelsFallbackFiltersFrameworkTags(t *testing.T) {
 	allModels := []csghub.Model{
 		{

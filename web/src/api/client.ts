@@ -598,20 +598,47 @@ export interface LoadProgress {
   total?: number;
 }
 
+export interface LoadModelOptions {
+  keep_alive?: string;
+  num_ctx?: number;
+  num_parallel?: number;
+  n_gpu_layers?: number;
+  cache_type_k?: string;
+  cache_type_v?: string;
+  dtype?: string;
+}
+
 export function loadModel(
   model: string,
   onProgress: (p: LoadProgress) => void,
+  options?: LoadModelOptions,
   signal?: AbortSignal
 ): Promise<void> {
   return new Promise((resolve, reject) => {
     fetch("/api/load", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ model, stream: true }),
+      body: JSON.stringify({
+        model,
+        stream: true,
+        keep_alive: options?.keep_alive || undefined,
+        num_ctx: options?.num_ctx,
+        num_parallel: options?.num_parallel,
+        n_gpu_layers: options?.n_gpu_layers,
+        cache_type_k: options?.cache_type_k || undefined,
+        cache_type_v: options?.cache_type_v || undefined,
+        dtype: options?.dtype || undefined,
+      }),
       signal,
     })
-      .then((resp) => {
-        if (!resp.ok || !resp.body) {
+      .then(async (resp) => {
+        if (!resp.ok) {
+          const contentType = resp.headers.get("content-type") || "";
+          const errText = await resp.text().catch(() => resp.statusText);
+          reject(new Error(extractErrorMessage(errText, contentType, resp.statusText || "load failed")));
+          return;
+        }
+        if (!resp.body) {
           reject(new Error("load failed"));
           return;
         }

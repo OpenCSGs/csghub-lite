@@ -97,6 +97,79 @@ func TestGetChatEngineReusesLoadedEngineWhenOverridesOmitted(t *testing.T) {
 	}
 }
 
+func TestLoadedEngineIgnoresDTypeOnlyOverride(t *testing.T) {
+	s := newTestServer(t)
+	engine := &fakeEngine{}
+	s.engines["test/model"] = &managedEngine{
+		engine:    engine,
+		lastUsed:  time.Now(),
+		keepAlive: api.KeepAliveForever,
+	}
+
+	got, err := s.getOrLoadEngineWithOpts("test/model", 0, 0, -1, "", "", "q8_0")
+	if err != nil {
+		t.Fatalf("getOrLoadEngineWithOpts returned error: %v", err)
+	}
+	if got != engine {
+		t.Fatalf("engine = %#v, want existing engine %#v", got, engine)
+	}
+	if got := s.engines["test/model"].keepAlive; got != api.KeepAliveForever {
+		t.Fatalf("keepAlive = %s, want forever", got)
+	}
+}
+
+func TestReloadPreservesExistingKeepAlive(t *testing.T) {
+	s := newTestServer(t)
+	lm := &model.LocalModel{
+		Namespace: "test",
+		Name:      "model",
+		Format:    model.FormatGGUF,
+		Size:      123,
+		Files:     []string{"model.gguf"},
+	}
+	if err := model.SaveManifest(s.cfg.ModelDir, lm); err != nil {
+		t.Fatalf("SaveManifest() error = %v", err)
+	}
+	modelDir := filepath.Join(s.cfg.ModelDir, "test", "model")
+	if err := os.MkdirAll(modelDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+
+	origLoader := loadEngineWithProgress
+	defer func() { loadEngineWithProgress = origLoader }()
+
+	newEngine := &fakeEngine{}
+	loadEngineWithProgress = func(_ string, _ *model.LocalModel, _ inference.ConvertProgressFunc, _ bool, numCtx int, _ int, _ int, _ string, _ string, dtype string) (inference.Engine, error) {
+		if numCtx != 131072 {
+			t.Fatalf("numCtx = %d, want 131072", numCtx)
+		}
+		if dtype != "q8_0" {
+			t.Fatalf("dtype = %q, want q8_0", dtype)
+		}
+		return newEngine, nil
+	}
+
+	s.engines["test/model"] = &managedEngine{
+		engine:      &fakeEngine{},
+		numCtx:      8192,
+		numParallel: inference.ResolveNumParallel(0),
+		nGPULayers:  inference.ResolveNGPULayers(-1),
+		lastUsed:    time.Now().Add(-time.Hour),
+		keepAlive:   api.KeepAliveForever,
+	}
+
+	got, err := s.getOrLoadEngineWithOpts("test/model", 131072, 0, -1, "", "", "q8_0")
+	if err != nil {
+		t.Fatalf("getOrLoadEngineWithOpts returned error: %v", err)
+	}
+	if got != newEngine {
+		t.Fatalf("engine = %#v, want reloaded engine %#v", got, newEngine)
+	}
+	if got := s.engines["test/model"].keepAlive; got != api.KeepAliveForever {
+		t.Fatalf("keepAlive = %s, want forever", got)
+	}
+}
+
 func TestHandlePsRemainsResponsiveWhileModelLoads(t *testing.T) {
 	s := newTestServer(t)
 	lm := &model.LocalModel{

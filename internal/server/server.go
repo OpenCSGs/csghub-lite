@@ -231,8 +231,8 @@ func (s *Server) getOrLoadEngineWithProgressAndOpts(modelID string, progress inf
 	return s.getOrLoadEngineFull(modelID, progress, numCtx, numParallel, nGPULayers, cacheTypeK, cacheTypeV, dtype)
 }
 
-func runtimeOverridesRequested(numCtx, numParallel, nGPULayers int, cacheTypeK, cacheTypeV, dtype string) bool {
-	return numCtx > 0 || numParallel > 0 || nGPULayers >= 0 || cacheTypeK != "" || cacheTypeV != "" || dtype != ""
+func runtimeOverridesRequested(numCtx, numParallel, nGPULayers int, cacheTypeK, cacheTypeV string) bool {
+	return numCtx > 0 || numParallel > 0 || nGPULayers >= 0 || cacheTypeK != "" || cacheTypeV != ""
 }
 
 var loadEngineWithProgress = inference.LoadEngineWithProgress
@@ -254,7 +254,7 @@ func (s *Server) getOrLoadEngineFull(modelID string, progress inference.ConvertP
 	if err != nil {
 		return nil, err
 	}
-	requestedOverrides := runtimeOverridesRequested(numCtx, numParallel, normalizedNGPULayers, normalizedCacheTypeK, normalizedCacheTypeV, normalizedDType)
+	requestedOverrides := runtimeOverridesRequested(numCtx, numParallel, normalizedNGPULayers, normalizedCacheTypeK, normalizedCacheTypeV)
 
 	s.mu.RLock()
 	me, ok := s.engines[modelID]
@@ -280,7 +280,7 @@ func (s *Server) getOrLoadEngineFull(modelID string, progress inference.ConvertP
 				s.mu.Unlock()
 				return eng, nil
 			}
-			if me.numCtx == effectiveNumCtx && me.numParallel == effectiveNumParallel && me.nGPULayers == effectiveNGPULayers && me.cacheTypeK == normalizedCacheTypeK && me.cacheTypeV == normalizedCacheTypeV && me.dtype == normalizedDType {
+			if me.numCtx == effectiveNumCtx && me.numParallel == effectiveNumParallel && me.nGPULayers == effectiveNGPULayers && me.cacheTypeK == normalizedCacheTypeK && me.cacheTypeV == normalizedCacheTypeV {
 				eng := me.engine
 				s.mu.Unlock()
 				return eng, nil
@@ -303,9 +303,11 @@ func (s *Server) getOrLoadEngineFull(modelID string, progress inference.ConvertP
 		s.loading[modelID] = state
 
 		var oldEngine inference.Engine
+		nextKeepAlive := DefaultKeepAlive
 		if me, ok := s.engines[modelID]; ok {
 			log.Printf("reloading model %s due to config change (num_ctx %d->%d, parallel %d->%d, n_gpu_layers %d->%d, cache_type_k %q->%q, cache_type_v %q->%q, dtype %q->%q)", modelID, me.numCtx, effectiveNumCtx, me.numParallel, effectiveNumParallel, me.nGPULayers, effectiveNGPULayers, me.cacheTypeK, normalizedCacheTypeK, me.cacheTypeV, normalizedCacheTypeV, me.dtype, normalizedDType)
 			oldEngine = me.engine
+			nextKeepAlive = me.keepAlive
 			delete(s.engines, modelID)
 		}
 		s.mu.Unlock()
@@ -332,7 +334,7 @@ func (s *Server) getOrLoadEngineFull(modelID string, progress inference.ConvertP
 				cacheTypeV:  normalizedCacheTypeV,
 				dtype:       normalizedDType,
 				lastUsed:    time.Now(),
-				keepAlive:   DefaultKeepAlive,
+				keepAlive:   nextKeepAlive,
 			}
 		}
 		close(state.done)

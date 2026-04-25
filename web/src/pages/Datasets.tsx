@@ -3,8 +3,16 @@ import { signal } from "@preact/signals";
 import { getDatasetTags, searchDatasets, getDatasetFiles, deleteDataset, getDatasetManifest } from "../api/client";
 import type { DatasetInfo, DatasetFileEntry, DatasetManifestResponse, DatasetDownloadFile } from "../api/client";
 import { t, locale } from "../i18n";
+import { DownloadTableCell } from "../components/DownloadProgressPanel";
+import { getDownloadTask, getDownloadTasks, hasActiveDownload } from "../downloads";
+import type { DownloadTask } from "../downloads";
 
 type View = { kind: "list" } | { kind: "detail"; dataset: string; path: string };
+type DatasetTableRow = {
+  dataset: DatasetInfo;
+  task?: DownloadTask;
+  downloadOnly: boolean;
+};
 
 const allDatasets = signal<DatasetInfo[]>([]);
 const searchQuery = signal("");
@@ -39,6 +47,31 @@ function sortedDatasets(): DatasetInfo[] {
     else cmp = new Date(a.modified_at).getTime() - new Date(b.modified_at).getTime();
     return asc ? cmp : -cmp;
   });
+}
+
+function datasetRows(datasets: DatasetInfo[]): DatasetTableRow[] {
+  const rows = datasets.map((dataset) => ({
+    dataset,
+    task: getDownloadTask("dataset", dataset.name),
+    downloadOnly: false,
+  }));
+  const known = new Set(datasets.map((dataset) => dataset.name));
+  for (const task of getDownloadTasks("dataset")) {
+    if (known.has(task.name)) continue;
+    if (task.status === "success") continue;
+    rows.push({
+      dataset: {
+        name: task.name,
+        dataset: task.name,
+        size: task.totalBytes || task.completedBytes,
+        files: 0,
+        modified_at: task.updatedAt,
+      },
+      task,
+      downloadOnly: true,
+    });
+  }
+  return rows;
 }
 
 async function loadFiles(dataset: string, path: string) {
@@ -82,12 +115,14 @@ export function Datasets() {
 
 function DatasetList() {
   const handleDelete = async (name: string) => {
+    if (hasActiveDownload.value) return;
     if (!confirm(t("ds.deleteConfirm", name))) return;
     await deleteDataset(name);
     allDatasets.value = allDatasets.value.filter((d) => d.name !== name);
   };
 
   const handleDetails = (name: string) => {
+    if (hasActiveDownload.value) return;
     currentView.value = { kind: "detail", dataset: name, path: "" };
     loadFiles(name, "");
   };
@@ -101,7 +136,8 @@ function DatasetList() {
     }
   };
 
-  const datasets = sortedDatasets();
+  const rows = datasetRows(sortedDatasets());
+  const downloading = hasActiveDownload.value;
 
   return (
     <div class="p-8 max-w-5xl mx-auto">
@@ -117,13 +153,14 @@ function DatasetList() {
           </svg>
           <input
             type="text"
+            disabled={downloading}
             value={searchQuery.value}
             onInput={(e) => (searchQuery.value = (e.currentTarget as HTMLInputElement).value)}
             placeholder={t("ds.search")}
-            class="w-full pl-10 pr-24 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+            class="w-full pl-10 pr-24 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent disabled:bg-gray-100 disabled:text-gray-400"
           />
           <span class="absolute right-3 top-1/2 -translate-y-1/2 text-[11px] font-medium text-gray-400 bg-gray-50 px-2 py-0.5 rounded-full">
-            {datasetsLoading.value ? t("ds.searching") : t("ds.results", datasets.length)}
+            {datasetsLoading.value ? t("ds.searching") : t("ds.results", rows.length)}
           </span>
         </div>
       </div>
@@ -134,24 +171,26 @@ function DatasetList() {
             <tr class="border-b border-gray-100 text-left text-gray-500 bg-gray-50">
               <SortHeader label={t("ds.datasetName")} field="name" current={sortField.value} asc={sortAsc.value} onToggle={toggleSort} />
               <SortHeader label={t("ds.fileSize")} field="size" current={sortField.value} asc={sortAsc.value} onToggle={toggleSort} />
+              <th class="px-4 py-3 font-medium">{t("downloads.progress")}</th>
               <SortHeader label={t("ds.dateTime")} field="modified_at" current={sortField.value} asc={sortAsc.value} onToggle={toggleSort} />
               <th class="px-4 py-3 font-medium text-right">{t("ds.operation")}</th>
             </tr>
           </thead>
           <tbody>
-            {datasets.length === 0 ? (
+            {rows.length === 0 ? (
               <tr>
-                <td colSpan={4} class="text-center py-12 text-gray-400">
+                <td colSpan={5} class="text-center py-12 text-gray-400">
                   {t("ds.noDatasets")}
                 </td>
               </tr>
             ) : (
-              datasets.map((d) => (
+              rows.map(({ dataset: d, task, downloadOnly }) => (
                 <tr key={d.name} class="border-b border-gray-50 hover:bg-gray-50/50">
                   <td class="px-4 py-3">
                     <button
                       onClick={() => handleDetails(d.name)}
-                      class="font-medium text-indigo-600 hover:text-indigo-800 hover:underline break-all text-left"
+                      disabled={downloading || downloadOnly}
+                      class="font-medium text-indigo-600 hover:text-indigo-800 hover:underline break-all text-left disabled:text-gray-400 disabled:hover:text-gray-400 disabled:cursor-not-allowed"
                     >
                       {d.name}
                     </button>
@@ -161,12 +200,15 @@ function DatasetList() {
                       {fmtSize(d.size)}
                     </span>
                   </td>
+                  <td class="px-4 py-3">
+                    <DownloadTableCell task={task} onComplete={loadDatasets} />
+                  </td>
                   <td class="px-4 py-3 text-gray-500">
                     {new Date(d.modified_at).toLocaleDateString("en-US", { day: "numeric", month: "long" })}
                   </td>
                   <td class="px-4 py-3">
                     <div class="flex items-center justify-end gap-3">
-                      <button onClick={() => handleDelete(d.name)} class="text-gray-500 hover:text-red-600 text-sm transition-colors">
+                      <button disabled={downloading || downloadOnly} onClick={() => handleDelete(d.name)} class="text-gray-500 hover:text-red-600 text-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
                         {t("ds.delete")}
                       </button>
                     </div>

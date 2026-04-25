@@ -2,14 +2,31 @@ package server
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/opencsgs/csghub-lite/internal/csghub"
 	"github.com/opencsgs/csghub-lite/internal/ggufpick"
 )
+
+const marketplaceListCacheTTL = 2 * time.Minute
+
+type marketplaceListCacheEntry struct {
+	body      []byte
+	updatedAt time.Time
+}
+
+var marketplaceListCache = struct {
+	sync.Mutex
+	entries map[string]marketplaceListCacheEntry
+}{
+	entries: make(map[string]marketplaceListCacheEntry),
+}
 
 // GET /api/marketplace/models -- proxy to CSGHub Hub model listing
 func (s *Server) handleMarketplaceModels(w http.ResponseWriter, r *http.Request) {
@@ -35,22 +52,35 @@ func (s *Server) handleMarketplaceModels(w http.ResponseWriter, r *http.Request)
 		listParams.TagCategory = "framework"
 		listParams.TagName = requestedFramework
 	}
+	cacheKey := marketplaceCacheKey("models", r.URL.RawQuery)
+	if body, ok := getFreshMarketplaceCache(cacheKey, time.Now()); ok {
+		writeCachedMarketplaceResponse(w, body, "fresh")
+		return
+	}
 
 	client := csghub.NewClient(s.cfg.ServerURL, s.cfg.Token)
 	models, total, err := client.ListModels(r.Context(), listParams)
 	if err != nil {
-		writeError(w, http.StatusBadGateway, err.Error())
+		if body, ok := getAnyMarketplaceCache(cacheKey); ok {
+			writeCachedMarketplaceResponse(w, body, "stale")
+			return
+		}
+		writeError(w, marketplaceErrorStatus(err), err.Error())
 		return
 	}
 	if requestedFramework != "" && !marketplaceModelsMatchFramework(models, requestedFramework) {
 		models, total, err = listMarketplaceModelsWithFrameworkFallback(r.Context(), client, listParams, requestedFramework)
 		if err != nil {
-			writeError(w, http.StatusBadGateway, err.Error())
+			if body, ok := getAnyMarketplaceCache(cacheKey); ok {
+				writeCachedMarketplaceResponse(w, body, "stale")
+				return
+			}
+			writeError(w, marketplaceErrorStatus(err), err.Error())
 			return
 		}
 	}
 
-	writeJSON(w, http.StatusOK, map[string]interface{}{
+	writeMarketplaceListResponse(w, cacheKey, map[string]interface{}{
 		"data":  models,
 		"total": total,
 	})
@@ -108,6 +138,12 @@ func (s *Server) handleMarketplaceDatasets(w http.ResponseWriter, r *http.Reques
 		per = 16
 	}
 
+	cacheKey := marketplaceCacheKey("datasets", r.URL.RawQuery)
+	if body, ok := getFreshMarketplaceCache(cacheKey, time.Now()); ok {
+		writeCachedMarketplaceResponse(w, body, "fresh")
+		return
+	}
+
 	client := csghub.NewClient(s.cfg.ServerURL, s.cfg.Token)
 	datasets, total, err := client.ListDatasets(r.Context(), csghub.DatasetListParams{
 		Search:  q.Get("search"),
@@ -117,14 +153,76 @@ func (s *Server) handleMarketplaceDatasets(w http.ResponseWriter, r *http.Reques
 		Source:  q.Get("source"),
 	})
 	if err != nil {
-		writeError(w, http.StatusBadGateway, err.Error())
+		if body, ok := getAnyMarketplaceCache(cacheKey); ok {
+			writeCachedMarketplaceResponse(w, body, "stale")
+			return
+		}
+		writeError(w, marketplaceErrorStatus(err), err.Error())
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]interface{}{
+	writeMarketplaceListResponse(w, cacheKey, map[string]interface{}{
 		"data":  datasets,
 		"total": total,
 	})
+}
+
+func marketplaceCacheKey(kind, rawQuery string) string {
+	return kind + "?" + rawQuery
+}
+
+func getFreshMarketplaceCache(key string, now time.Time) ([]byte, bool) {
+	marketplaceListCache.Lock()
+	defer marketplaceListCache.Unlock()
+	entry, ok := marketplaceListCache.entries[key]
+	if !ok || now.Sub(entry.updatedAt) > marketplaceListCacheTTL {
+		return nil, false
+	}
+	return append([]byte(nil), entry.body...), true
+}
+
+func getAnyMarketplaceCache(key string) ([]byte, bool) {
+	marketplaceListCache.Lock()
+	defer marketplaceListCache.Unlock()
+	entry, ok := marketplaceListCache.entries[key]
+	if !ok {
+		return nil, false
+	}
+	return append([]byte(nil), entry.body...), true
+}
+
+func setMarketplaceCache(key string, body []byte) {
+	marketplaceListCache.Lock()
+	marketplaceListCache.entries[key] = marketplaceListCacheEntry{
+		body:      append([]byte(nil), body...),
+		updatedAt: time.Now(),
+	}
+	marketplaceListCache.Unlock()
+}
+
+func writeMarketplaceListResponse(w http.ResponseWriter, cacheKey string, payload interface{}) {
+	body, err := json.Marshal(payload)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	setMarketplaceCache(cacheKey, body)
+	writeCachedMarketplaceResponse(w, body, "miss")
+}
+
+func writeCachedMarketplaceResponse(w http.ResponseWriter, body []byte, cacheStatus string) {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("X-CSGHUB-Lite-Cache", cacheStatus)
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(append(body, '\n'))
+}
+
+func marketplaceErrorStatus(err error) int {
+	msg := err.Error()
+	if strings.Contains(msg, "API error 429") {
+		return http.StatusTooManyRequests
+	}
+	return http.StatusBadGateway
 }
 
 func marketplaceModelFormat(tags []csghub.Tag) string {

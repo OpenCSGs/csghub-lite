@@ -561,7 +561,9 @@ install_llama_server() {
                 if command -v nvidia-smi >/dev/null 2>&1; then
                     info "NVIDIA GPU detected, trying CUDA build first."
                     add_candidate "llama-${_llama_tag}-bin-ubuntu-cuda-12.4-${_arch_token}.tar.gz"
-                    add_release_candidates "llama-${_llama_tag}-bin-ubuntu-cuda-[0-9]+\\.[0-9]+-${_arch_token}\\.tar\\.gz"
+                    add_release_candidates "llama-${_llama_tag}-bin-ubuntu-cuda-[0-9]+\\.[0-9]+(\\.[0-9]+)?-${_arch_token}\\.tar\\.gz"
+                    add_candidate "llama-${_llama_tag}-bin-ubuntu-cuda-${_arch_token}.tar.gz"
+                    add_release_candidates "llama-${_llama_tag}-bin-ubuntu-cuda-[0-9]+-${_arch_token}\\.tar\\.gz"
                     add_candidate "llama-${_llama_tag}-bin-ubuntu-vulkan-${_arch_token}.tar.gz"
                     add_candidate "llama-${_llama_tag}-bin-ubuntu-${_arch_token}.tar.gz"
                 elif [ "$_arch_token" = "x64" ] && has_rocm_runtime; then

@@ -33,7 +33,6 @@ const loading = signal(false);
 
 const pullingModels = signal<Record<string, { status: string; percent: number }>>({});
 const localModelNames = signal<Set<string>>(new Set());
-
 const pullingDatasets = signal<Record<string, { status: string; percent: number }>>({});
 const localDatasetNames = signal<Set<string>>(new Set());
 
@@ -85,7 +84,6 @@ export function Marketplace() {
   const [selectedModelPath, setSelectedModelPath] = useState("");
 
   useEffect(() => {
-    loadData();
     loadLocalModels();
     loadLocalDatasets();
   }, []);
