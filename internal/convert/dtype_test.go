@@ -62,6 +62,43 @@ func TestFindGGUFForDTypeMatchesRequestedQuant(t *testing.T) {
 	}
 }
 
+func TestNeedsConversionForDTypeChecksRequestedGGUF(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "model.safetensors"), []byte("safetensors"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "model-f16.gguf"), []byte("f16"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	needs, err := NeedsConversionForDType(dir, "")
+	if err != nil {
+		t.Fatalf("NeedsConversionForDType returned error: %v", err)
+	}
+	if needs {
+		t.Fatal("unset dtype should accept existing GGUF")
+	}
+
+	needs, err = NeedsConversionForDType(dir, "q8_0")
+	if err != nil {
+		t.Fatalf("NeedsConversionForDType returned error: %v", err)
+	}
+	if !needs {
+		t.Fatal("q8_0 should need conversion when only f16 GGUF exists")
+	}
+
+	if err := os.WriteFile(filepath.Join(dir, "model-q8_0.gguf"), []byte("q8"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	needs, err = NeedsConversionForDType(dir, "q8_0")
+	if err != nil {
+		t.Fatalf("NeedsConversionForDType returned error: %v", err)
+	}
+	if needs {
+		t.Fatal("q8_0 should not need conversion when matching GGUF exists")
+	}
+}
+
 func TestFindMMProjForDTypeMatchesRequestedQuant(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "mmproj-model-f16.gguf"), []byte("f16"), 0o644); err != nil {

@@ -127,6 +127,25 @@ func NeedsConversion(modelDir string) bool {
 	return HasSafeTensors(modelDir)
 }
 
+// NeedsConversionForDType reports whether SafeTensors conversion is needed for
+// the requested output dtype. When dtype is unset, it preserves the legacy
+// behavior of accepting any existing GGUF.
+func NeedsConversionForDType(modelDir, dtype string) (bool, error) {
+	normalized, err := NormalizeDType(dtype)
+	if err != nil {
+		return false, err
+	}
+	if normalized == "" {
+		return NeedsConversion(modelDir), nil
+	}
+	if _, ok, err := FindGGUFForDType(modelDir, normalized); err != nil {
+		return false, err
+	} else if ok {
+		return false, nil
+	}
+	return HasSafeTensors(modelDir), nil
+}
+
 func reverseShape(shape []int64) []uint64 {
 	n := len(shape)
 	dims := make([]uint64, n)

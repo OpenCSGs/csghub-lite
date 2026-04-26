@@ -235,6 +235,16 @@ func runtimeOverridesRequested(numCtx, numParallel, nGPULayers int, cacheTypeK, 
 	return numCtx > 0 || numParallel > 0 || nGPULayers >= 0 || cacheTypeK != "" || cacheTypeV != ""
 }
 
+func loadedDTypeMatchesRequest(loaded, requested string) bool {
+	if requested == "" {
+		return true
+	}
+	if loaded == requested {
+		return true
+	}
+	return loaded == "" && requested == "f16"
+}
+
 var loadEngineWithProgress = inference.LoadEngineWithProgress
 
 func (s *Server) getOrLoadEngineFull(modelID string, progress inference.ConvertProgressFunc, numCtx, numParallel, nGPULayers int, cacheTypeK, cacheTypeV, dtype string) (inference.Engine, error) {
@@ -259,7 +269,7 @@ func (s *Server) getOrLoadEngineFull(modelID string, progress inference.ConvertP
 	s.mu.RLock()
 	me, ok := s.engines[modelID]
 	s.mu.RUnlock()
-	if ok && !requestedOverrides {
+	if ok && !requestedOverrides && normalizedDType == "" {
 		log.Printf("MODEL %s: using already loaded engine", modelID)
 		return me.engine, nil
 	}
@@ -271,17 +281,26 @@ func (s *Server) getOrLoadEngineFull(modelID string, progress inference.ConvertP
 	effectiveNumCtx := inference.ResolveNumCtx(modelDir, numCtx)
 	effectiveNumParallel := inference.ResolveNumParallel(numParallel)
 	effectiveNGPULayers := inference.ResolveNGPULayers(normalizedNGPULayers)
+	needsRequestedDTypeConversion := false
+	if normalizedDType != "" {
+		if needs, err := convert.NeedsConversionForDType(modelDir, normalizedDType); err != nil {
+			return nil, err
+		} else {
+			needsRequestedDTypeConversion = needs
+		}
+	}
 
 	for {
 		s.mu.Lock()
 
 		if me, ok := s.engines[modelID]; ok {
-			if !requestedOverrides {
+			if !requestedOverrides && normalizedDType == "" {
 				eng := me.engine
 				s.mu.Unlock()
 				return eng, nil
 			}
-			if me.numCtx == effectiveNumCtx && me.numParallel == effectiveNumParallel && me.nGPULayers == effectiveNGPULayers && me.cacheTypeK == normalizedCacheTypeK && me.cacheTypeV == normalizedCacheTypeV {
+			dtypeReady := normalizedDType == "" || (loadedDTypeMatchesRequest(me.dtype, normalizedDType) && !needsRequestedDTypeConversion)
+			if me.numCtx == effectiveNumCtx && me.numParallel == effectiveNumParallel && me.nGPULayers == effectiveNGPULayers && me.cacheTypeK == normalizedCacheTypeK && me.cacheTypeV == normalizedCacheTypeV && dtypeReady {
 				eng := me.engine
 				s.mu.Unlock()
 				return eng, nil

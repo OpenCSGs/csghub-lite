@@ -133,8 +133,14 @@ func runRun(cmd *cobra.Command, args []string, numCtx, numParallel, nGPULayers i
 
 	fmt.Printf("Loading %s...\n", modelID)
 
-	if modelDir, err := mgr.ModelPath(modelID); err == nil && convert.NeedsConversion(modelDir) {
-		fmt.Println(convertStatusMessage(dtype))
+	if modelDir, err := mgr.ModelPath(modelID); err == nil {
+		needsConversion, err := convert.NeedsConversionForDType(modelDir, dtype)
+		if err != nil {
+			return err
+		}
+		if needsConversion {
+			fmt.Println(convertStatusMessage(dtype))
+		}
 	}
 
 	serverURL, err := ensureServer(cfg)
