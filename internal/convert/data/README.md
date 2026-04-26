@@ -49,7 +49,7 @@ python3 -m venv ~/.csghub-lite/tools/python
 ~/.csghub-lite/tools/python/bin/python -m pip install safetensors transformers sentencepiece
 ```
 
-On macOS/Linux the tool tries `python3.13` … `python3.10`, then `python3` / `python`, plus common Homebrew paths, and skips interpreters older than Python 3.10. On Windows it looks for `python` / `python3` on `PATH`.
+On macOS/Linux the tool tries `python3.13` … `python3.9`, then `python3` / `python`, plus common Homebrew paths, and skips interpreters older than Python 3.9. On Windows it looks for `python` / `python3` on `PATH`.
 
 ### Optional / model-specific imports
 

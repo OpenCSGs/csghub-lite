@@ -27,6 +27,8 @@ const (
 	regionINTL                    = "INTL"
 	llamaCppGitHubRepo            = "https://github.com/ggml-org/llama.cpp"
 	llamaCppGiteeRepo             = "https://gitee.com/xzgan/llama.cpp"
+	minPythonMajor                = 3
+	minPythonMinor                = 9
 )
 
 type converterRepairResult struct {
@@ -224,7 +226,12 @@ func findPythonEnv() (pythonPath string, missingDeps string) {
 }
 
 func findPythonInterpreter() string {
-	candidates := []string{"python3.13", "python3.12", "python3.11", "python3.10", "python3", "python"}
+	python, _ := findPythonInterpreterWithStatus()
+	return python
+}
+
+func findPythonInterpreterWithStatus() (string, string) {
+	candidates := []string{"python3.13", "python3.12", "python3.11", "python3.10", "python3.9", "python3", "python"}
 	if runtime.GOOS == "windows" {
 		candidates = []string{"python", "python3"}
 	}
@@ -234,29 +241,82 @@ func findPythonInterpreter() string {
 		"/opt/homebrew/bin/python3.12",
 		"/opt/homebrew/bin/python3.11",
 		"/opt/homebrew/bin/python3.10",
+		"/opt/homebrew/bin/python3.9",
 		"/opt/homebrew/bin/python3",
+		"/usr/local/bin/python3.9",
 		"/usr/local/bin/python3",
 	}
 
+	unsupported := ""
 	for _, name := range candidates {
 		if p, err := exec.LookPath(name); err == nil {
 			if pythonVersionSupported(p) {
-				return p
+				return p, ""
 			}
+			unsupported = rememberUnsupportedPython(unsupported, p)
 		}
 	}
 	for _, p := range extraPaths {
 		if _, err := os.Stat(p); err == nil {
 			if pythonVersionSupported(p) {
-				return p
+				return p, ""
 			}
+			unsupported = rememberUnsupportedPython(unsupported, p)
 		}
 	}
-	return ""
+	return "", unsupported
+}
+
+func rememberUnsupportedPython(current, python string) string {
+	if current != "" {
+		return current
+	}
+	version := pythonVersionString(python)
+	if version == "" {
+		return python
+	}
+	return fmt.Sprintf("%s (%s)", python, version)
+}
+
+func pythonVersionString(python string) string {
+	output, err := exec.Command(python, "--version").CombinedOutput()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(output))
+}
+
+func minPythonVersionString() string {
+	return fmt.Sprintf("%d.%d+", minPythonMajor, minPythonMinor)
+}
+
+func pythonNotFoundOrUnsupportedMessage(unsupported string) string {
+	if strings.TrimSpace(unsupported) == "" {
+		return fmt.Sprintf("Python %s was not found on PATH.", minPythonVersionString())
+	}
+	return fmt.Sprintf("Found Python at %s, but csghub-lite requires Python %s.", unsupported, minPythonVersionString())
+}
+
+func pythonSetupIntro(unsupported string) string {
+	if strings.TrimSpace(unsupported) == "" {
+		return fmt.Sprintf("  1. Install Python %s and make sure python3 is available on PATH.", minPythonVersionString())
+	}
+	return fmt.Sprintf("  1. Install Python %s and make sure the newer python3 is available on PATH.", minPythonVersionString())
+}
+
+func pythonTooOldOrMissingLog(unsupported string) string {
+	if strings.TrimSpace(unsupported) == "" {
+		return "python3 not found"
+	}
+	return "python3 unsupported: " + unsupported
 }
 
 func pythonVersionSupported(python string) bool {
-	cmd := exec.Command(python, "-c", "import sys; raise SystemExit(0 if sys.version_info >= (3, 10) else 1)")
+	cmd := exec.Command(python, "-c", fmt.Sprintf(
+		"import sys; raise SystemExit(0 if sys.version_info >= (%d, %d) else 1)",
+		minPythonMajor,
+		minPythonMinor,
+	))
 	return cmd.Run() == nil
 }
 
@@ -383,19 +443,21 @@ func ConvertPython(modelDir string, progress ProgressFunc, dtype string) (string
 		return existingPath, nil
 	}
 
-	basePython := findPythonInterpreter()
+	basePython, unsupportedPython := findPythonInterpreterWithStatus()
 	if basePython == "" {
-		log.Printf("CONVERT: python3 not found for model_dir=%s", modelDir)
+		log.Printf("CONVERT: %s for model_dir=%s", pythonTooOldOrMissingLog(unsupportedPython), modelDir)
 		return "", converterErrorf(
 			"this checkpoint is SafeTensors-only; csghub-lite converts it to GGUF once using the official llama.cpp Python script.\n"+
 				"The Python runtime and conversion packages are not bundled with the release binary.\n\n"+
-				"Python 3.10+ was not found on PATH.\n"+
+				"%s\n"+
 				"Please complete these one-time setup steps:\n"+
-				"  1. Install Python 3.10+ and make sure python3 is available on PATH.\n"+
+				"%s\n"+
 				"%s\n"+
 				"  2. Install conversion deps:\n"+
 				"%s\n\n"+
 				"If the hub offers a GGUF build of the same model, download that instead to skip conversion.",
+			pythonNotFoundOrUnsupportedMessage(unsupportedPython),
+			pythonSetupIntro(unsupportedPython),
 			pythonInstallHint(),
 			pythonDepsInstallHint(),
 		)

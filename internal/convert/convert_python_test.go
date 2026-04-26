@@ -132,6 +132,13 @@ func TestPythonDepsInstallHintUsesManagedVenv(t *testing.T) {
 	}
 }
 
+func TestPythonNotFoundOrUnsupportedMessageMentionsOldVersion(t *testing.T) {
+	got := pythonNotFoundOrUnsupportedMessage("/usr/bin/python3 (Python 3.8.18)")
+	if !strings.Contains(got, "Python 3.8.18") || !strings.Contains(got, "requires Python 3.9+") {
+		t.Fatalf("unsupported Python message = %q", got)
+	}
+}
+
 func TestPythonDepsInstallHintUsesManagedVenvOnWindows(t *testing.T) {
 	got := pythonDepsInstallHintForGOOS("windows")
 	for _, want := range []string{
