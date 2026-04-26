@@ -22,7 +22,7 @@ import (
 
 const (
 	pythonCPUOnlyTorchInstallArgs = "--index-url https://download.pytorch.org/whl/cpu torch"
-	pythonDepsInstallArgs         = "safetensors gguf transformers"
+	pythonDepsInstallArgs         = "safetensors transformers"
 	regionCN                      = "CN"
 	regionINTL                    = "INTL"
 	llamaCppGitHubRepo            = "https://github.com/ggml-org/llama.cpp"
@@ -54,34 +54,56 @@ func pythonInstallHint() string {
 		return "  winget install -e --id Python.Python.3.12\n" +
 			"  If `winget` is unavailable, download Python from https://python.org and enable `Add Python to PATH` during setup."
 	default:
-		return "  sudo apt update && sudo apt install -y python3 python3-pip    # Debian / Ubuntu\n" +
-			"  sudo dnf install -y python3 python3-pip                           # Fedora / RHEL / Rocky"
+		return "  sudo apt update && sudo apt install -y python3 python3-pip python3-venv    # Debian / Ubuntu\n" +
+			"  sudo dnf install -y python3 python3-pip                                    # Fedora / RHEL / Rocky"
 	}
 }
 
 func pythonDepsInstallHint() string {
+	return pythonDepsInstallHintForGOOS(runtime.GOOS)
+}
+
+func pythonDepsInstallHintForGOOS(goos string) string {
+	if goos == "windows" {
+		venvDir := `"%USERPROFILE%\.csghub-lite\tools\python"`
+		venvPython := `"%USERPROFILE%\.csghub-lite\tools\python\Scripts\python.exe"`
+		return fmt.Sprintf(
+			"  py -m venv %s\n"+
+				"  %s -m pip install --upgrade pip\n"+
+				"  %s -m pip install %s\n"+
+				"  %s -m pip install %s\n"+
+				"  csghub-lite automatically checks this virtual environment on the next run.",
+			venvDir,
+			venvPython,
+			venvPython,
+			pythonCPUOnlyTorchInstallArgs,
+			venvPython,
+			pythonDepsInstallArgs,
+		)
+	}
+
+	venvDir := "~/.csghub-lite/tools/python"
+	venvPython := venvDir + "/bin/python"
 	return fmt.Sprintf(
-		"  pip3 install %s\n"+
-			"  pip3 install %s\n"+
-			"  If `pip3` is unavailable, try:\n"+
-			"    python3 -m pip install %s\n"+
-			"    python3 -m pip install %s\n"+
-			"    py -m pip install %s (Windows)\n"+
-			"    py -m pip install %s (Windows)",
+		"  python3 -m venv %s\n"+
+			"  %s -m pip install --upgrade pip\n"+
+			"  %s -m pip install %s\n"+
+			"  %s -m pip install %s\n"+
+			"  csghub-lite automatically checks this virtual environment on the next run.",
+		venvDir,
+		venvPython,
+		venvPython,
 		pythonCPUOnlyTorchInstallArgs,
-		pythonDepsInstallArgs,
-		pythonCPUOnlyTorchInstallArgs,
-		pythonDepsInstallArgs,
-		pythonCPUOnlyTorchInstallArgs,
+		venvPython,
 		pythonDepsInstallArgs,
 	)
 }
 
 func preferredPipInstallCommand() string {
 	if runtime.GOOS == "windows" {
-		return "py -m pip install --upgrade"
+		return `"%USERPROFILE%\.csghub-lite\tools\python\Scripts\python.exe" -m pip install --upgrade`
 	}
-	return "python3 -m pip install --upgrade"
+	return "~/.csghub-lite/tools/python/bin/python -m pip install --upgrade"
 }
 
 func ggufRepoInstallCommand(repoURL string) string {
@@ -94,19 +116,28 @@ func ggufRepoInstallCommand(repoURL string) string {
 }
 
 func ggufRepoInstallHint(region string) string {
-	sources := llamaCppSources(region)
+	sources := llamaCppGGUFPySources()
 	if len(sources) == 0 {
 		return ""
 	}
 	lines := []string{
-		"Install the matching `gguf-py` directly from the llama.cpp repo:",
+		"Install the matching `gguf-py` directly from the Gitee llama.cpp source:",
 		"  " + ggufRepoInstallCommand(sources[0].repoURL),
 	}
-	if len(sources) > 1 {
-		lines = append(lines,
-			"  If that mirror is unavailable, try:",
-			"    "+ggufRepoInstallCommand(sources[1].repoURL),
-		)
+	return strings.Join(lines, "\n")
+}
+
+func sourceGGUFPySetupHint(region string) string {
+	sources := llamaCppGGUFPySources()
+	if len(sources) == 0 {
+		return ""
+	}
+	lines := []string{
+		fmt.Sprintf(
+			"csghub-lite installs `gguf-py` from llama.cpp source tag `%s`, not from PyPI.",
+			BundledConverterLLamacppRef,
+		),
+		fmt.Sprintf("Source: %s.", sources[0].repoURL),
 	}
 	return strings.Join(lines, "\n")
 }
@@ -138,6 +169,21 @@ func converterCacheDir() string {
 	return filepath.Join(home, ".csghub-lite", "tools")
 }
 
+func managedPythonVenvDir() string {
+	return filepath.Join(converterCacheDir(), "python")
+}
+
+func managedPythonVenvExecutable() string {
+	if runtime.GOOS == "windows" {
+		return filepath.Join(managedPythonVenvDir(), "Scripts", "python.exe")
+	}
+	return filepath.Join(managedPythonVenvDir(), "bin", "python")
+}
+
+func managedGGUFPyPath() string {
+	return filepath.Join(bundledConverterDir(), "gguf-py")
+}
+
 func bundledConverterDir() string {
 	return filepath.Join(converterCacheDir(), "bundled")
 }
@@ -152,6 +198,28 @@ func remoteConverterDir() string {
 //   - pythonPath != "" && missingDeps != "": Python found but packages missing
 //   - pythonPath == "": no Python found at all
 func findPythonEnv() (pythonPath string, missingDeps string) {
+	if p := managedPythonVenvExecutable(); p != "" {
+		if _, err := os.Stat(p); err == nil {
+			if missing := checkPythonDeps(p); missing == "" {
+				return p, ""
+			}
+			// Prefer reporting missing packages for the managed venv so the
+			// setup hint installs into the same interpreter csghub-lite will use.
+			return p, checkPythonDeps(p)
+		}
+	}
+
+	if firstPython := findPythonInterpreter(); firstPython != "" {
+		missing := checkPythonDeps(firstPython)
+		if missing == "" {
+			return firstPython, ""
+		}
+		return firstPython, missing
+	}
+	return "", ""
+}
+
+func findPythonInterpreter() string {
 	candidates := []string{"python3.13", "python3.12", "python3.11", "python3.10", "python3", "python"}
 	if runtime.GOOS == "windows" {
 		candidates = []string{"python", "python3"}
@@ -166,33 +234,26 @@ func findPythonEnv() (pythonPath string, missingDeps string) {
 		"/usr/local/bin/python3",
 	}
 
-	var firstPython string
-
 	for _, name := range candidates {
 		if p, err := exec.LookPath(name); err == nil {
-			if firstPython == "" {
-				firstPython = p
-			}
-			if missing := checkPythonDeps(p); missing == "" {
-				return p, ""
+			if pythonVersionSupported(p) {
+				return p
 			}
 		}
 	}
 	for _, p := range extraPaths {
 		if _, err := os.Stat(p); err == nil {
-			if firstPython == "" {
-				firstPython = p
-			}
-			if missing := checkPythonDeps(p); missing == "" {
-				return p, ""
+			if pythonVersionSupported(p) {
+				return p
 			}
 		}
 	}
+	return ""
+}
 
-	if firstPython != "" {
-		return firstPython, checkPythonDeps(firstPython)
-	}
-	return "", ""
+func pythonVersionSupported(python string) bool {
+	cmd := exec.Command(python, "-c", "import sys; raise SystemExit(0 if sys.version_info >= (3, 10) else 1)")
+	return cmd.Run() == nil
 }
 
 // checkPythonDeps returns a comma-separated list of missing packages, or "" if all present.
@@ -209,11 +270,7 @@ func checkPythonDeps(python string) string {
 }
 
 func requiredPythonModules() []string {
-	required := []string{"torch", "safetensors", "transformers"}
-	if strings.TrimSpace(os.Getenv("CSGHUB_LITE_CONVERTER_URL")) != "" {
-		required = append(required, "gguf")
-	}
-	return required
+	return []string{"torch", "safetensors", "transformers"}
 }
 
 func ensureConverterScript() (string, error) {
@@ -321,14 +378,14 @@ func ConvertPython(modelDir string, progress ProgressFunc, dtype string) (string
 		return existingPath, nil
 	}
 
-	python, missingDeps := findPythonEnv()
-	if python == "" {
+	basePython := findPythonInterpreter()
+	if basePython == "" {
 		return "", converterErrorf(
 			"this checkpoint is SafeTensors-only; csghub-lite converts it to GGUF once using the official llama.cpp Python script.\n"+
 				"The Python runtime and conversion packages are not bundled with the release binary.\n\n"+
-				"python3 was not found on PATH.\n"+
+				"Python 3.10+ was not found on PATH.\n"+
 				"Please complete these one-time setup steps:\n"+
-				"  1. Install Python 3 and make sure python3 / pip3 are available on PATH.\n"+
+				"  1. Install Python 3.10+ and make sure python3 is available on PATH.\n"+
 				"%s\n"+
 				"  2. Install conversion deps:\n"+
 				"%s\n\n"+
@@ -337,15 +394,22 @@ func ConvertPython(modelDir string, progress ProgressFunc, dtype string) (string
 			pythonDepsInstallHint(),
 		)
 	}
-	if missingDeps != "" {
+
+	progress("Preparing Python conversion environment", 0, 0)
+	python, setupOutput, setupErr := ensureManagedPythonEnv(basePython)
+	if setupErr != nil {
+		if setupOutput == "" {
+			setupOutput = "(no setup output)"
+		}
 		return "", converterErrorf(
 			"this checkpoint is SafeTensors-only; csghub-lite converts it to GGUF once using the official llama.cpp Python script.\n"+
-				"Those Python packages are not bundled with the release binary.\n\n"+
-				"Missing: %s\n\n"+
-				"Install (one-time):\n"+
+				"csghub-lite tried to prepare an isolated Python environment automatically, but setup failed.\n\n"+
+				"Automatic setup failed: %s\n%s\n\n"+
+				"Run these one-time setup commands manually, then retry:\n"+
 				"%s\n\n"+
 				"If a GGUF variant exists on CSGHub or Hugging Face, use it to skip conversion.",
-			missingDeps,
+			setupErr,
+			lastNLines(setupOutput, 12),
 			pythonDepsInstallHint(),
 		)
 	}
@@ -358,6 +422,20 @@ func ConvertPython(modelDir string, progress ProgressFunc, dtype string) (string
 	script, err := ensureConverterScript()
 	if err != nil {
 		return "", converterErrorf("%v", err)
+	}
+
+	if sourceName, err := ensureConverterGGUFPySource(progress); err != nil {
+		return "", converterErrorf(
+			"this checkpoint is SafeTensors-only; csghub-lite converts it to GGUF once using the official llama.cpp Python script.\n"+
+				"csghub-lite tried to prepare matching `gguf-py` from llama.cpp source, but setup failed.\n\n"+
+				"Automatic gguf-py setup failed: %s\n\n"+
+				"%s\n\n"+
+				"If a GGUF variant exists on CSGHub or Hugging Face, use it to skip conversion.",
+			err,
+			sourceGGUFPySetupHint(detectLlamaCppSourceRegion()),
+		)
+	} else {
+		progress(fmt.Sprintf("Prepared matching gguf-py from %s", sourceName), 0, 0)
 	}
 
 	outputName := generateOutputName(modelDir, effectiveDType)
@@ -418,6 +496,61 @@ func PythonConverterAvailable() bool {
 	return p != "" && missing == ""
 }
 
+func ensureManagedPythonEnv(basePython string) (string, string, error) {
+	python := managedPythonVenvExecutable()
+	if python == "" {
+		return "", "", fmt.Errorf("managed Python executable path is empty")
+	}
+	if _, err := os.Stat(python); err != nil {
+		output, runErr := runCommand(basePython, "-m", "venv", managedPythonVenvDir())
+		if runErr != nil {
+			return "", output, fmt.Errorf("creating Python virtual environment: %w", runErr)
+		}
+	} else if missing := checkPythonDeps(python); missing == "" {
+		return python, "", nil
+	}
+
+	var combined []string
+	steps := [][]string{
+		{"-m", "pip", "install", "--upgrade", "pip"},
+		{"-m", "pip", "install", "--upgrade", "--index-url", "https://download.pytorch.org/whl/cpu", "torch"},
+		{"-m", "pip", "install", "--upgrade", "safetensors", "transformers"},
+	}
+	for _, args := range steps {
+		output, err := runPythonPipCommand(python, args...)
+		if output != "" {
+			combined = append(combined, output)
+		}
+		if err != nil {
+			return "", strings.Join(combined, "\n"), err
+		}
+	}
+	if missing := checkPythonDeps(python); missing != "" {
+		return "", strings.Join(combined, "\n"), fmt.Errorf("missing Python packages after automatic install: %s", missing)
+	}
+	return python, strings.Join(combined, "\n"), nil
+}
+
+func runPythonPipCommand(python string, args ...string) (string, error) {
+	output, err := runCommand(python, args...)
+	if err != nil {
+		return output, fmt.Errorf("%s %s: %w", python, strings.Join(args, " "), err)
+	}
+	return output, nil
+}
+
+func runCommand(name string, args ...string) (string, error) {
+	cmd := exec.Command(name, args...)
+	cmd.Env = append(os.Environ(), "PIP_DISABLE_PIP_VERSION_CHECK=1")
+	output, err := cmd.CombinedOutput()
+	return strings.TrimSpace(string(output)), err
+}
+
+func ensureConverterGGUFPySource(progress ProgressFunc) (string, error) {
+	progress("Preparing matching gguf-py from Gitee llama.cpp source", 0, 0)
+	return ensureBundledGGUFPy()
+}
+
 func convertModelWithAutoRepair(python, script, modelDir, outputPath, dtype string, progress ProgressFunc) error {
 	output, err := runModelConverter(python, script, modelDir, outputPath, dtype)
 	if err == nil {
@@ -443,6 +576,7 @@ func runModelConverter(python, script, modelDir, outputPath, dtype string) (stri
 		"--outfile", outputPath,
 		"--outtype", dtype,
 	)
+	cmd.Env = converterPythonEnv()
 	output, err := cmd.CombinedOutput()
 	return strings.TrimSpace(string(output)), err
 }
@@ -453,8 +587,20 @@ func runMMProjConverter(python, script, modelDir, dtype string) (string, error) 
 		"--mmproj",
 	)
 	cmd.Dir = modelDir
+	cmd.Env = converterPythonEnv()
 	output, err := cmd.CombinedOutput()
 	return strings.TrimSpace(string(output)), err
+}
+
+func converterPythonEnv() []string {
+	env := os.Environ()
+	ggufPath := managedGGUFPyPath()
+	if existing := os.Getenv("PYTHONPATH"); existing != "" {
+		env = append(env, "PYTHONPATH="+ggufPath+string(os.PathListSeparator)+existing)
+	} else {
+		env = append(env, "PYTHONPATH="+ggufPath)
+	}
+	return env
 }
 
 func attemptConverterAutoRepair(python, combined string, progress ProgressFunc) converterRepairResult {
@@ -465,36 +611,30 @@ func attemptConverterAutoRepair(python, combined string, progress ProgressFunc) 
 
 	var notes []string
 	var failures []string
-	ggufUpgradeFallback := false
 	var otherPackages []string
 	for _, pkg := range plan.upgradePackages {
 		if pkg == "gguf" {
-			ggufUpgradeFallback = true
 			continue
 		}
 		otherPackages = append(otherPackages, pkg)
 	}
 
 	if plan.installBundledGGUFPy {
-		region := detectLlamaCppSourceRegion()
-		progress("Preparing matching gguf-py from llama.cpp", 0, 0)
-		sourceName, err := ensureBundledGGUFPy(region)
+		progress("Preparing matching gguf-py from Gitee llama.cpp source", 0, 0)
+		sourceName, err := ensureBundledGGUFPy()
 		if err != nil {
 			failures = append(failures, fmt.Sprintf(
 				"csghub-lite detected that this bundled converter needs matching `gguf-py` from llama.cpp tag `%s`.\n"+
-					"It tried these sources in order for region `%s`: %s.\n\n"+
+					"It tried Gitee source: %s.\n\n"+
 					"Automatic gguf-py download failed: %s\n\n"+
 					"%s",
 				BundledConverterLLamacppRef,
-				region,
-				strings.Join(llamaCppSourceNames(region), ", "),
+				llamaCppGiteeRepo,
 				err,
-				ggufRepoInstallHint(region),
+				ggufRepoInstallHint(regionCN),
 			))
 		} else {
 			notes = append(notes, fmt.Sprintf("prepared matching gguf-py from %s", sourceName))
-			// Prefer the matching repository copy over the stale PyPI fallback.
-			ggufUpgradeFallback = false
 		}
 	}
 
@@ -517,27 +657,6 @@ func attemptConverterAutoRepair(python, combined string, progress ProgressFunc) 
 			))
 		} else {
 			notes = append(notes, fmt.Sprintf("upgraded %s", strings.Join(otherPackages, ", ")))
-		}
-	}
-
-	if ggufUpgradeFallback {
-		progress("Upgrading Python package: gguf (fallback)", 0, 0)
-		pipOutput, pipErr := upgradePythonPackages(python, []string{"gguf"})
-		command := fmt.Sprintf("%s -m pip install --upgrade gguf", python)
-		if pipErr != nil {
-			pipSummary := lastNLines(pipOutput, 10)
-			if pipSummary == "" {
-				pipSummary = "(no pip output)"
-			}
-			failures = append(failures, fmt.Sprintf(
-				"csghub-lite fell back to PyPI for `gguf` and tried to run:\n  %s\n\n"+
-					"Automatic package upgrade failed: %s\n%s",
-				command,
-				pipErr,
-				pipSummary,
-			))
-		} else {
-			notes = append(notes, "upgraded gguf from PyPI as fallback")
 		}
 	}
 
@@ -585,7 +704,6 @@ func repairPlanForConverterFailure(combined string) converterRepairPlan {
 		strings.Contains(lower, "no module named 'gguf'") ||
 		strings.Contains(lower, "no module named \"gguf\"") {
 		plan.installBundledGGUFPy = true
-		add("gguf")
 	}
 	if strings.Contains(combined, "Transformers does not recognize this architecture") ||
 		strings.Contains(combined, "pip install --upgrade transformers") ||
@@ -662,6 +780,14 @@ func llamaCppSources(region string) []llamaCppSource {
 	return []llamaCppSource{github, gitee}
 }
 
+func llamaCppGGUFPySources() []llamaCppSource {
+	return []llamaCppSource{{
+		name:       "Gitee mirror",
+		repoURL:    llamaCppGiteeRepo,
+		archiveURL: fmt.Sprintf("%s/archive/refs/tags/%s.tar.gz", llamaCppGiteeRepo, BundledConverterLLamacppRef),
+	}}
+}
+
 func llamaCppSourceNames(region string) []string {
 	sources := llamaCppSources(region)
 	names := make([]string, 0, len(sources))
@@ -671,7 +797,7 @@ func llamaCppSourceNames(region string) []string {
 	return names
 }
 
-func ensureBundledGGUFPy(region string) (string, error) {
+func ensureBundledGGUFPy() (string, error) {
 	dir := bundledConverterDir()
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return "", fmt.Errorf("creating bundled converter dir: %w", err)
@@ -699,7 +825,7 @@ func ensureBundledGGUFPy(region string) (string, error) {
 	archiveFile.Close()
 	defer os.Remove(archivePath)
 
-	sourceName, err := downloadLlamaCppArchive(archivePath, region)
+	sourceName, err := downloadLlamaCppArchive(archivePath, llamaCppGGUFPySources())
 	if err != nil {
 		return "", err
 	}
@@ -736,10 +862,10 @@ func ensureBundledGGUFPy(region string) (string, error) {
 	return sourceName, nil
 }
 
-func downloadLlamaCppArchive(dst, region string) (string, error) {
+func downloadLlamaCppArchive(dst string, sources []llamaCppSource) (string, error) {
 	client := &http.Client{Timeout: 5 * time.Minute}
 	var failures []string
-	for _, source := range llamaCppSources(region) {
+	for _, source := range sources {
 		if err := downloadURLToFile(client, source.archiveURL, dst); err == nil {
 			return source.name, nil
 		} else {
@@ -881,13 +1007,10 @@ func hintForConverterScriptFailure(combined string) string {
 		(strings.Contains(combined, "MODEL_ARCH") || strings.Contains(combined, "gguf.")) {
 		return fmt.Sprintf(
 			"\n\nLikely the `gguf` Python package is older than this converter script expects.\n"+
-				"csghub-lite now prefers matching `gguf-py` from llama.cpp tag `%s` (CN: %s, INTL: %s).\n"+
+				"csghub-lite uses matching `gguf-py` from Gitee llama.cpp tag `%s`, not PyPI.\n"+
 				"%s\n"+
-				"If the automatic repair did not fix it, point CSGHUB_LITE_REGION to `CN` or `INTL` and retry.\n"+
 				"To reset the bundled copy, delete the bundled converter cache under %s\n",
 			BundledConverterLLamacppRef,
-			llamaCppGiteeRepo,
-			llamaCppGitHubRepo,
 			ggufRepoInstallHint(regionCN),
 			bundledConverterDir(),
 		)
@@ -896,7 +1019,8 @@ func hintForConverterScriptFailure(combined string) string {
 		strings.Contains(combined, "pip install --upgrade transformers") ||
 		strings.Contains(combined, "pip install git+https://github.com/huggingface/transformers.git") {
 		return "\n\nThe installed `transformers` package looks too old for this model.\n" +
-			"If the automatic upgrade did not fix it, run: pip3 install -U transformers\n"
+			"If the automatic upgrade did not fix it, run:\n" +
+			"  " + preferredPipInstallCommand() + " transformers\n"
 	}
 	return ""
 }

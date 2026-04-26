@@ -17,7 +17,6 @@ AttributeError: GEMMA4. Did you mean: 'GEMMA'?
 	got := repairPlanForConverterFailure(output)
 	want := converterRepairPlan{
 		installBundledGGUFPy: true,
-		upgradePackages:      []string{"gguf"},
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("repairPlanForConverterFailure() = %#v, want %#v", got, want)
@@ -35,7 +34,6 @@ ModuleNotFoundError: No module named 'gguf'
 	got := repairPlanForConverterFailure(output)
 	want := converterRepairPlan{
 		installBundledGGUFPy: true,
-		upgradePackages:      []string{"gguf"},
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("repairPlanForConverterFailure() = %#v, want %#v", got, want)
@@ -66,7 +64,7 @@ AttributeError: GEMMA4. Did you mean: 'GEMMA'?
 	got := repairPlanForConverterFailure(output)
 	want := converterRepairPlan{
 		installBundledGGUFPy: true,
-		upgradePackages:      []string{"gguf", "transformers"},
+		upgradePackages:      []string{"transformers"},
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("repairPlanForConverterFailure() = %#v, want %#v", got, want)
@@ -98,8 +96,37 @@ func TestGGUFRepoInstallHintIncludesCopyableCommands(t *testing.T) {
 	if !strings.Contains(got, `git+https://gitee.com/xzgan/llama.cpp.git@`+BundledConverterLLamacppRef+`#subdirectory=gguf-py`) {
 		t.Fatalf("ggufRepoInstallHint(CN) missing Gitee command: %q", got)
 	}
-	if !strings.Contains(got, `git+https://github.com/ggml-org/llama.cpp.git@`+BundledConverterLLamacppRef+`#subdirectory=gguf-py`) {
-		t.Fatalf("ggufRepoInstallHint(CN) missing GitHub fallback: %q", got)
+	if strings.Contains(got, "github.com/ggml-org") || strings.Contains(got, "pip install gguf") {
+		t.Fatalf("ggufRepoInstallHint(CN) should only use Gitee source, got: %q", got)
+	}
+}
+
+func TestPythonDepsInstallHintUsesManagedVenv(t *testing.T) {
+	got := pythonDepsInstallHintForGOOS("darwin")
+	if strings.Contains(got, "pip3 install") {
+		t.Fatalf("pythonDepsInstallHintForGOOS(darwin) should not suggest global pip3 install: %q", got)
+	}
+	for _, want := range []string{
+		"python3 -m venv ~/.csghub-lite/tools/python",
+		"~/.csghub-lite/tools/python/bin/python -m pip install --index-url https://download.pytorch.org/whl/cpu torch",
+		"~/.csghub-lite/tools/python/bin/python -m pip install safetensors transformers",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("pythonDepsInstallHintForGOOS(darwin) missing %q in %q", want, got)
+		}
+	}
+}
+
+func TestPythonDepsInstallHintUsesManagedVenvOnWindows(t *testing.T) {
+	got := pythonDepsInstallHintForGOOS("windows")
+	for _, want := range []string{
+		`py -m venv "%USERPROFILE%\.csghub-lite\tools\python"`,
+		`"%USERPROFILE%\.csghub-lite\tools\python\Scripts\python.exe" -m pip install --index-url https://download.pytorch.org/whl/cpu torch`,
+		`"%USERPROFILE%\.csghub-lite\tools\python\Scripts\python.exe" -m pip install safetensors transformers`,
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("pythonDepsInstallHintForGOOS(windows) missing %q in %q", want, got)
+		}
 	}
 }
 

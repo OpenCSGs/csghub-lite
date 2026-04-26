@@ -166,14 +166,16 @@ csghub-lite config set server_url https://my-private-csghub.example.com
 | GGUF | Yes | Yes (via llama.cpp) |
 | SafeTensors | Yes | Yes (auto-converted to GGUF) |
 
-SafeTensors checkpoints are converted once using the bundled llama.cpp `convert_hf_to_gguf.py` and **system Python** (PyTorch is not shipped inside the release binary). Install these packages once:
+SafeTensors checkpoints are converted once using the bundled llama.cpp `convert_hf_to_gguf.py`. `csghub-lite` automatically prepares an isolated Python environment under `~/.csghub-lite/tools/python`; if that setup fails, run the same commands manually:
 
 ```bash
-pip3 install --index-url https://download.pytorch.org/whl/cpu torch
-pip3 install safetensors gguf transformers
+python3 -m venv ~/.csghub-lite/tools/python
+~/.csghub-lite/tools/python/bin/python -m pip install --upgrade pip
+~/.csghub-lite/tools/python/bin/python -m pip install --index-url https://download.pytorch.org/whl/cpu torch
+~/.csghub-lite/tools/python/bin/python -m pip install safetensors transformers
 ```
 
-Use Python 3.10+ on `PATH` (Windows: `python` or `python3`). If `gguf` is too old for the bundled converter, `csghub-lite` now prefers the matching `gguf-py` from the `llama.cpp` source tag (`CSGHUB_LITE_REGION=CN` prefers `https://gitee.com/xzgan/llama.cpp`, other regions prefer GitHub); only if that repository repair fails does it fall back to `python -m pip install -U gguf` before retrying once automatically. If `transformers` is too old for a new architecture, `csghub-lite` still tries `python -m pip install -U transformers` before retrying. Some models may need extra packages (for example `sentencepiece`); see [`internal/convert/data/README.md`](internal/convert/data/README.md) for the full list and troubleshooting (`gguf` version mismatch, optional `CSGHUB_LITE_CONVERTER_URL`).
+Use Python 3.10+ on `PATH` (Windows: `python` or `python3`). `gguf-py` is loaded from matching Gitee `llama.cpp` source (`https://gitee.com/xzgan/llama.cpp`), not PyPI. If `transformers` is too old for a new architecture, `csghub-lite` tries to upgrade it inside the managed venv before retrying. Some models may need extra packages (for example `sentencepiece`); see [`internal/convert/data/README.md`](internal/convert/data/README.md) for the full list and troubleshooting.
 
 ## Development
 

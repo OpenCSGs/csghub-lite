@@ -1,6 +1,6 @@
 # Bundled `convert_hf_to_gguf.py`
 
-This file is embedded into the `csghub-lite` binary (`go:embed`) so SafeTensors → GGUF conversion does not need to download the converter script itself at runtime. If the system `gguf` package is too old, `csghub-lite` may still fetch matching `gguf-py` from the configured `llama.cpp` source mirror.
+This file is embedded into the `csghub-lite` binary (`go:embed`) so SafeTensors → GGUF conversion does not need to download the converter script itself at runtime. `csghub-lite` fetches the matching `gguf-py` package from the Gitee `llama.cpp` source tag and adds it to `PYTHONPATH`; it does not install `gguf` from PyPI.
 
 | Field | Value |
 |-------|--------|
@@ -30,23 +30,25 @@ Optional: set **`CSGHUB_LITE_CONVERTER_URL`** at runtime to a raw mirror URL ins
 
 ## Python runtime dependencies
 
-`csghub-lite` materializes this script and runs it with a system **Python 3** interpreter. The binary pre-checks the core imports before conversion (`internal/convert/convert_python.go`); `gguf` can come either from the system Python environment or from a matching `gguf-py` fetch when auto-repair is needed:
+`csghub-lite` materializes this script and runs it with an isolated Python virtual environment under `~/.csghub-lite/tools/python`. Missing runtime packages are installed automatically before conversion; setup commands are shown to users only if automatic setup fails:
 
 | Package | Role |
 |---------|------|
 | `torch` | Load tensors / weights |
 | `safetensors` | Read `.safetensors` checkpoints |
-| `gguf` | Write GGUF; if it is too old for the bundled converter, `csghub-lite` prefers matching `gguf-py` from the `llama.cpp` source tag, and only falls back to `python -m pip install -U gguf` if that repository repair fails before retrying once (`CSGHUB_LITE_REGION=CN` prefers `https://gitee.com/xzgan/llama.cpp`, other regions prefer GitHub) |
-| `transformers` | `AutoConfig`, tokenizers, etc.; if it is too old to recognize a new architecture, `csghub-lite` auto-runs `python -m pip install -U transformers` and retries once |
+| `gguf` | Write GGUF; always loaded from matching `gguf-py` source extracted from `https://gitee.com/xzgan/llama.cpp` at `BundledConverterLLamacppRef`, never from PyPI |
+| `transformers` | `AutoConfig`, tokenizers, etc.; if it is too old to recognize a new architecture, `csghub-lite` auto-runs `python -m pip install -U transformers` inside the managed venv and retries once |
 
 One-time install (same as the CLI error text):
 
 ```bash
-pip3 install --index-url https://download.pytorch.org/whl/cpu torch
-pip3 install safetensors gguf transformers
+python3 -m venv ~/.csghub-lite/tools/python
+~/.csghub-lite/tools/python/bin/python -m pip install --upgrade pip
+~/.csghub-lite/tools/python/bin/python -m pip install --index-url https://download.pytorch.org/whl/cpu torch
+~/.csghub-lite/tools/python/bin/python -m pip install safetensors transformers
 ```
 
-On macOS/Linux the tool tries `python3.13` … `python3.10`, then `python3` / `python`, plus common Homebrew paths. On Windows it looks for `python` / `python3` on `PATH`.
+On macOS/Linux the tool tries `python3.13` … `python3.10`, then `python3` / `python`, plus common Homebrew paths, and skips interpreters older than Python 3.10. On Windows it looks for `python` / `python3` on `PATH`.
 
 ### Optional / model-specific imports
 
