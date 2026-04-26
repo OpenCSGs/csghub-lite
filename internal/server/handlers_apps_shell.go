@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	neturl "net/url"
 	"os"
@@ -169,6 +170,7 @@ func (m *aiAppShellManager) Create(appID, title, modelID string, prepared aiAppP
 		_ = pty.Close()
 		return nil, fmt.Errorf("starting %s terminal: %w", title, err)
 	}
+	log.Printf("AI APP %s: shell process started title=%q pid=%d model=%q work_dir=%q command=%s %s", appID, title, cmd.Process.Pid, modelID, prepared.Dir, prepared.Binary, strings.Join(prepared.Args, " "))
 
 	session := &aiAppShellSession{
 		manager: m,
@@ -252,6 +254,7 @@ func (s *aiAppShellSession) wait() {
 			exitCode = 1
 		}
 	}
+	log.Printf("AI APP %s: shell session exited id=%s exit_code=%d error=%q", s.appID, s.id, exitCode, exitErr)
 
 	s.mu.Lock()
 	if s.done {
@@ -488,6 +491,7 @@ func (s *Server) openAIAppShellURL(ctx context.Context, appID, requestedModel, r
 	if err != nil {
 		return "", err
 	}
+	log.Printf("AI APP %s: preparing shell launch model=%q models=%d work_dir=%q", appID, defaultModel, len(modelIDs), requestedWorkDir)
 
 	prepared, err := s.prepareAIAppShellLaunch(target, defaultModel, modelIDs, requestedWorkDir)
 	if err != nil {
@@ -511,6 +515,7 @@ func (s *Server) openAIAppShellURL(ctx context.Context, appID, requestedModel, r
 	query.Set("session_id", session.id)
 	query.Set("app_id", session.appID)
 	u.RawQuery = query.Encode()
+	log.Printf("AI APP %s: shell ready session=%s url=%s", appID, session.id, u.String())
 	return u.String(), nil
 }
 

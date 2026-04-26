@@ -22,7 +22,7 @@ import (
 
 const (
 	pythonCPUOnlyTorchInstallArgs = "--index-url https://download.pytorch.org/whl/cpu torch"
-	pythonDepsInstallArgs         = "safetensors transformers"
+	pythonDepsInstallArgs         = "safetensors transformers sentencepiece"
 	regionCN                      = "CN"
 	regionINTL                    = "INTL"
 	llamaCppGitHubRepo            = "https://github.com/ggml-org/llama.cpp"
@@ -116,7 +116,7 @@ func ggufRepoInstallCommand(repoURL string) string {
 }
 
 func ggufRepoInstallHint(region string) string {
-	sources := llamaCppGGUFPySources()
+	sources := llamaCppSources(region)
 	if len(sources) == 0 {
 		return ""
 	}
@@ -128,16 +128,20 @@ func ggufRepoInstallHint(region string) string {
 }
 
 func sourceGGUFPySetupHint(region string) string {
-	sources := llamaCppGGUFPySources()
+	sources := llamaCppSources(region)
 	if len(sources) == 0 {
 		return ""
+	}
+	sourceURLs := make([]string, 0, len(sources))
+	for _, source := range sources {
+		sourceURLs = append(sourceURLs, source.repoURL)
 	}
 	lines := []string{
 		fmt.Sprintf(
 			"csghub-lite installs `gguf-py` from llama.cpp source tag `%s`, not from PyPI.",
 			BundledConverterLLamacppRef,
 		),
-		fmt.Sprintf("Source: %s.", sources[0].repoURL),
+		fmt.Sprintf("Sources: %s.", strings.Join(sourceURLs, ", ")),
 	}
 	return strings.Join(lines, "\n")
 }
@@ -270,7 +274,7 @@ func checkPythonDeps(python string) string {
 }
 
 func requiredPythonModules() []string {
-	return []string{"torch", "safetensors", "transformers"}
+	return []string{"torch", "safetensors", "transformers", "sentencepiece"}
 }
 
 func ensureConverterScript() (string, error) {
@@ -375,11 +379,13 @@ func ConvertPython(modelDir string, progress ProgressFunc, dtype string) (string
 	if existingPath, ok, err := FindGGUFForDType(modelDir, effectiveDType); err != nil {
 		return "", err
 	} else if ok {
+		log.Printf("CONVERT: existing GGUF found model_dir=%s dtype=%q path=%s", modelDir, effectiveDType, existingPath)
 		return existingPath, nil
 	}
 
 	basePython := findPythonInterpreter()
 	if basePython == "" {
+		log.Printf("CONVERT: python3 not found for model_dir=%s", modelDir)
 		return "", converterErrorf(
 			"this checkpoint is SafeTensors-only; csghub-lite converts it to GGUF once using the official llama.cpp Python script.\n"+
 				"The Python runtime and conversion packages are not bundled with the release binary.\n\n"+
@@ -396,8 +402,10 @@ func ConvertPython(modelDir string, progress ProgressFunc, dtype string) (string
 	}
 
 	progress("Preparing Python conversion environment", 0, 0)
-	python, setupOutput, setupErr := ensureManagedPythonEnv(basePython)
+	log.Printf("CONVERT: preparing Python environment base=%s model_dir=%s", basePython, modelDir)
+	python, setupOutput, setupErr := ensureManagedPythonEnv(basePython, progress)
 	if setupErr != nil {
+		log.Printf("CONVERT: preparing Python environment failed: %v", setupErr)
 		if setupOutput == "" {
 			setupOutput = "(no setup output)"
 		}
@@ -419,12 +427,14 @@ func ConvertPython(modelDir string, progress ProgressFunc, dtype string) (string
 		step = "Downloading converter from CSGHUB_LITE_CONVERTER_URL"
 	}
 	progress(step, 0, 0)
+	log.Printf("CONVERT: %s", step)
 	script, err := ensureConverterScript()
 	if err != nil {
 		return "", converterErrorf("%v", err)
 	}
 
 	if sourceName, err := ensureConverterGGUFPySource(progress); err != nil {
+		log.Printf("CONVERT: preparing gguf-py failed: %v", err)
 		return "", converterErrorf(
 			"this checkpoint is SafeTensors-only; csghub-lite converts it to GGUF once using the official llama.cpp Python script.\n"+
 				"csghub-lite tried to prepare matching `gguf-py` from llama.cpp source, but setup failed.\n\n"+
@@ -436,13 +446,16 @@ func ConvertPython(modelDir string, progress ProgressFunc, dtype string) (string
 		)
 	} else {
 		progress(fmt.Sprintf("Prepared matching gguf-py from %s", sourceName), 0, 0)
+		log.Printf("CONVERT: prepared matching gguf-py from %s", sourceName)
 	}
 
 	outputName := generateOutputName(modelDir, effectiveDType)
 	outputPath := filepath.Join(modelDir, outputName)
 
 	progress(fmt.Sprintf("Converting with %s to GGUF (dtype: %s)", converterProgressSummary(), effectiveDType), 0, 0)
+	log.Printf("CONVERT: running converter script=%s output=%s dtype=%s", script, outputPath, effectiveDType)
 	if err := convertModelWithAutoRepair(python, script, modelDir, outputPath, effectiveDType, progress); err != nil {
+		log.Printf("CONVERT: converter failed output=%s dtype=%s: %v", outputPath, effectiveDType, err)
 		return "", err
 	}
 
@@ -463,6 +476,7 @@ func ConvertPython(modelDir string, progress ProgressFunc, dtype string) (string
 			return "", err
 		} else if !ok {
 			progress(fmt.Sprintf("Converting vision encoder (mmproj) to GGUF (dtype: %s)", effectiveDType), 0, 0)
+			log.Printf("CONVERT: converting vision encoder model_dir=%s dtype=%s", modelDir, effectiveDType)
 			mmOut, mmErr := runMMProjConverter(python, script, modelDir, effectiveDType)
 			if mmErr != nil {
 				log.Printf("mmproj conversion failed (non-fatal): %s\n%s", mmErr, lastNLines(mmOut, 5))
@@ -472,6 +486,7 @@ func ConvertPython(modelDir string, progress ProgressFunc, dtype string) (string
 		}
 	}
 
+	log.Printf("CONVERT: conversion complete output=%s dtype=%s", outputPath, effectiveDType)
 	return outputPath, nil
 }
 
@@ -496,28 +511,51 @@ func PythonConverterAvailable() bool {
 	return p != "" && missing == ""
 }
 
-func ensureManagedPythonEnv(basePython string) (string, string, error) {
+func ensureManagedPythonEnv(basePython string, progress ProgressFunc) (string, string, error) {
 	python := managedPythonVenvExecutable()
 	if python == "" {
 		return "", "", fmt.Errorf("managed Python executable path is empty")
 	}
 	if _, err := os.Stat(python); err != nil {
+		progress("Creating Python virtual environment", 0, 0)
+		log.Printf("CONVERT: creating Python virtual environment path=%s", managedPythonVenvDir())
 		output, runErr := runCommand(basePython, "-m", "venv", managedPythonVenvDir())
 		if runErr != nil {
 			return "", output, fmt.Errorf("creating Python virtual environment: %w", runErr)
 		}
-	} else if missing := checkPythonDeps(python); missing == "" {
-		return python, "", nil
+	} else {
+		progress("Checking Python conversion packages", 0, 0)
+		log.Printf("CONVERT: checking Python conversion packages python=%s", python)
+		if missing := checkPythonDeps(python); missing == "" {
+			log.Printf("CONVERT: Python conversion environment ready python=%s", python)
+			return python, "", nil
+		} else {
+			log.Printf("CONVERT: Python conversion packages missing: %s", missing)
+		}
 	}
 
 	var combined []string
-	steps := [][]string{
-		{"-m", "pip", "install", "--upgrade", "pip"},
-		{"-m", "pip", "install", "--upgrade", "--index-url", "https://download.pytorch.org/whl/cpu", "torch"},
-		{"-m", "pip", "install", "--upgrade", "safetensors", "transformers"},
+	steps := []struct {
+		progress string
+		args     []string
+	}{
+		{
+			progress: "Installing Python package manager updates",
+			args:     []string{"-m", "pip", "install", "--upgrade", "pip"},
+		},
+		{
+			progress: "Installing CPU PyTorch for model conversion",
+			args:     []string{"-m", "pip", "install", "--upgrade", "--index-url", "https://download.pytorch.org/whl/cpu", "torch"},
+		},
+		{
+			progress: "Installing model conversion Python packages",
+			args:     []string{"-m", "pip", "install", "--upgrade", "safetensors", "transformers", "sentencepiece"},
+		},
 	}
-	for _, args := range steps {
-		output, err := runPythonPipCommand(python, args...)
+	for _, step := range steps {
+		progress(step.progress, 0, 0)
+		log.Printf("CONVERT: %s", step.progress)
+		output, err := runPythonPipCommand(python, step.args...)
 		if output != "" {
 			combined = append(combined, output)
 		}
@@ -528,6 +566,8 @@ func ensureManagedPythonEnv(basePython string) (string, string, error) {
 	if missing := checkPythonDeps(python); missing != "" {
 		return "", strings.Join(combined, "\n"), fmt.Errorf("missing Python packages after automatic install: %s", missing)
 	}
+	progress("Python conversion environment ready", 0, 0)
+	log.Printf("CONVERT: Python conversion environment ready python=%s", python)
 	return python, strings.Join(combined, "\n"), nil
 }
 
@@ -542,7 +582,33 @@ func runPythonPipCommand(python string, args ...string) (string, error) {
 func runCommand(name string, args ...string) (string, error) {
 	cmd := exec.Command(name, args...)
 	cmd.Env = append(os.Environ(), "PIP_DISABLE_PIP_VERSION_CHECK=1")
+	return runLoggedCommand(cmd)
+}
+
+func runLoggedCommand(cmd *exec.Cmd) (string, error) {
+	start := time.Now()
+	done := make(chan struct{})
+	log.Printf("CONVERT: command started: %s", strings.Join(cmd.Args, " "))
+	go func() {
+		ticker := time.NewTicker(10 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				log.Printf("CONVERT: command still running after %s: %s", time.Since(start).Round(time.Second), strings.Join(cmd.Args, " "))
+			case <-done:
+				return
+			}
+		}
+	}()
 	output, err := cmd.CombinedOutput()
+	close(done)
+	elapsed := time.Since(start).Round(time.Millisecond)
+	if err != nil {
+		log.Printf("CONVERT: command failed after %s: %s: %v", elapsed, strings.Join(cmd.Args, " "), err)
+	} else {
+		log.Printf("CONVERT: command completed after %s: %s", elapsed, strings.Join(cmd.Args, " "))
+	}
 	return strings.TrimSpace(string(output)), err
 }
 
@@ -561,6 +627,7 @@ func convertModelWithAutoRepair(python, script, modelDir, outputPath, dtype stri
 	if repair.attempted && repair.succeeded {
 		_ = os.Remove(outputPath)
 		progress(fmt.Sprintf("Retrying converter after automatic repair (dtype: %s)", dtype), 0, 0)
+		log.Printf("CONVERT: automatic repair succeeded; retrying converter dtype=%s", dtype)
 		output, err = runModelConverter(python, script, modelDir, outputPath, dtype)
 		if err == nil {
 			return nil
@@ -577,8 +644,7 @@ func runModelConverter(python, script, modelDir, outputPath, dtype string) (stri
 		"--outtype", dtype,
 	)
 	cmd.Env = converterPythonEnv()
-	output, err := cmd.CombinedOutput()
-	return strings.TrimSpace(string(output)), err
+	return runLoggedCommand(cmd)
 }
 
 func runMMProjConverter(python, script, modelDir, dtype string) (string, error) {
@@ -588,8 +654,7 @@ func runMMProjConverter(python, script, modelDir, dtype string) (string, error) 
 	)
 	cmd.Dir = modelDir
 	cmd.Env = converterPythonEnv()
-	output, err := cmd.CombinedOutput()
-	return strings.TrimSpace(string(output)), err
+	return runLoggedCommand(cmd)
 }
 
 func converterPythonEnv() []string {
@@ -679,8 +744,7 @@ func upgradePythonPackages(python string, packages []string) (string, error) {
 	args = append(args, packages...)
 	cmd := exec.Command(python, args...)
 	cmd.Env = append(os.Environ(), "PIP_DISABLE_PIP_VERSION_CHECK=1")
-	output, err := cmd.CombinedOutput()
-	return strings.TrimSpace(string(output)), err
+	return runLoggedCommand(cmd)
 }
 
 func repairPlanForConverterFailure(combined string) converterRepairPlan {
@@ -710,6 +774,10 @@ func repairPlanForConverterFailure(combined string) converterRepairPlan {
 		strings.Contains(combined, "pip install git+https://github.com/huggingface/transformers.git") ||
 		strings.Contains(lower, "no module named 'transformers.models.") {
 		add("transformers")
+	}
+	if strings.Contains(lower, "no module named 'sentencepiece'") ||
+		strings.Contains(lower, "no module named \"sentencepiece\"") {
+		add("sentencepiece")
 	}
 
 	return plan
@@ -780,14 +848,6 @@ func llamaCppSources(region string) []llamaCppSource {
 	return []llamaCppSource{github, gitee}
 }
 
-func llamaCppGGUFPySources() []llamaCppSource {
-	return []llamaCppSource{{
-		name:       "Gitee mirror",
-		repoURL:    llamaCppGiteeRepo,
-		archiveURL: fmt.Sprintf("%s/archive/refs/tags/%s.tar.gz", llamaCppGiteeRepo, BundledConverterLLamacppRef),
-	}}
-}
-
 func llamaCppSourceNames(region string) []string {
 	sources := llamaCppSources(region)
 	names := make([]string, 0, len(sources))
@@ -817,6 +877,21 @@ func ensureBundledGGUFPy() (string, error) {
 		}
 	}
 
+	region := detectLlamaCppSourceRegion()
+	var failures []string
+	for _, source := range llamaCppSources(region) {
+		tmpDir, err := cloneGGUFPyFromGitSource(dir, source)
+		if err != nil {
+			failures = append(failures, fmt.Sprintf("%s git: %v", source.name, err))
+			continue
+		}
+		if err := installPreparedGGUFPy(dst, tmpDir, stampPath, sourcePath, wantStamp, source.name+" git"); err != nil {
+			os.RemoveAll(tmpDir)
+			return "", err
+		}
+		return source.name + " git", nil
+	}
+
 	archiveFile, err := os.CreateTemp(dir, "llama.cpp-*.tar.gz")
 	if err != nil {
 		return "", fmt.Errorf("creating llama.cpp archive temp file: %w", err)
@@ -825,8 +900,11 @@ func ensureBundledGGUFPy() (string, error) {
 	archiveFile.Close()
 	defer os.Remove(archivePath)
 
-	sourceName, err := downloadLlamaCppArchive(archivePath, llamaCppGGUFPySources())
+	sourceName, err := downloadLlamaCppArchive(archivePath, llamaCppSources(region))
 	if err != nil {
+		if len(failures) > 0 {
+			return "", fmt.Errorf("%v; git fallback failed: %s", err, strings.Join(failures, "; "))
+		}
 		return "", err
 	}
 
@@ -844,22 +922,116 @@ func ensureBundledGGUFPy() (string, error) {
 		return "", err
 	}
 
-	if err := os.RemoveAll(dst); err != nil {
-		return "", fmt.Errorf("removing old gguf-py: %w", err)
-	}
-	if err := os.Rename(tmpDir, dst); err != nil {
-		return "", fmt.Errorf("installing gguf-py: %w", err)
+	if err := installPreparedGGUFPy(dst, tmpDir, stampPath, sourcePath, wantStamp, sourceName); err != nil {
+		return "", err
 	}
 	tmpDir = ""
 
-	if err := os.WriteFile(stampPath, []byte(wantStamp), 0o644); err != nil {
-		return "", fmt.Errorf("writing gguf-py stamp: %w", err)
-	}
-	if err := os.WriteFile(sourcePath, []byte(sourceName), 0o644); err != nil {
-		return "", fmt.Errorf("writing gguf-py source: %w", err)
+	return sourceName, nil
+}
+
+func cloneGGUFPyFromGitSource(parentDir string, source llamaCppSource) (string, error) {
+	git, err := exec.LookPath("git")
+	if err != nil {
+		return "", fmt.Errorf("git not found on PATH")
 	}
 
-	return sourceName, nil
+	root, err := os.MkdirTemp(parentDir, "gguf-py-git-*")
+	if err != nil {
+		return "", fmt.Errorf("creating git temp dir: %w", err)
+	}
+	repoDir := filepath.Join(root, "llama.cpp")
+	log.Printf("CONVERT: cloning gguf-py from %s tag=%s", source.repoURL, BundledConverterLLamacppRef)
+	clone := exec.Command(git, "clone", "--depth", "1", "--branch", BundledConverterLLamacppRef, "--filter=blob:none", "--sparse", source.repoURL, repoDir)
+	if output, err := runLoggedCommand(clone); err != nil {
+		os.RemoveAll(root)
+		return "", fmt.Errorf("cloning llama.cpp: %w\n%s", err, lastNLines(output, 8))
+	}
+	checkout := exec.Command(git, "-C", repoDir, "sparse-checkout", "set", "gguf-py")
+	if output, err := runLoggedCommand(checkout); err != nil {
+		os.RemoveAll(root)
+		return "", fmt.Errorf("checking out gguf-py: %w\n%s", err, lastNLines(output, 8))
+	}
+
+	src := filepath.Join(repoDir, "gguf-py")
+	if _, err := os.Stat(filepath.Join(src, "gguf", "__init__.py")); err != nil {
+		os.RemoveAll(root)
+		return "", fmt.Errorf("gguf-py source missing after git checkout: %w", err)
+	}
+	dst := filepath.Join(root, "gguf-py")
+	prepared := filepath.Join(root, "prepared")
+	if err := copyDir(src, prepared); err != nil {
+		os.RemoveAll(root)
+		return "", err
+	}
+	if err := os.RemoveAll(repoDir); err != nil {
+		os.RemoveAll(root)
+		return "", fmt.Errorf("removing temporary git checkout: %w", err)
+	}
+	if err := os.Rename(prepared, dst); err != nil {
+		os.RemoveAll(root)
+		return "", fmt.Errorf("preparing gguf-py source: %w", err)
+	}
+	return dst, nil
+}
+
+func installPreparedGGUFPy(dst, prepared, stampPath, sourcePath, wantStamp, sourceName string) error {
+	if err := os.RemoveAll(dst); err != nil {
+		return fmt.Errorf("removing old gguf-py: %w", err)
+	}
+	if err := os.Rename(prepared, dst); err != nil {
+		return fmt.Errorf("installing gguf-py: %w", err)
+	}
+	if err := os.WriteFile(stampPath, []byte(wantStamp), 0o644); err != nil {
+		return fmt.Errorf("writing gguf-py stamp: %w", err)
+	}
+	if err := os.WriteFile(sourcePath, []byte(sourceName), 0o644); err != nil {
+		return fmt.Errorf("writing gguf-py source: %w", err)
+	}
+	return nil
+}
+
+func copyDir(src, dst string) error {
+	return filepath.WalkDir(src, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		rel, err := filepath.Rel(src, path)
+		if err != nil {
+			return err
+		}
+		if rel == "." {
+			return os.MkdirAll(dst, 0o755)
+		}
+		target := filepath.Join(dst, rel)
+		info, err := d.Info()
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			return os.MkdirAll(target, info.Mode())
+		}
+		if !info.Mode().IsRegular() {
+			return nil
+		}
+		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+			return err
+		}
+		in, err := os.Open(path)
+		if err != nil {
+			return err
+		}
+		defer in.Close()
+		out, err := os.OpenFile(target, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, info.Mode())
+		if err != nil {
+			return err
+		}
+		if _, err := io.Copy(out, in); err != nil {
+			out.Close()
+			return err
+		}
+		return out.Close()
+	})
 }
 
 func downloadLlamaCppArchive(dst string, sources []llamaCppSource) (string, error) {
@@ -876,23 +1048,55 @@ func downloadLlamaCppArchive(dst string, sources []llamaCppSource) (string, erro
 }
 
 func downloadURLToFile(client *http.Client, rawURL, dst string) error {
+	log.Printf("CONVERT: downloading llama.cpp archive %s", rawURL)
 	resp, err := client.Get(rawURL)
 	if err != nil {
 		return err
 	}
 	defer resp.Body.Close()
+	contentType := resp.Header.Get("Content-Type")
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("HTTP %d", resp.StatusCode)
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+		return fmt.Errorf("HTTP %d content_type=%q body=%q", resp.StatusCode, contentType, strings.TrimSpace(string(body)))
 	}
 
 	f, err := os.Create(dst)
 	if err != nil {
 		return err
 	}
-	defer f.Close()
 
 	if _, err := io.Copy(f, resp.Body); err != nil {
+		_ = f.Close()
 		return err
+	}
+	if err := f.Close(); err != nil {
+		return err
+	}
+	if err := validateGzipFile(dst); err != nil {
+		return fmt.Errorf("%w (content_type=%q url=%s)", err, contentType, rawURL)
+	}
+	log.Printf("CONVERT: downloaded llama.cpp archive %s", rawURL)
+	return nil
+}
+
+func validateGzipFile(path string) error {
+	f, err := os.Open(path)
+	if err != nil {
+		return fmt.Errorf("opening downloaded archive: %w", err)
+	}
+	defer f.Close()
+
+	header := make([]byte, 2)
+	n, err := io.ReadFull(f, header)
+	if err != nil {
+		return fmt.Errorf("downloaded archive is not a gzip file: %w", err)
+	}
+	if n != 2 || header[0] != 0x1f || header[1] != 0x8b {
+		if _, seekErr := f.Seek(0, io.SeekStart); seekErr == nil {
+			body, _ := io.ReadAll(io.LimitReader(f, 160))
+			return fmt.Errorf("downloaded archive is not a gzip file: first bytes % x body_prefix=%q", header, strings.TrimSpace(string(body)))
+		}
+		return fmt.Errorf("downloaded archive is not a gzip file: first bytes % x", header)
 	}
 	return nil
 }

@@ -287,7 +287,7 @@ advertise_base_url = ""
 access_token = "your_access_token"
 
 [bootstrap]
-manager_image = "ghcr.io/russellluo/picoclaw:2026.4.18"
+manager_image = "opencsg-registry.cn-beijing.cr.aliyuncs.com/opencsghq/picoclaw:2026.4.24.0"
 
 [sandbox]
 provider = "boxlite"
@@ -295,9 +295,9 @@ home_dir_name = "boxlite"
 boxlite_cli_path = "boxlite"
 
 [models]
-default = "default.glm-5"
+default = "csghub-lite.glm-5"
 
-[models.providers.default]
+[models.providers.csghub-lite]
 base_url = "http://192.168.10.215:11435/v1"
 api_key = "test-token"
 models = ["glm-5", "Qwen/Qwen3-0.6B-GGUF"]
@@ -306,17 +306,45 @@ models = ["glm-5", "Qwen/Qwen3-0.6B-GGUF"]
 		t.Fatalf("write config.toml: %v", err)
 	}
 
-	if csgclawConfigNeedsManagerRecreate("http://192.168.10.215:11435/v1", "test-token", "glm-5") {
+	if csgclawConfigNeedsManagerRecreate("http://192.168.10.215:11435/v1", "test-token", "glm-5", csgclawManagerImage) {
 		t.Fatal("expected matching csgclaw model config to skip manager recreation")
 	}
-	if !csgclawConfigNeedsManagerRecreate("http://192.168.10.215:11435/v1", "test-token", "Qwen/Qwen3-0.6B-GGUF") {
+	if !csgclawConfigNeedsManagerRecreate("http://192.168.10.215:11435/v1", "test-token", "Qwen/Qwen3-0.6B-GGUF", csgclawManagerImage) {
 		t.Fatal("expected model drift to require manager recreation")
 	}
-	if !csgclawConfigNeedsManagerRecreate("http://127.0.0.1:11435/v1", "test-token", "glm-5") {
+	if !csgclawConfigNeedsManagerRecreate("http://127.0.0.1:11435/v1", "test-token", "glm-5", csgclawManagerImage) {
 		t.Fatal("expected base URL drift to require manager recreation")
 	}
-	if !csgclawConfigNeedsManagerRecreate("http://192.168.10.215:11435/v1", "other-token", "glm-5") {
+	if !csgclawConfigNeedsManagerRecreate("http://192.168.10.215:11435/v1", "other-token", "glm-5", csgclawManagerImage) {
 		t.Fatal("expected API key drift to require manager recreation")
+	}
+	if !csgclawConfigNeedsManagerRecreate("http://192.168.10.215:11435/v1", "test-token", "glm-5", "ghcr.io/russellluo/picoclaw:2026.4.26") {
+		t.Fatal("expected manager image drift to require manager recreation")
+	}
+}
+
+func TestCSGClawConfigNeedsManagerRecreateForLegacyDefaultProvider(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	cfgDir := filepath.Join(home, ".csgclaw")
+	if err := os.MkdirAll(cfgDir, 0o755); err != nil {
+		t.Fatalf("mkdir config dir: %v", err)
+	}
+	configTOML := `[models]
+default = "default.glm-5"
+
+[models.providers.default]
+base_url = "http://192.168.10.215:11435/v1"
+api_key = "test-token"
+models = ["glm-5"]
+`
+	if err := os.WriteFile(filepath.Join(cfgDir, "config.toml"), []byte(configTOML), 0o644); err != nil {
+		t.Fatalf("write config.toml: %v", err)
+	}
+
+	if !csgclawConfigNeedsManagerRecreate("http://192.168.10.215:11435/v1", "test-token", "glm-5", csgclawManagerImage) {
+		t.Fatal("expected legacy default provider to require manager recreation")
 	}
 }
 
@@ -330,6 +358,61 @@ func TestCSGClawOrderedModelsPutsSelectedModelFirst(t *testing.T) {
 	want := []string{"glm-5", "Qwen/Qwen3-0.6B-GGUF", "minimax-m2.5"}
 	if !sameStrings(got, want) || got[0] != "glm-5" {
 		t.Fatalf("csgclawOrderedModels = %#v, want %#v", got, want)
+	}
+}
+
+func TestParseCSGClawAgentStatusFindsManagerBox(t *testing.T) {
+	agents, err := parseCSGClawAgentStatus([]byte(`[
+		{"id":"u-worker","name":"worker","role":"worker","box_id":"worker-box"},
+		{"id":"u-manager","name":"manager","role":"manager","box_id":"manager-box"}
+	]`))
+	if err != nil {
+		t.Fatalf("parse status: %v", err)
+	}
+
+	var managerBox string
+	for _, agent := range agents {
+		if agent.IsManager() {
+			managerBox = agent.BoxID
+		}
+	}
+	if managerBox != "manager-box" {
+		t.Fatalf("manager box = %q, want manager-box", managerBox)
+	}
+}
+
+func TestSetCSGClawConfigDefaultUpdatesExistingDefault(t *testing.T) {
+	input := `[server]
+listen_addr = "0.0.0.0:18080"
+
+[models]
+default = "csghub-lite.old-model"
+
+[models.providers.csghub-lite]
+models = ["new-model"]
+`
+	got, changed := setCSGClawConfigDefault(input, "csghub-lite.new-model")
+	if !changed {
+		t.Fatal("expected config default to change")
+	}
+	if !strings.Contains(got, `default = "csghub-lite.new-model"`) {
+		t.Fatalf("updated config missing new default:\n%s", got)
+	}
+}
+
+func TestSetCSGClawConfigDefaultInsertsMissingDefault(t *testing.T) {
+	input := `[models]
+
+[models.providers.csghub-lite]
+models = ["new-model"]
+`
+	got, changed := setCSGClawConfigDefault(input, "csghub-lite.new-model")
+	if !changed {
+		t.Fatal("expected config default to be inserted")
+	}
+	if !strings.Contains(got, `default = "csghub-lite.new-model"`) ||
+		strings.Index(got, `default = "csghub-lite.new-model"`) > strings.Index(got, "[models.providers.csghub-lite]") {
+		t.Fatalf("updated config inserted default in wrong location:\n%s", got)
 	}
 }
 

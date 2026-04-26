@@ -17,6 +17,7 @@ func TestResolveLaunchTarget(t *testing.T) {
 		{input: "opencode", want: "open-code"},
 		{input: "codex", want: "codex"},
 		{input: "openclaw", want: "openclaw"},
+		{input: "csgclaw", want: "csgclaw"},
 		{input: "dify", want: "dify"},
 		{input: "anythingllm", want: "anythingllm"},
 	}
@@ -58,7 +59,8 @@ func TestLaunchCmdHelpListsSupportedAppsAndExamples(t *testing.T) {
 	output := buf.String()
 	for _, want := range []string{
 		"Supported apps:",
-		"claude-code, open-code, codex, openclaw, dify, anythingllm",
+		"claude-code, open-code, codex, openclaw, csgclaw, dify, anythingllm",
+		"csghub-lite launch csgclaw",
 		"csghub-lite launch open-code -- --help",
 	} {
 		if !strings.Contains(output, want) {

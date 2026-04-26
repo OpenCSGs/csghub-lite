@@ -53,6 +53,21 @@ You can update Transformers with the command "pip install --upgrade transformers
 	}
 }
 
+func TestRepairPlanForConverterFailureSentencePiece(t *testing.T) {
+	output := `
+Traceback (most recent call last):
+  File "convert_hf_to_gguf.py", line 1652, in _create_vocab_sentencepiece
+    from sentencepiece import SentencePieceProcessor
+ModuleNotFoundError: No module named 'sentencepiece'
+`
+
+	got := repairPlanForConverterFailure(output)
+	want := converterRepairPlan{upgradePackages: []string{"sentencepiece"}}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("repairPlanForConverterFailure() = %#v, want %#v", got, want)
+	}
+}
+
 func TestRepairPlanForConverterFailureDeduplicates(t *testing.T) {
 	output := `
 The checkpoint you are trying to load has model type "gemma4" but Transformers does not recognize this architecture.
@@ -109,7 +124,7 @@ func TestPythonDepsInstallHintUsesManagedVenv(t *testing.T) {
 	for _, want := range []string{
 		"python3 -m venv ~/.csghub-lite/tools/python",
 		"~/.csghub-lite/tools/python/bin/python -m pip install --index-url https://download.pytorch.org/whl/cpu torch",
-		"~/.csghub-lite/tools/python/bin/python -m pip install safetensors transformers",
+		"~/.csghub-lite/tools/python/bin/python -m pip install safetensors transformers sentencepiece",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("pythonDepsInstallHintForGOOS(darwin) missing %q in %q", want, got)
@@ -122,7 +137,7 @@ func TestPythonDepsInstallHintUsesManagedVenvOnWindows(t *testing.T) {
 	for _, want := range []string{
 		`py -m venv "%USERPROFILE%\.csghub-lite\tools\python"`,
 		`"%USERPROFILE%\.csghub-lite\tools\python\Scripts\python.exe" -m pip install --index-url https://download.pytorch.org/whl/cpu torch`,
-		`"%USERPROFILE%\.csghub-lite\tools\python\Scripts\python.exe" -m pip install safetensors transformers`,
+		`"%USERPROFILE%\.csghub-lite\tools\python\Scripts\python.exe" -m pip install safetensors transformers sentencepiece`,
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("pythonDepsInstallHintForGOOS(windows) missing %q in %q", want, got)

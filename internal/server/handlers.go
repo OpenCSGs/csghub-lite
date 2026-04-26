@@ -165,7 +165,9 @@ func (s *Server) handlePull(w http.ResponseWriter, r *http.Request) {
 	}
 
 	safeSSE(api.PullResponse{Status: "pulling " + req.Model})
+	log.Printf("MODEL %s: pull started", req.Model)
 
+	lastProgressLog := time.Time{}
 	progress := func(p csghub.SnapshotProgress) {
 		safeSSE(api.PullResponse{
 			Status:    fmt.Sprintf("downloading %s", p.FileName),
@@ -173,6 +175,10 @@ func (s *Server) handlePull(w http.ResponseWriter, r *http.Request) {
 			Total:     p.BytesTotal,
 			Completed: p.BytesCompleted,
 		})
+		if time.Since(lastProgressLog) >= 5*time.Second || (p.BytesTotal > 0 && p.BytesCompleted >= p.BytesTotal) {
+			log.Printf("MODEL %s: pulling file=%s completed=%d total=%d", req.Model, p.FileName, p.BytesCompleted, p.BytesTotal)
+			lastProgressLog = time.Now()
+		}
 	}
 
 	_, err := s.manager.Pull(r.Context(), req.Model, progress)
@@ -182,6 +188,7 @@ func (s *Server) handlePull(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	log.Printf("MODEL %s: pull complete", req.Model)
 	safeSSE(api.PullResponse{Status: "success"})
 }
 
@@ -250,8 +257,10 @@ func (s *Server) handleLoad(w http.ResponseWriter, r *http.Request) {
 	stream := req.Stream != nil && *req.Stream
 
 	if !stream {
+		log.Printf("MODEL %s: load requested stream=false num_ctx=%d num_parallel=%d n_gpu_layers=%d cache_type_k=%q cache_type_v=%q dtype=%q", req.Model, requestedNumCtx, requestedNumParallel, requestedNGPULayers, requestedCacheTypeK, requestedCacheTypeV, requestedDType)
 		_, err := s.getOrLoadEngineFull(req.Model, nil, requestedNumCtx, requestedNumParallel, requestedNGPULayers, requestedCacheTypeK, requestedCacheTypeV, requestedDType)
 		if err != nil {
+			log.Printf("MODEL %s: load failed: %v", req.Model, err)
 			writeError(w, http.StatusBadRequest, err.Error())
 			return
 		}
@@ -259,6 +268,7 @@ func (s *Server) handleLoad(w http.ResponseWriter, r *http.Request) {
 		if keepAliveSet {
 			s.setEngineKeepAlive(req.Model, requestedKeepAlive)
 		}
+		log.Printf("MODEL %s: load ready", req.Model)
 		writeJSON(w, http.StatusOK, api.LoadResponse{Status: "ready"})
 		return
 	}
@@ -275,7 +285,9 @@ func (s *Server) handleLoad(w http.ResponseWriter, r *http.Request) {
 	}
 
 	safeSSE(api.LoadResponse{Status: "loading " + req.Model})
+	log.Printf("MODEL %s: load requested stream=true num_ctx=%d num_parallel=%d n_gpu_layers=%d cache_type_k=%q cache_type_v=%q dtype=%q", req.Model, requestedNumCtx, requestedNumParallel, requestedNGPULayers, requestedCacheTypeK, requestedCacheTypeV, requestedDType)
 
+	lastLoadProgressLog := time.Time{}
 	progress := func(step string, current, total int) {
 		safeSSE(api.LoadResponse{
 			Status:  "converting",
@@ -283,6 +295,10 @@ func (s *Server) handleLoad(w http.ResponseWriter, r *http.Request) {
 			Current: current,
 			Total:   total,
 		})
+		if time.Since(lastLoadProgressLog) >= 2*time.Second || current == total {
+			log.Printf("MODEL %s: load progress step=%q current=%d total=%d", req.Model, step, current, total)
+			lastLoadProgressLog = time.Now()
+		}
 	}
 
 	_, err = s.getOrLoadEngineWithProgressAndOpts(req.Model, progress, requestedNumCtx, requestedNumParallel, requestedNGPULayers, requestedCacheTypeK, requestedCacheTypeV, requestedDType)
@@ -296,6 +312,7 @@ func (s *Server) handleLoad(w http.ResponseWriter, r *http.Request) {
 		s.setEngineKeepAlive(req.Model, requestedKeepAlive)
 	}
 
+	log.Printf("MODEL %s: load ready", req.Model)
 	safeSSE(api.LoadResponse{Status: "ready"})
 }
 

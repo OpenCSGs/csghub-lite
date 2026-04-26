@@ -38,6 +38,7 @@ Optional: set **`CSGHUB_LITE_CONVERTER_URL`** at runtime to a raw mirror URL ins
 | `safetensors` | Read `.safetensors` checkpoints |
 | `gguf` | Write GGUF; always loaded from matching `gguf-py` source extracted from `https://gitee.com/xzgan/llama.cpp` at `BundledConverterLLamacppRef`, never from PyPI |
 | `transformers` | `AutoConfig`, tokenizers, etc.; if it is too old to recognize a new architecture, `csghub-lite` auto-runs `python -m pip install -U transformers` inside the managed venv and retries once |
+| `sentencepiece` | Read SentencePiece tokenizers used by Qwen and similar models |
 
 One-time install (same as the CLI error text):
 
@@ -45,7 +46,7 @@ One-time install (same as the CLI error text):
 python3 -m venv ~/.csghub-lite/tools/python
 ~/.csghub-lite/tools/python/bin/python -m pip install --upgrade pip
 ~/.csghub-lite/tools/python/bin/python -m pip install --index-url https://download.pytorch.org/whl/cpu torch
-~/.csghub-lite/tools/python/bin/python -m pip install safetensors transformers
+~/.csghub-lite/tools/python/bin/python -m pip install safetensors transformers sentencepiece
 ```
 
 On macOS/Linux the tool tries `python3.13` … `python3.10`, then `python3` / `python`, plus common Homebrew paths, and skips interpreters older than Python 3.10. On Windows it looks for `python` / `python3` on `PATH`.

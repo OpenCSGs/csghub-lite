@@ -107,6 +107,12 @@ func (e *inferenceHTTPError) Error() string {
 }
 
 func findLlamaBinary() string {
+	if configured := strings.TrimSpace(os.Getenv("CSGHUB_LITE_LLAMA_SERVER")); configured != "" {
+		if _, err := os.Stat(configured); err == nil {
+			return configured
+		}
+	}
+
 	// Search common names in PATH
 	names := []string{"llama-server", "llama.cpp-server", "llamacpp-server"}
 	for _, name := range names {
@@ -116,22 +122,55 @@ func findLlamaBinary() string {
 	}
 	// Check common install locations
 	home, _ := os.UserHomeDir()
-	locations := []string{
-		"/usr/local/bin/llama-server",
-		"/opt/homebrew/bin/llama-server",
-	}
-	if home != "" {
-		locations = append(locations, home+"/bin/llama-server")
-	}
-	if runtime.GOOS == "windows" {
-		locations = append(locations, `C:\llama.cpp\build\bin\Release\llama-server.exe`)
-	}
-	for _, loc := range locations {
+	exePath, _ := os.Executable()
+	for _, loc := range llamaBinaryCandidatePaths(home, exePath, runtime.GOOS) {
 		if _, err := os.Stat(loc); err == nil {
 			return loc
 		}
 	}
 	return ""
+}
+
+func llamaBinaryCandidatePaths(home, exePath, goos string) []string {
+	name := "llama-server"
+	if goos == "windows" {
+		name = "llama-server.exe"
+	}
+
+	var locations []string
+	add := func(dir string) {
+		dir = strings.TrimSpace(dir)
+		if dir == "" {
+			return
+		}
+		locations = append(locations, filepath.Join(dir, name))
+	}
+
+	if exePath != "" {
+		add(filepath.Dir(exePath))
+	}
+	if home != "" {
+		add(filepath.Join(home, ".local", "bin"))
+		add(filepath.Join(home, "bin"))
+	}
+
+	switch goos {
+	case "darwin":
+		add("/opt/homebrew/bin")
+		add("/usr/local/bin")
+	case "linux":
+		add("/usr/local/bin")
+		add("/usr/bin")
+	case "windows":
+		if home != "" {
+			add(filepath.Join(home, "AppData", "Local", "Programs", "csghub-lite"))
+		}
+		locations = append(locations, `C:\llama.cpp\build\bin\Release\llama-server.exe`)
+	default:
+		add("/usr/local/bin")
+	}
+
+	return locations
 }
 
 func findFreePort() (int, error) {
@@ -260,12 +299,14 @@ func ModelMaxPositionEmbeddings(modelDir string) int {
 func newLlamaEngine(modelPath, modelName string, verbose bool, progress ConvertProgressFunc, numCtx, numParallel, nGPULayers int, cacheTypeK, cacheTypeV string, mmproj ...string) (*llamaEngine, error) {
 	binary := findLlamaBinary()
 	if binary == "" {
-		return nil, fmt.Errorf("llama-server not found in PATH.\n" +
+		return nil, fmt.Errorf("llama-server not found in PATH or common install locations.\n" +
 			"Install llama.cpp: https://github.com/ggerganov/llama.cpp\n" +
 			"  macOS:  brew install llama.cpp\n" +
 			"  Linux:  build from source or use package manager\n" +
-			"  Windows: download from releases page")
+			"  Windows: download from releases page\n" +
+			"Or set CSGHUB_LITE_LLAMA_SERVER=/path/to/llama-server")
 	}
+	log.Printf("LLAMA: using llama-server binary %s", binary)
 
 	port, err := findFreePort()
 	if err != nil {
@@ -313,6 +354,7 @@ func newLlamaEngine(modelPath, modelName string, verbose bool, progress ConvertP
 	}
 
 	engine.cmd = exec.Command(binary, args...)
+	log.Printf("LLAMA: starting llama-server model=%q binary=%s port=%d num_ctx=%d num_parallel=%d n_gpu_layers=%d cache_type_k=%q cache_type_v=%q mmproj=%t", modelName, binary, port, effectiveNumCtx, effectiveNumParallel, effectiveNGPULayers, normalizedCacheTypeK, normalizedCacheTypeV, len(mmproj) > 0 && mmproj[0] != "")
 	if config.FileLoggingEnabled() {
 		if path, err := config.LlamaServerLogPath(); err != nil {
 			log.Printf("warning: could not resolve llama-server log path: %v", err)
@@ -372,10 +414,12 @@ func newLlamaEngine(modelPath, modelName string, verbose bool, progress ConvertP
 		progress("Starting llama-server", 0, 0)
 	}
 	if err := engine.waitForReady(readyTimeout, progress); err != nil {
+		log.Printf("LLAMA: llama-server failed model=%q port=%d: %v", modelName, port, err)
 		engine.Close()
 		return nil, fmt.Errorf("llama-server failed to start: %w", err)
 	}
 
+	log.Printf("LLAMA: llama-server ready model=%q port=%d", modelName, port)
 	return engine, nil
 }
 

@@ -387,6 +387,62 @@ func TestSyncOpenClawProfileRewritesStaleModelCatalog(t *testing.T) {
 	}
 }
 
+func TestPrepareCSGClawLaunchOnboardsAndDefaultsToServe(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("csgclaw is not supported on Windows")
+	}
+
+	server := launchModelTestServer([]api.ModelInfo{
+		{Model: "Qwen/Qwen3.5-2B", Source: "local"},
+		{Model: "minimax-m2.5", Source: "cloud"},
+	})
+	defer server.Close()
+
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	binDir := t.TempDir()
+	argsPath := filepath.Join(t.TempDir(), "args.txt")
+	commandPath := filepath.Join(binDir, "csgclaw")
+	content := "#!/bin/sh\nprintf '%s\\n' \"$@\" > " + strconv.Quote(argsPath) + "\nexit 0\n"
+	if err := os.WriteFile(commandPath, []byte(content), 0o755); err != nil {
+		t.Fatalf("write fake csgclaw: %v", err)
+	}
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	prepared, err := prepareCSGClawLaunch(launchTarget{
+		AppID:       "csgclaw",
+		DisplayName: "CSGClaw",
+		Binaries:    []string{"csgclaw"},
+	}, server.URL, "minimax-m2.5", nil)
+	if err != nil {
+		t.Fatalf("prepareCSGClawLaunch returned error: %v", err)
+	}
+	if len(prepared.Args) != 1 || prepared.Args[0] != "serve" {
+		t.Fatalf("prepared args = %#v, want csgclaw serve", prepared.Args)
+	}
+
+	data, err := os.ReadFile(argsPath)
+	if err != nil {
+		t.Fatalf("read onboard args: %v", err)
+	}
+	lines := strings.Split(strings.TrimSpace(string(data)), "\n")
+	for _, want := range []string{
+		"onboard",
+		"--provider",
+		csgClawLaunchProviderID,
+		"--manager-image",
+		csgClawManagerImage,
+		"--base-url",
+		server.URL + "/v1",
+		"--models",
+		"minimax-m2.5,Qwen/Qwen3.5-2B",
+	} {
+		if !containsString(lines, want) {
+			t.Fatalf("onboard args missing %q: %#v", want, lines)
+		}
+	}
+}
+
 func TestClaudeLaunchSettingsJSONIncludesAcceptEditsMode(t *testing.T) {
 	raw := claudeLaunchSettingsJSON("http://127.0.0.1:11435")
 

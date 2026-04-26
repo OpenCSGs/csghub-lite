@@ -260,6 +260,7 @@ func (s *Server) getOrLoadEngineFull(modelID string, progress inference.ConvertP
 	me, ok := s.engines[modelID]
 	s.mu.RUnlock()
 	if ok && !requestedOverrides {
+		log.Printf("MODEL %s: using already loaded engine", modelID)
 		return me.engine, nil
 	}
 
@@ -288,6 +289,7 @@ func (s *Server) getOrLoadEngineFull(modelID string, progress inference.ConvertP
 		}
 
 		if state, ok := s.loading[modelID]; ok {
+			log.Printf("MODEL %s: waiting for in-flight load", modelID)
 			s.mu.Unlock()
 			<-state.done
 			if state.err != nil {
@@ -301,6 +303,7 @@ func (s *Server) getOrLoadEngineFull(modelID string, progress inference.ConvertP
 
 		state := &engineLoadState{done: make(chan struct{})}
 		s.loading[modelID] = state
+		log.Printf("MODEL %s: engine load started num_ctx=%d num_parallel=%d n_gpu_layers=%d cache_type_k=%q cache_type_v=%q dtype=%q", modelID, effectiveNumCtx, effectiveNumParallel, effectiveNGPULayers, normalizedCacheTypeK, normalizedCacheTypeV, normalizedDType)
 
 		var oldEngine inference.Engine
 		nextKeepAlive := DefaultKeepAlive
@@ -341,8 +344,10 @@ func (s *Server) getOrLoadEngineFull(modelID string, progress inference.ConvertP
 		s.mu.Unlock()
 
 		if state.err != nil {
+			log.Printf("MODEL %s: engine load failed: %v", modelID, state.err)
 			return nil, state.err
 		}
+		log.Printf("MODEL %s: engine load complete", modelID)
 		return state.engine, nil
 	}
 }

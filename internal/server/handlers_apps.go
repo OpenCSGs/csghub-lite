@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"strings"
 
@@ -31,8 +32,10 @@ func (s *Server) handleAppInstall(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	log.Printf("AI APP %s: install requested", req.AppID)
 	info, err := s.appManager.Install(req.AppID)
 	if err != nil {
+		log.Printf("AI APP %s: install request rejected: %v", req.AppID, err)
 		if info.ID != "" && info.Disabled {
 			writeJSON(w, http.StatusConflict, info)
 			return
@@ -60,8 +63,10 @@ func (s *Server) handleAppUninstall(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	log.Printf("AI APP %s: uninstall requested", req.AppID)
 	info, err := s.appManager.Uninstall(req.AppID)
 	if err != nil {
+		log.Printf("AI APP %s: uninstall request rejected: %v", req.AppID, err)
 		if info.ID != "" && info.Disabled {
 			writeJSON(w, http.StatusConflict, info)
 			return
@@ -88,6 +93,15 @@ func (s *Server) handleAppModelSave(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "app_id and model_id are required")
 		return
 	}
+	if strings.TrimSpace(req.AppID) == "csgclaw" {
+		if err := s.saveCSGClawModel(r.Context(), req.ModelID); err != nil {
+			log.Printf("AI APP csgclaw: model switch failed: %v", err)
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
 	s.savePreferredAIAppModel(req.AppID, req.ModelID)
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -103,8 +117,10 @@ func (s *Server) handleAppOpen(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	log.Printf("AI APP %s: open requested model=%q work_dir=%q", req.AppID, req.ModelID, req.WorkDir)
 	url, err := s.openAIAppURL(r.Context(), req.AppID, req.ModelID, req.WorkDir)
 	if err != nil {
+		log.Printf("AI APP %s: open failed: %v", req.AppID, err)
 		if strings.Contains(err.Error(), "unknown app") {
 			writeError(w, http.StatusNotFound, err.Error())
 			return
@@ -113,6 +129,7 @@ func (s *Server) handleAppOpen(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	log.Printf("AI APP %s: open ready url=%s", req.AppID, url)
 	writeJSON(w, http.StatusOK, api.AIAppOpenResponse{URL: url})
 }
 

@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"os/exec"
@@ -404,6 +405,7 @@ func actionRunnerName(action string) string {
 }
 
 func (m *Manager) runAction(ctx context.Context, spec appSpec, action string) {
+	log.Printf("AI APP %s: %s started", spec.id, action)
 	logFile, err := os.OpenFile(m.logPath(spec.id), os.O_CREATE|os.O_WRONLY|os.O_TRUNC|os.O_APPEND, 0o644)
 	if err != nil {
 		m.failAction(spec, action, fmt.Sprintf("open log file: %v", err))
@@ -426,6 +428,7 @@ func (m *Manager) runAction(ctx context.Context, spec appSpec, action string) {
 	}
 
 	m.appendLog(spec.id, logFile, fmt.Sprintf("INFO: %s source %s", runnerName, resolvedFrom))
+	log.Printf("AI APP %s: %s source resolved from %s", spec.id, runnerName, resolvedFrom)
 	m.updateProgress(spec.id, 5, "preflight")
 
 	tmpPath, err := m.writeTempScript(spec.id, source, content)
@@ -466,6 +469,7 @@ func (m *Manager) runAction(ctx context.Context, spec appSpec, action string) {
 		}
 		m.completeUninstall(spec)
 		m.appendLog(spec.id, logFile, "INFO: uninstallation complete")
+		log.Printf("AI APP %s: uninstall complete", spec.id)
 		return
 	}
 
@@ -476,6 +480,7 @@ func (m *Manager) runAction(ctx context.Context, spec appSpec, action string) {
 
 	m.completeInstall(spec, installPath, version)
 	m.appendLog(spec.id, logFile, "INFO: installation complete")
+	log.Printf("AI APP %s: install complete path=%q version=%q", spec.id, installPath, version)
 }
 
 func installerPTYEnv() []string {
@@ -510,6 +515,7 @@ func (m *Manager) runScriptCommandWithPipes(appID string, cmd *exec.Cmd, logFile
 		return err
 	}
 	m.appendLog(appID, logFile, fmt.Sprintf("INFO: running %s", strings.Join(cmd.Args, " ")))
+	log.Printf("AI APP %s: running command %s", appID, strings.Join(cmd.Args, " "))
 
 	var wg sync.WaitGroup
 	wg.Add(2)
@@ -531,6 +537,7 @@ func (m *Manager) runScriptCommandWithPTY(ctx context.Context, appID string, cmd
 		return fmt.Errorf("starting command in pseudo-terminal: %w", err)
 	}
 	m.appendLog(appID, logFile, fmt.Sprintf("INFO: running %s", strings.Join(cmd.Args, " ")))
+	log.Printf("AI APP %s: running command %s", appID, strings.Join(cmd.Args, " "))
 
 	var wg sync.WaitGroup
 	wg.Add(1)
@@ -572,6 +579,7 @@ func (m *Manager) handleControlLine(appID, line string) bool {
 	}
 	phase := parts[2]
 	m.updateProgress(appID, value, phase)
+	log.Printf("AI APP %s: progress %d%% phase=%s", appID, value, phase)
 	return true
 }
 
@@ -681,6 +689,7 @@ func (m *Manager) failAction(spec appSpec, action, errMsg string) {
 	}
 	st.info.LastError = errMsg
 	st.info.UpdatedAt = time.Now()
+	log.Printf("AI APP %s: %s failed: %s", spec.id, action, errMsg)
 }
 
 func (m *Manager) actionErrorMessage(appID, fallback string) string {

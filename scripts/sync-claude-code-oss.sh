@@ -162,11 +162,97 @@ download_text() {
 download_file() {
   local url="$1"
   local output="$2"
+  if [[ "$url" == https://storage.googleapis.com/* ]]; then
+    parallel_range_download_file "$url" "$output"
+    return 0
+  fi
   if command -v curl >/dev/null 2>&1; then
     curl --connect-timeout 15 --max-time 1800 --retry 3 --retry-delay 2 -fsSL -o "$output" "$url"
   else
     wget --tries=3 --timeout=30 -O "$output" "$url"
   fi
+}
+
+parallel_range_download_file() {
+  local url="$1"
+  local output="$2"
+  "${PYTHON_BIN}" - "$url" "$output" <<'PY'
+import concurrent.futures
+import os
+import sys
+import time
+import urllib.error
+import urllib.request
+
+url, output = sys.argv[1:3]
+part_path = output + ".part"
+workers = int(os.environ.get("CLAUDE_CODE_DOWNLOAD_WORKERS", "8"))
+chunk_size = int(os.environ.get("CLAUDE_CODE_DOWNLOAD_CHUNK_SIZE", str(16 * 1024 * 1024)))
+
+
+def request(method, headers=None, timeout=60):
+    req = urllib.request.Request(url, method=method, headers=headers or {})
+    return urllib.request.urlopen(req, timeout=timeout)
+
+
+def content_length():
+    try:
+        with request("HEAD") as resp:
+            length = resp.headers.get("Content-Length") or resp.headers.get("x-goog-stored-content-length")
+            ranges = resp.headers.get("Accept-Ranges", "")
+            if not length or "bytes" not in ranges.lower():
+                return 0
+            return int(length)
+    except Exception:
+        return 0
+
+
+def download_range(start, end):
+    headers = {"Range": f"bytes={start}-{end}"}
+    last_err = None
+    for attempt in range(4):
+        try:
+            with request("GET", headers=headers, timeout=180) as resp:
+                status = getattr(resp, "status", resp.getcode())
+                if status not in (200, 206):
+                    raise RuntimeError(f"unexpected HTTP status {status}")
+                data = resp.read()
+            expected = end - start + 1
+            if len(data) != expected:
+                raise RuntimeError(f"short read for bytes {start}-{end}: got {len(data)}, want {expected}")
+            with open(part_path, "r+b") as fh:
+                fh.seek(start)
+                fh.write(data)
+            return
+        except Exception as exc:
+            last_err = exc
+            time.sleep(2 * (attempt + 1))
+    raise RuntimeError(f"range {start}-{end} failed: {last_err}")
+
+
+total = content_length()
+if total <= 0:
+    raise SystemExit("range download unavailable")
+
+os.makedirs(os.path.dirname(output) or ".", exist_ok=True)
+with open(part_path, "wb") as fh:
+    fh.truncate(total)
+
+ranges = []
+for start in range(0, total, chunk_size):
+    end = min(start + chunk_size - 1, total - 1)
+    ranges.append((start, end))
+
+with concurrent.futures.ThreadPoolExecutor(max_workers=max(1, workers)) as pool:
+    futures = [pool.submit(download_range, start, end) for start, end in ranges]
+    for future in concurrent.futures.as_completed(futures):
+        future.result()
+
+actual = os.path.getsize(part_path)
+if actual != total:
+    raise SystemExit(f"download size mismatch: got {actual}, want {total}")
+os.replace(part_path, output)
+PY
 }
 
 sha256_file() {

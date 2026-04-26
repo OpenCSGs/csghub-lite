@@ -25,6 +25,9 @@ const (
 	openClawConfigureTimeout  = 2 * time.Minute
 	openClawContextWindow     = 16000
 	openClawMaxTokens         = 4096
+	csgClawLaunchProviderID   = "csghub-lite"
+	csgClawConfigureTimeout   = 2 * time.Minute
+	csgClawManagerImage       = "opencsg-registry.cn-beijing.cr.aliyuncs.com/opencsghq/picoclaw:2026.4.24.0"
 	codexContextWindow        = 272000
 	codexBaseInstructions     = "You are Codex, a coding agent. You and the user share the same workspace and collaborate to achieve the user's goals. Focus on practical, safe, concise help for software tasks."
 )
@@ -203,6 +206,8 @@ func prepareLaunchExecution(target launchTarget, serverURL, modelID string, user
 		return prepareCodexLaunch(target, serverURL, modelID, userArgs)
 	case "openclaw":
 		return prepareOpenClawLaunch(target, serverURL, modelID, userArgs)
+	case "csgclaw":
+		return prepareCSGClawLaunch(target, serverURL, modelID, userArgs)
 	default:
 		return preparedLaunch{}, fmt.Errorf("%s does not support direct launch yet", target.DisplayName)
 	}
@@ -279,6 +284,56 @@ func prepareOpenClawLaunch(target launchTarget, serverURL, modelID string, userA
 	args := prependArgsIfMissing(userArgs, []string{"--profile", openClawLaunchProfile}, "--profile")
 	env := envWithOverrides(nil)
 	return preparedLaunch{Binary: binary, Args: args, Env: env}, nil
+}
+
+func prepareCSGClawLaunch(target launchTarget, serverURL, modelID string, userArgs []string) (preparedLaunch, error) {
+	binary, err := resolveLaunchBinary(target.Binaries)
+	if err != nil {
+		return preparedLaunch{}, fmt.Errorf("%s is installed, but the launch command was not found on PATH", target.DisplayName)
+	}
+
+	models, err := getLaunchModels(serverURL)
+	if err != nil {
+		return preparedLaunch{}, err
+	}
+	modelIDs := csgClawOrderedModels(modelID, launchModelIDs(models))
+	modelBaseURL := strings.TrimRight(serverURL, "/") + "/v1"
+	apiKey := openClawProviderAPIKey(config.Get().Token)
+
+	ctx, cancel := context.WithTimeout(context.Background(), csgClawConfigureTimeout)
+	defer cancel()
+
+	onboardArgs := []string{
+		"onboard",
+		"--provider", csgClawLaunchProviderID,
+		"--manager-image", csgClawManagerImage,
+	}
+	if csgClawLaunchNeedsManagerRecreate(modelBaseURL, apiKey, modelID, csgClawManagerImage) {
+		onboardArgs = append(onboardArgs, "--force-recreate-manager")
+	}
+	onboardArgs = append(onboardArgs,
+		"--base-url", modelBaseURL,
+		"--api-key", apiKey,
+		"--models", strings.Join(modelIDs, ","),
+	)
+	cmd := exec.CommandContext(ctx, binary, onboardArgs...)
+	output, err := cmd.CombinedOutput()
+	if ctx.Err() == context.DeadlineExceeded {
+		return preparedLaunch{}, fmt.Errorf("configuring CSGClaw timed out after %s", csgClawConfigureTimeout)
+	}
+	if err != nil {
+		msg := strings.TrimSpace(string(output))
+		if msg == "" {
+			msg = err.Error()
+		}
+		return preparedLaunch{}, fmt.Errorf("configuring CSGClaw: %s", msg)
+	}
+
+	args := append([]string{}, userArgs...)
+	if len(args) == 0 {
+		args = []string{"serve"}
+	}
+	return preparedLaunch{Binary: binary, Args: args, Env: envWithOverrides(nil)}, nil
 }
 
 func prependArgsIfMissing(args []string, defaults []string, flags ...string) []string {
@@ -710,6 +765,160 @@ func syncOpenClawProfile(serverURL, apiKey, selectedModelID string, models []api
 			openClawLaunchProviderID: provider,
 		}
 	})
+}
+
+func launchModelIDs(models []api.ModelInfo) []string {
+	ids := make([]string, 0, len(models))
+	for _, item := range models {
+		modelID := strings.TrimSpace(item.Model)
+		if modelID != "" {
+			ids = append(ids, modelID)
+		}
+	}
+	return ids
+}
+
+func csgClawOrderedModels(selected string, modelIDs []string) []string {
+	selected = strings.TrimSpace(selected)
+	ordered := make([]string, 0, len(modelIDs)+1)
+	seen := make(map[string]struct{}, len(modelIDs)+1)
+	appendModel := func(modelID string) {
+		modelID = strings.TrimSpace(modelID)
+		if modelID == "" {
+			return
+		}
+		if _, ok := seen[modelID]; ok {
+			return
+		}
+		seen[modelID] = struct{}{}
+		ordered = append(ordered, modelID)
+	}
+	appendModel(selected)
+	for _, modelID := range modelIDs {
+		appendModel(modelID)
+	}
+	return ordered
+}
+
+func csgClawLaunchNeedsManagerRecreate(baseURL, apiKey, modelID, managerImage string) bool {
+	path, err := csgClawConfigPath()
+	if err != nil {
+		return true
+	}
+	file, err := os.Open(path)
+	if err != nil {
+		return true
+	}
+	defer file.Close()
+
+	defaultSelector := ""
+	currentManagerImage := ""
+	providerBaseURL := ""
+	providerAPIKey := ""
+	providerModels := []string{}
+	section := ""
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		if strings.HasPrefix(line, "[") && strings.HasSuffix(line, "]") {
+			section = strings.Trim(line, "[]")
+			continue
+		}
+		key, value, ok := parseSimpleConfigKV(line)
+		if !ok {
+			continue
+		}
+		switch section {
+		case "bootstrap":
+			if key == "manager_image" {
+				currentManagerImage = value
+			}
+		case "models":
+			if key == "default" {
+				defaultSelector = value
+			}
+		case "models.providers." + csgClawLaunchProviderID:
+			switch key {
+			case "base_url":
+				providerBaseURL = value
+			case "api_key":
+				providerAPIKey = value
+			case "models":
+				providerModels = parseSimpleStringArray(value)
+			}
+		}
+	}
+	if scanner.Err() != nil {
+		return true
+	}
+
+	wantSelector := csgClawLaunchProviderID + "." + strings.TrimSpace(modelID)
+	return strings.TrimSpace(defaultSelector) != wantSelector ||
+		strings.TrimSpace(currentManagerImage) != strings.TrimSpace(managerImage) ||
+		strings.TrimRight(providerBaseURL, "/") != strings.TrimRight(baseURL, "/") ||
+		strings.TrimSpace(providerAPIKey) != strings.TrimSpace(apiKey) ||
+		!containsString(providerModels, modelID)
+}
+
+func csgClawConfigPath() (string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(home, ".csgclaw", "config.toml"), nil
+}
+
+func parseSimpleConfigKV(line string) (key, value string, ok bool) {
+	key, value, ok = strings.Cut(line, "=")
+	if !ok {
+		return "", "", false
+	}
+	key = strings.TrimSpace(key)
+	value = strings.TrimSpace(value)
+	if len(value) >= 2 && strings.HasPrefix(value, "\"") && strings.HasSuffix(value, "\"") {
+		if unquoted, err := strconv.Unquote(value); err == nil {
+			value = unquoted
+		}
+	}
+	return key, value, true
+}
+
+func parseSimpleStringArray(value string) []string {
+	value = strings.TrimSpace(value)
+	if !strings.HasPrefix(value, "[") || !strings.HasSuffix(value, "]") {
+		return nil
+	}
+	inner := strings.TrimSpace(strings.TrimSuffix(strings.TrimPrefix(value, "["), "]"))
+	if inner == "" {
+		return nil
+	}
+	parts := strings.Split(inner, ",")
+	items := make([]string, 0, len(parts))
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if len(part) >= 2 && strings.HasPrefix(part, "\"") && strings.HasSuffix(part, "\"") {
+			if unquoted, err := strconv.Unquote(part); err == nil {
+				part = unquoted
+			}
+		}
+		if part != "" {
+			items = append(items, part)
+		}
+	}
+	return items
+}
+
+func containsString(items []string, want string) bool {
+	want = strings.TrimSpace(want)
+	for _, item := range items {
+		if strings.TrimSpace(item) == want {
+			return true
+		}
+	}
+	return false
 }
 
 func syncOpenClawJSONFile(path string, mutate func(map[string]interface{})) error {

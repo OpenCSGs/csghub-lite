@@ -61,6 +61,7 @@ func (s *Server) openClawChatURL(ctx context.Context, modelID string) (string, e
 		return "", fmt.Errorf("OpenClaw is installed, but its launch command was not found on PATH")
 	}
 
+	log.Printf("AI APP openclaw: opening chat requested_model=%q", modelID)
 	s.refreshOpenClawModelCatalog(ctx)
 
 	if err := s.ensureOpenClawProfile(ctx, binary, modelID); err != nil {
@@ -80,6 +81,7 @@ func (s *Server) openClawChatURL(ctx context.Context, modelID string) (string, e
 	if err := waitForDashboard(url, openClawGatewayWait); err != nil {
 		return "", err
 	}
+	log.Printf("AI APP openclaw: gateway ready url=%s", url)
 	return openClawDirectChatURL(url, "main")
 }
 
@@ -102,6 +104,7 @@ func (s *Server) ensureOpenClawProfile(ctx context.Context, binary, requestedMod
 
 	ok, err := openClawProfileMatches(serverURL, modelID)
 	if err != nil || !ok {
+		log.Printf("AI APP openclaw: configuring profile model=%q base_url=%s", modelID, openClawProviderBaseURL(serverURL))
 		configureCtx, cancel := context.WithTimeout(ctx, openClawOpenTimeout)
 		defer cancel()
 
@@ -135,6 +138,7 @@ func (s *Server) ensureOpenClawProfile(ctx context.Context, binary, requestedMod
 			}
 			return fmt.Errorf("configuring OpenClaw: %s", msg)
 		}
+		log.Printf("AI APP openclaw: profile configured")
 	}
 
 	models := buildOpenClawProfileModels(modelIDs, nil)
@@ -144,6 +148,7 @@ func (s *Server) ensureOpenClawProfile(ctx context.Context, binary, requestedMod
 	if err := syncOpenClawProfile(serverURL, openClawProviderAPIKey(s.cfg.Token), modelID, models); err != nil {
 		return fmt.Errorf("syncing OpenClaw profile models: %w", err)
 	}
+	log.Printf("AI APP openclaw: model catalog synced models=%d selected=%q", len(models), modelID)
 	return nil
 }
 
@@ -301,6 +306,7 @@ func (s *Server) startOpenClawGateway(binary string) error {
 		_ = logFile.Close()
 		return fmt.Errorf("starting OpenClaw gateway: %w", err)
 	}
+	log.Printf("AI APP openclaw: gateway process started pid=%d log=%s", cmd.Process.Pid, logPath)
 	_ = logFile.Close()
 	_ = cmd.Process.Release()
 	return nil

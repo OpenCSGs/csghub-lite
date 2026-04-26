@@ -32,7 +32,7 @@ Supported apps:
   - csgclaw
 
 Options:
-  --app APP             App to sync (repeatable). Defaults to: open-code codex csgclaw
+  --app APP             App to sync (repeatable). Defaults to all mirror-backed apps
   --version VERSION     Version to mirror. Use only when syncing a single app.
   --no-update-latest    Upload versioned files only; do not overwrite latest
   --keep-workdir        Keep the temporary download directory for inspection
@@ -54,7 +54,8 @@ Optional environment variables:
   STARHUB_CSGCLAW_DIST_BASE_URL   Public URL override for generated manifest
 
 Examples:
-  ./scripts/sync-ai-app-oss.sh --app open-code --app codex --app csgclaw
+  ./scripts/sync-ai-app-oss.sh
+  ./scripts/sync-ai-app-oss.sh --app claude-code --app open-code --app codex --app csgclaw
   ./scripts/sync-ai-app-oss.sh --app codex --version 0.118.0
   ./scripts/sync-ai-app-oss.sh --app claude-code
   ./scripts/sync-ai-app-oss.sh --app csgclaw
@@ -92,7 +93,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 if [[ "${#APP_IDS[@]}" -eq 0 ]]; then
-  APP_IDS=(open-code codex csgclaw)
+  APP_IDS=(claude-code open-code codex csgclaw)
 fi
 
 if [[ "$REQUESTED_VERSION" != "latest" && "${#APP_IDS[@]}" -ne 1 ]]; then

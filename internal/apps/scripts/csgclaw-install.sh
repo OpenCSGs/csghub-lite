@@ -261,6 +261,7 @@ install_via_mirrored_archive() {
   if command -v csgclaw >/dev/null 2>&1; then
     csgclaw --version || true
   fi
+  log "INFO: next steps: csgclaw onboard; csgclaw serve"
   log "INFO: CSGClaw installation complete"
 }
 

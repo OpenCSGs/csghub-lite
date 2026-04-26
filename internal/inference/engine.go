@@ -53,6 +53,11 @@ func LoadEngine(modelDir string, lm *model.LocalModel) (Engine, error) {
 // for SafeTensors → GGUF conversion. When verbose is true, llama-server
 // output is printed to stderr.
 func LoadEngineWithProgress(modelDir string, lm *model.LocalModel, progress ConvertProgressFunc, verbose bool, numCtx, numParallel, nGPULayers int, cacheTypeK, cacheTypeV, dtype string) (Engine, error) {
+	modelName := ""
+	if lm != nil {
+		modelName = lm.FullName()
+	}
+	log.Printf("INFERENCE %s: resolving model engine in %s dtype=%q", modelName, modelDir, dtype)
 	normalizedDType, err := convert.NormalizeDType(dtype)
 	if err != nil {
 		return nil, err
@@ -76,6 +81,7 @@ func LoadEngineWithProgress(modelDir string, lm *model.LocalModel, progress Conv
 		if ggufPath, ok, err := convert.FindGGUFForDType(modelDir, normalizedDType); err != nil {
 			return nil, err
 		} else if ok {
+			log.Printf("INFERENCE %s: using GGUF %s for dtype=%q", modelName, ggufPath, normalizedDType)
 			mmproj, err := resolveMMProj()
 			if err != nil {
 				return nil, err
@@ -83,6 +89,7 @@ func LoadEngineWithProgress(modelDir string, lm *model.LocalModel, progress Conv
 			return newLlamaEngine(ggufPath, lm.FullName(), verbose, progress, numCtx, numParallel, nGPULayers, cacheTypeK, cacheTypeV, mmproj)
 		}
 		if convert.HasSafeTensors(modelDir) {
+			log.Printf("INFERENCE %s: SafeTensors detected; converting to GGUF dtype=%q", modelName, normalizedDType)
 			ggufPath, err := convertSafeTensors(modelDir, progress, normalizedDType)
 			if err != nil {
 				return nil, fmt.Errorf("auto-converting SafeTensors to GGUF: %w", err)
@@ -113,6 +120,7 @@ func LoadEngineWithProgress(modelDir string, lm *model.LocalModel, progress Conv
 
 	switch format {
 	case model.FormatGGUF:
+		log.Printf("INFERENCE %s: using GGUF %s", modelName, modelFile)
 		mmproj, err := resolveMMProj()
 		if err != nil {
 			return nil, err
@@ -120,6 +128,7 @@ func LoadEngineWithProgress(modelDir string, lm *model.LocalModel, progress Conv
 		return newLlamaEngine(modelFile, lm.FullName(), verbose, progress, numCtx, numParallel, nGPULayers, cacheTypeK, cacheTypeV, mmproj)
 
 	case model.FormatSafeTensors:
+		log.Printf("INFERENCE %s: SafeTensors detected; converting to GGUF dtype=%q", modelName, normalizedDType)
 		ggufPath, err := convertSafeTensors(modelDir, progress, normalizedDType)
 		if err != nil {
 			return nil, fmt.Errorf("auto-converting SafeTensors to GGUF: %w", err)
@@ -144,6 +153,7 @@ func convertSafeTensors(modelDir string, progress ConvertProgressFunc, dtype str
 	if ggufPath, ok, err := convert.FindGGUFForDType(modelDir, dtype); err != nil {
 		return "", err
 	} else if ok {
+		log.Printf("CONVERT: reusing existing GGUF %s", ggufPath)
 		return ggufPath, nil
 	}
 
@@ -152,7 +162,14 @@ func convertSafeTensors(modelDir string, progress ConvertProgressFunc, dtype str
 		progressFn = convert.ProgressFunc(progress)
 	}
 
-	return convert.Convert(modelDir, progressFn, dtype)
+	log.Printf("CONVERT: starting SafeTensors to GGUF model_dir=%s dtype=%q", modelDir, dtype)
+	path, err := convert.Convert(modelDir, progressFn, dtype)
+	if err != nil {
+		log.Printf("CONVERT: failed model_dir=%s dtype=%q: %v", modelDir, dtype, err)
+		return "", err
+	}
+	log.Printf("CONVERT: complete output=%s", path)
+	return path, nil
 }
 
 func removeConvertedGGUFIfInvalid(ggufPath string, err error) {

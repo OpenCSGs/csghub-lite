@@ -254,8 +254,8 @@ export const aiAppsCatalog: AIAppCatalogEntry[] = [
       zh: "通过镜像的 CSGClaw 发布包完成安装，支持 macOS (arm64) 和 Linux (amd64)。暂不支持 Windows。",
     },
     cnInstallHint: {
-      en: "By default the installer reads a versioned CSGClaw mirror; set CSGHUB_LITE_CSGCLAW_DIST_BASE_URL only when testing another mirror.",
-      zh: "默认从版本化的 CSGClaw 镜像读取发布包；仅在测试其他镜像时才需要设置 CSGHUB_LITE_CSGCLAW_DIST_BASE_URL。",
+      en: "By default the installer reads a versioned CSGClaw mirror; launch config uses the OpenCSG PicoClaw manager image, so there is no separate PicoClaw app sync step.",
+      zh: "默认从版本化的 CSGClaw 镜像读取发布包；启动配置会使用 OpenCSG 的 PicoClaw manager 镜像，不再需要单独同步 PicoClaw 应用。",
     },
     commandPreview: "curl -fsSL https://git-devops.opencsg.com/opensource/apps/-/raw/main/csgclaw/install.sh | bash",
     liveLogsReady: true,
@@ -269,8 +269,8 @@ export const aiAppsCatalog: AIAppCatalogEntry[] = [
         zh: "下载当前平台对应的镜像归档，校验 checksum，并解压二进制文件。",
       },
       {
-        en: "Wire the csgclaw launcher and verify the installation.",
-        zh: "配置 csgclaw 启动命令并验证安装。",
+        en: "Run CSGClaw onboarding with the csghub-lite provider, then start the WebUI through csgclaw serve daemon mode.",
+        zh: "使用 csghub-lite provider 完成 CSGClaw onboard，然后通过 csgclaw serve daemon 模式启动 WebUI。",
       },
     ],
     status: "idle",
