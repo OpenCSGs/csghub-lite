@@ -123,8 +123,9 @@ func TestPythonDepsInstallHintUsesManagedVenv(t *testing.T) {
 	}
 	for _, want := range []string{
 		"python3 -m venv ~/.csghub-lite/tools/python",
-		"~/.csghub-lite/tools/python/bin/python -m pip install --index-url https://download.pytorch.org/whl/cpu torch",
-		"~/.csghub-lite/tools/python/bin/python -m pip install safetensors transformers sentencepiece",
+		"~/.csghub-lite/tools/python/bin/python -m pip install --upgrade --index-url https://pypi.tuna.tsinghua.edu.cn/simple pip",
+		"~/.csghub-lite/tools/python/bin/python -m pip install --index-url https://pypi.tuna.tsinghua.edu.cn/simple torch",
+		"~/.csghub-lite/tools/python/bin/python -m pip install --index-url https://pypi.tuna.tsinghua.edu.cn/simple safetensors transformers sentencepiece",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("pythonDepsInstallHintForGOOS(darwin) missing %q in %q", want, got)
@@ -143,8 +144,9 @@ func TestPythonDepsInstallHintUsesManagedVenvOnWindows(t *testing.T) {
 	got := pythonDepsInstallHintForGOOS("windows")
 	for _, want := range []string{
 		`py -m venv "%USERPROFILE%\.csghub-lite\tools\python"`,
-		`"%USERPROFILE%\.csghub-lite\tools\python\Scripts\python.exe" -m pip install --index-url https://download.pytorch.org/whl/cpu torch`,
-		`"%USERPROFILE%\.csghub-lite\tools\python\Scripts\python.exe" -m pip install safetensors transformers sentencepiece`,
+		`"%USERPROFILE%\.csghub-lite\tools\python\Scripts\python.exe" -m pip install --upgrade --index-url https://pypi.tuna.tsinghua.edu.cn/simple pip`,
+		`"%USERPROFILE%\.csghub-lite\tools\python\Scripts\python.exe" -m pip install --index-url https://pypi.tuna.tsinghua.edu.cn/simple torch`,
+		`"%USERPROFILE%\.csghub-lite\tools\python\Scripts\python.exe" -m pip install --index-url https://pypi.tuna.tsinghua.edu.cn/simple safetensors transformers sentencepiece`,
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("pythonDepsInstallHintForGOOS(windows) missing %q in %q", want, got)

@@ -21,7 +21,9 @@ import (
 // (no GitHub access required at runtime).
 
 const (
-	pythonCPUOnlyTorchInstallArgs = "--index-url https://download.pytorch.org/whl/cpu torch"
+	pythonPackageIndexURL         = "https://pypi.tuna.tsinghua.edu.cn/simple"
+	pythonPackageIndexArgs        = "--index-url " + pythonPackageIndexURL
+	pythonCPUOnlyTorchInstallArgs = pythonPackageIndexArgs + " torch"
 	pythonDepsInstallArgs         = "safetensors transformers sentencepiece"
 	regionCN                      = "CN"
 	regionINTL                    = "INTL"
@@ -71,15 +73,17 @@ func pythonDepsInstallHintForGOOS(goos string) string {
 		venvPython := `"%USERPROFILE%\.csghub-lite\tools\python\Scripts\python.exe"`
 		return fmt.Sprintf(
 			"  py -m venv %s\n"+
-				"  %s -m pip install --upgrade pip\n"+
+				"  %s -m pip install --upgrade %s pip\n"+
 				"  %s -m pip install %s\n"+
-				"  %s -m pip install %s\n"+
+				"  %s -m pip install %s %s\n"+
 				"  csghub-lite automatically checks this virtual environment on the next run.",
 			venvDir,
 			venvPython,
+			pythonPackageIndexArgs,
 			venvPython,
 			pythonCPUOnlyTorchInstallArgs,
 			venvPython,
+			pythonPackageIndexArgs,
 			pythonDepsInstallArgs,
 		)
 	}
@@ -88,15 +92,17 @@ func pythonDepsInstallHintForGOOS(goos string) string {
 	venvPython := venvDir + "/bin/python"
 	return fmt.Sprintf(
 		"  python3 -m venv %s\n"+
-			"  %s -m pip install --upgrade pip\n"+
+			"  %s -m pip install --upgrade %s pip\n"+
 			"  %s -m pip install %s\n"+
-			"  %s -m pip install %s\n"+
+			"  %s -m pip install %s %s\n"+
 			"  csghub-lite automatically checks this virtual environment on the next run.",
 		venvDir,
 		venvPython,
+		pythonPackageIndexArgs,
 		venvPython,
 		pythonCPUOnlyTorchInstallArgs,
 		venvPython,
+		pythonPackageIndexArgs,
 		pythonDepsInstallArgs,
 	)
 }
@@ -603,15 +609,15 @@ func ensureManagedPythonEnv(basePython string, progress ProgressFunc) (string, s
 	}{
 		{
 			progress: "Installing Python package manager updates",
-			args:     []string{"-m", "pip", "install", "--upgrade", "pip"},
+			args:     []string{"-m", "pip", "install", "--upgrade", "--index-url", pythonPackageIndexURL, "pip"},
 		},
 		{
 			progress: "Installing CPU PyTorch for model conversion",
-			args:     []string{"-m", "pip", "install", "--upgrade", "--index-url", "https://download.pytorch.org/whl/cpu", "torch"},
+			args:     []string{"-m", "pip", "install", "--upgrade", "--index-url", pythonPackageIndexURL, "torch"},
 		},
 		{
 			progress: "Installing model conversion Python packages",
-			args:     []string{"-m", "pip", "install", "--upgrade", "safetensors", "transformers", "sentencepiece"},
+			args:     []string{"-m", "pip", "install", "--upgrade", "--index-url", pythonPackageIndexURL, "safetensors", "transformers", "sentencepiece"},
 		},
 	}
 	for _, step := range steps {
@@ -768,7 +774,7 @@ func attemptConverterAutoRepair(python, combined string, progress ProgressFunc) 
 	if len(otherPackages) > 0 {
 		progress(fmt.Sprintf("Upgrading Python package%s: %s", pluralSuffix(len(otherPackages)), strings.Join(otherPackages, ", ")), 0, 0)
 		pipOutput, pipErr := upgradePythonPackages(python, otherPackages)
-		command := fmt.Sprintf("%s -m pip install --upgrade %s", python, strings.Join(otherPackages, " "))
+		command := fmt.Sprintf("%s -m pip install --upgrade --index-url %s %s", python, pythonPackageIndexURL, strings.Join(otherPackages, " "))
 
 		if pipErr != nil {
 			pipSummary := lastNLines(pipOutput, 10)
@@ -802,7 +808,7 @@ func attemptConverterAutoRepair(python, combined string, progress ProgressFunc) 
 }
 
 func upgradePythonPackages(python string, packages []string) (string, error) {
-	args := []string{"-m", "pip", "install", "--upgrade"}
+	args := []string{"-m", "pip", "install", "--upgrade", "--index-url", pythonPackageIndexURL}
 	args = append(args, packages...)
 	cmd := exec.Command(python, args...)
 	cmd.Env = append(os.Environ(), "PIP_DISABLE_PIP_VERSION_CHECK=1")

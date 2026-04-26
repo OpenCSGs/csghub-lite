@@ -44,9 +44,9 @@ One-time install (same as the CLI error text):
 
 ```bash
 python3 -m venv ~/.csghub-lite/tools/python
-~/.csghub-lite/tools/python/bin/python -m pip install --upgrade pip
-~/.csghub-lite/tools/python/bin/python -m pip install --index-url https://download.pytorch.org/whl/cpu torch
-~/.csghub-lite/tools/python/bin/python -m pip install safetensors transformers sentencepiece
+~/.csghub-lite/tools/python/bin/python -m pip install --upgrade --index-url https://pypi.tuna.tsinghua.edu.cn/simple pip
+~/.csghub-lite/tools/python/bin/python -m pip install --index-url https://pypi.tuna.tsinghua.edu.cn/simple torch
+~/.csghub-lite/tools/python/bin/python -m pip install --index-url https://pypi.tuna.tsinghua.edu.cn/simple safetensors transformers sentencepiece
 ```
 
 On macOS/Linux the tool tries `python3.13` … `python3.9`, then `python3` / `python`, plus common Homebrew paths, and skips interpreters older than Python 3.9. On Windows it looks for `python` / `python3` on `PATH`.
