@@ -26,7 +26,7 @@ const (
 	csgclawPIDName        = "csgclaw.pid"
 	csgclawProviderName   = "csghub-lite"
 	csgclawManagerAgentID = "u-manager"
-	csgclawManagerImage   = "opencsg-registry.cn-beijing.cr.aliyuncs.com/opencsghq/picoclaw:2026.4.24.0"
+	csgclawManagerImage   = "opencsg-registry.cn-beijing.cr.aliyuncs.com/opencsghq/picoclaw:2026.4.26"
 )
 
 func (s *Server) openCSGClawURL(ctx context.Context, modelID string) (string, error) {

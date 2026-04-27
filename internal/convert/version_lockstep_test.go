@@ -32,3 +32,51 @@ func TestLlamaCppVersionLockstepWithInstallScripts(t *testing.T) {
 		}
 	}
 }
+
+func TestLlamaInstallerCandidateCollectionCrossPlatform(t *testing.T) {
+	repoRoot := filepath.Clean(filepath.Join("..", ".."))
+	shell := readRepoFile(t, repoRoot, "scripts", "install.sh")
+	powerShell := readRepoFile(t, repoRoot, "scripts", "install.ps1")
+
+	shellMustContain := []string{
+		`add_candidate()`,
+		`_candidates="${_candidates:+${_candidates} }${_candidate}"`,
+		`llama-${_llama_tag}-bin-macos-x64.tar.gz`,
+		`llama-${_llama_tag}-bin-macos-arm64.tar.gz`,
+		`llama-${_llama_tag}-bin-ubuntu-cuda-12.4-${_arch_token}.tar.gz`,
+		`llama-${_llama_tag}-bin-ubuntu-${_arch_token}.tar.gz`,
+	}
+	for _, want := range shellMustContain {
+		if !strings.Contains(shell, want) {
+			t.Fatalf("scripts/install.sh missing llama.cpp candidate logic %q", want)
+		}
+	}
+
+	powerShellMustContain := []string{
+		`$candidates = [System.Collections.Generic.List[object]]::new()`,
+		`[void]$candidates.Add(@{ Asset = $Asset; Cudart = $Cudart })`,
+		`llama-${llamaTag}-bin-win-cuda-12.4-${archToken}.zip`,
+		`llama-${escapedTag}-bin-win-cuda-[0-9.]+-${archToken}\.zip`,
+		`llama-${llamaTag}-bin-win-vulkan-${archToken}.zip`,
+		`llama-${llamaTag}-bin-win-cpu-${archToken}.zip`,
+	}
+	for _, want := range powerShellMustContain {
+		if !strings.Contains(powerShell, want) {
+			t.Fatalf("scripts/install.ps1 missing llama.cpp candidate logic %q", want)
+		}
+	}
+	if strings.Contains(powerShell, `$candidates += @{ Asset = $Asset; Cudart = $Cudart }`) {
+		t.Fatal("scripts/install.ps1 must not append candidates with += inside Add-Candidate; PowerShell scopes that assignment locally")
+	}
+}
+
+func readRepoFile(t *testing.T, repoRoot string, path ...string) string {
+	t.Helper()
+
+	parts := append([]string{repoRoot}, path...)
+	data, err := os.ReadFile(filepath.Join(parts...))
+	if err != nil {
+		t.Fatalf("read %s: %v", filepath.Join(path...), err)
+	}
+	return string(data)
+}

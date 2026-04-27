@@ -304,7 +304,7 @@ function Install-LlamaServer {
     $hasCuda = [bool]$nvidiaSmi
 
     # Build ordered list of candidate assets (best match first)
-    $candidates = @()
+    $candidates = [System.Collections.Generic.List[object]]::new()
     $candidateAssets = @{}
     $cudartName = $null
     $escapedTag = [regex]::Escape($llamaTag)
@@ -317,7 +317,7 @@ function Install-LlamaServer {
             return
         }
         $candidateAssets[$Asset] = $true
-        $candidates += @{ Asset = $Asset; Cudart = $Cudart }
+        [void]$candidates.Add(@{ Asset = $Asset; Cudart = $Cudart })
     }
 
     if ($hasCuda) {

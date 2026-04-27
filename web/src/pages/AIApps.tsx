@@ -3,13 +3,16 @@ import { computed, signal } from "@preact/signals";
 import { useEffect, useRef, useState } from "preact/hooks";
 import {
   getAIApps,
+  getCloudAuthStatus,
   getTags,
   installAIApp,
   openAIApp,
   saveAIAppModel,
+  saveCloudToken,
   streamAIAppLogs,
   uninstallAIApp,
   type AIAppInfo as RemoteAIAppInfo,
+  type CloudAuthStatus,
   type ModelInfo,
 } from "../api/client";
 import {
@@ -42,6 +45,10 @@ const pendingInstallId = signal("");
 const pendingUninstallId = signal("");
 const pendingOpenId = signal("");
 const visibleError = computed(() => actionError.value || loadError.value);
+
+function hasCloudAuth(status: CloudAuthStatus | null | undefined): boolean {
+  return status?.authenticated ?? status?.has_token ?? false;
+}
 
 const filteredApps = computed(() => {
   const currentLocale = locale.value;
@@ -494,7 +501,13 @@ function LiveLogsDrawer({
   const [modelsLoading, setModelsLoading] = useState(false);
   const [selectedModel, setSelectedModel] = useState("");
   const [copiedModel, setCopiedModel] = useState(false);
+  const [cloudAuth, setCloudAuth] = useState<CloudAuthStatus | null>(null);
+  const [showCloudAuthDialog, setShowCloudAuthDialog] = useState(false);
+  const [cloudAuthError, setCloudAuthError] = useState("");
+  const [cloudTokenInput, setCloudTokenInput] = useState("");
+  const [isSavingCloudToken, setIsSavingCloudToken] = useState(false);
   const currentModelID = selectedModel || state.modelID?.trim() || "";
+  const currentModelInfo = models.find((item) => item.model === currentModelID);
   const launchPreview = cliLaunchPreview(app, currentModelID);
 
   useEffect(() => {
@@ -565,6 +578,28 @@ function LiveLogsDrawer({
 
   useEffect(() => {
     if (!canSelectModel) {
+      setCloudAuth(null);
+      return;
+    }
+
+    let disposed = false;
+    getCloudAuthStatus()
+      .then((status) => {
+        if (!disposed) {
+          setCloudAuth(status);
+        }
+      })
+      .catch(() => {
+        /* ignore */
+      });
+
+    return () => {
+      disposed = true;
+    };
+  }, [app.id, canSelectModel]);
+
+  useEffect(() => {
+    if (!canSelectModel) {
       setSelectedModel("");
       return;
     }
@@ -616,6 +651,100 @@ function LiveLogsDrawer({
       }, 1500);
     } catch {
       // Ignore clipboard failures so the drawer keeps working.
+    }
+  };
+
+  const refreshCloudAuth = async (): Promise<CloudAuthStatus> => {
+    const status = await getCloudAuthStatus();
+    setCloudAuth(status);
+    return status;
+  };
+
+  const openCloudAuthDialog = async (message = "") => {
+    setCloudAuthError(message);
+    setShowCloudAuthDialog(true);
+    try {
+      await refreshCloudAuth();
+    } catch {
+      /* ignore */
+    }
+  };
+
+  const ensureCloudAuthForModel = async (model: ModelInfo | undefined): Promise<boolean> => {
+    if (model?.source !== "cloud") {
+      return true;
+    }
+
+    try {
+      const status = cloudAuth || await refreshCloudAuth();
+      if (hasCloudAuth(status)) {
+        return true;
+      }
+    } catch {
+      /* fall through to login dialog */
+    }
+
+    await openCloudAuthDialog(t("chat.cloudLoginRequired"));
+    return false;
+  };
+
+  const handleModelChange = (value: string) => {
+    setSelectedModel(value);
+    if (value) {
+      void saveAIAppModel(app.id, value);
+    }
+    const nextModel = models.find((item) => item.model === value);
+    void ensureCloudAuthForModel(nextModel);
+  };
+
+  const handleOpenCurrentApp = async () => {
+    if (!(await ensureCloudAuthForModel(currentModelInfo))) {
+      return;
+    }
+    onOpenChat(currentModelID || undefined);
+  };
+
+  const handleOpenCloudLogin = () => {
+    const url = cloudAuth?.login_url;
+    if (url) {
+      window.open(url, "_blank", "noopener,noreferrer");
+    }
+  };
+
+  const handleOpenCloudTokenPage = () => {
+    const url = cloudAuth?.access_token_url;
+    if (url) {
+      window.open(url, "_blank", "noopener,noreferrer");
+    }
+  };
+
+  const handleSaveCloudToken = async () => {
+    const token = cloudTokenInput.trim();
+    if (!token) {
+      setCloudAuthError(t("chat.cloudTokenEmpty"));
+      return;
+    }
+
+    setIsSavingCloudToken(true);
+    setCloudAuthError("");
+    try {
+      const status = await saveCloudToken(token);
+      setCloudAuth(status);
+      if (!hasCloudAuth(status)) {
+        setCloudAuthError(t("chat.cloudLoginExpired"));
+        return;
+      }
+      try {
+        setModels(normalizeAIAppModels(await getTags({ refresh: true })));
+      } catch {
+        /* ignore */
+      }
+      setCloudTokenInput("");
+      setShowCloudAuthDialog(false);
+    } catch (error) {
+      setCloudAuthError((error as Error).message || t("chat.failedResp"));
+    } finally {
+      setIsSavingCloudToken(false);
     }
   };
 
@@ -696,11 +825,7 @@ function LiveLogsDrawer({
                       <select
                         value={currentModelID}
                         onChange={(e) => {
-                          const val = (e.currentTarget as HTMLSelectElement).value;
-                          setSelectedModel(val);
-                          if (val) {
-                            void saveAIAppModel(app.id, val);
-                          }
+                          handleModelChange((e.currentTarget as HTMLSelectElement).value);
                         }}
                         disabled={modelsLoading || models.length === 0}
                         class={`appearance-none w-full rounded-xl border bg-white pl-3 pr-9 py-3 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent ${
@@ -838,7 +963,7 @@ function LiveLogsDrawer({
           <div class="flex items-center gap-3">
             {canOpenChat && (
               <button
-                onClick={() => onOpenChat(currentModelID || undefined)}
+                onClick={() => void handleOpenCurrentApp()}
                 disabled={pendingOpen}
                 class={`inline-flex items-center justify-center rounded-lg border px-4 py-2 text-sm font-medium transition-colors ${
                   pendingOpen
@@ -878,6 +1003,104 @@ function LiveLogsDrawer({
           </div>
         </div>
       </div>
+      {showCloudAuthDialog && (
+        <div class="fixed inset-0 z-[60] flex items-center justify-center bg-gray-900/40 px-4" onClick={(e) => e.stopPropagation()}>
+          <div class="w-full max-w-lg rounded-2xl bg-white p-6 shadow-2xl">
+            {currentModelInfo && (
+              <div class="mb-4 flex items-center justify-between rounded-lg bg-indigo-50 px-3 py-2">
+                <div class="flex items-center gap-2 min-w-0">
+                  <svg class="w-4 h-4 text-indigo-600 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                  </svg>
+                  <span class="truncate text-sm font-medium text-indigo-700">{formatAIAppModelLabel(currentModelInfo)}</span>
+                </div>
+                <button
+                  onClick={() => {
+                    void navigator.clipboard.writeText(currentModelInfo.model || currentModelInfo.name || "");
+                  }}
+                  class="rounded p-1 text-indigo-600 hover:bg-indigo-100 transition-colors"
+                  title={t("chat.copyModel")}
+                >
+                  <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                  </svg>
+                </button>
+              </div>
+            )}
+            <div class="flex items-start justify-between gap-4">
+              <div>
+                <h3 class="text-lg font-semibold text-gray-900">{t("chat.cloudLoginTitle")}</h3>
+                <p class="mt-2 text-sm leading-6 text-gray-500">{t("chat.cloudLoginDesc")}</p>
+              </div>
+              <button
+                onClick={() => {
+                  setShowCloudAuthDialog(false);
+                  setCloudAuthError("");
+                }}
+                class="rounded-lg p-1 text-gray-400 hover:text-gray-600"
+                aria-label={t("chat.cloudCancel")}
+              >
+                <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+
+            {cloudAuthError && (
+              <div class="mt-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                {cloudAuthError}
+              </div>
+            )}
+
+            <div class="mt-5 flex flex-wrap gap-2">
+              <button
+                onClick={handleOpenCloudLogin}
+                class="rounded-lg border border-gray-200 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
+              >
+                {t("chat.cloudOpenLogin")}
+              </button>
+              <button
+                onClick={handleOpenCloudTokenPage}
+                class="rounded-lg border border-gray-200 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
+              >
+                {t("chat.cloudOpenTokenPage")}
+              </button>
+            </div>
+
+            <div class="mt-5">
+              <label class="mb-2 block text-sm font-medium text-gray-700">{t("chat.cloudTokenLabel")}</label>
+              <input
+                type="password"
+                autoComplete="off"
+                spellcheck={false}
+                class="w-full rounded-lg border border-gray-200 px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                placeholder={t("chat.cloudTokenPlaceholder")}
+                value={cloudTokenInput}
+                onInput={(e) => setCloudTokenInput((e.currentTarget as HTMLInputElement).value)}
+              />
+            </div>
+
+            <div class="mt-5 flex justify-end gap-2">
+              <button
+                onClick={() => {
+                  setShowCloudAuthDialog(false);
+                  setCloudAuthError("");
+                }}
+                class="rounded-lg border border-gray-200 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
+              >
+                {t("chat.cloudCancel")}
+              </button>
+              <button
+                onClick={() => void handleSaveCloudToken()}
+                disabled={isSavingCloudToken}
+                class="rounded-lg bg-indigo-600 px-4 py-2 text-sm text-white hover:bg-indigo-700 disabled:opacity-60 transition-colors"
+              >
+                {isSavingCloudToken ? t("chat.cloudSavingToken") : t("chat.cloudSaveToken")}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

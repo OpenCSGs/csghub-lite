@@ -27,7 +27,7 @@ const (
 	openClawMaxTokens         = 4096
 	csgClawLaunchProviderID   = "csghub-lite"
 	csgClawConfigureTimeout   = 2 * time.Minute
-	csgClawManagerImage       = "opencsg-registry.cn-beijing.cr.aliyuncs.com/opencsghq/picoclaw:2026.4.24.0"
+	csgClawManagerImage       = "opencsg-registry.cn-beijing.cr.aliyuncs.com/opencsghq/picoclaw:2026.4.26"
 	codexContextWindow        = 272000
 	codexBaseInstructions     = "You are Codex, a coding agent. You and the user share the same workspace and collaborate to achieve the user's goals. Focus on practical, safe, concise help for software tasks."
 )

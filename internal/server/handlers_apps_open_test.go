@@ -287,7 +287,7 @@ advertise_base_url = ""
 access_token = "your_access_token"
 
 [bootstrap]
-manager_image = "opencsg-registry.cn-beijing.cr.aliyuncs.com/opencsghq/picoclaw:2026.4.24.0"
+manager_image = "opencsg-registry.cn-beijing.cr.aliyuncs.com/opencsghq/picoclaw:2026.4.26"
 
 [sandbox]
 provider = "boxlite"
@@ -318,7 +318,7 @@ models = ["glm-5", "Qwen/Qwen3-0.6B-GGUF"]
 	if !csgclawConfigNeedsManagerRecreate("http://192.168.10.215:11435/v1", "other-token", "glm-5", csgclawManagerImage) {
 		t.Fatal("expected API key drift to require manager recreation")
 	}
-	if !csgclawConfigNeedsManagerRecreate("http://192.168.10.215:11435/v1", "test-token", "glm-5", "ghcr.io/russellluo/picoclaw:2026.4.26") {
+	if !csgclawConfigNeedsManagerRecreate("http://192.168.10.215:11435/v1", "test-token", "glm-5", "opencsg-registry.cn-beijing.cr.aliyuncs.com/opencsghq/picoclaw:2026.4.24.0") {
 		t.Fatal("expected manager image drift to require manager recreation")
 	}
 }
