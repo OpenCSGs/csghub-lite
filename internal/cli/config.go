@@ -162,6 +162,9 @@ func runConfigSet(cmd *cobra.Command, args []string) error {
 	if err := config.Save(cfg); err != nil {
 		return fmt.Errorf("saving config: %w", err)
 	}
+	if key == "token" {
+		warnIfTokenSyncFailed(cfg)
+	}
 
 	fmt.Printf("Set %s = %s\n", key, displayConfigValue(cfg, key))
 	return nil

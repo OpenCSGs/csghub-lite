@@ -170,12 +170,12 @@ SafeTensors checkpoints are converted once using the bundled llama.cpp `convert_
 
 ```bash
 python3 -m venv ~/.csghub-lite/tools/python
-~/.csghub-lite/tools/python/bin/python -m pip install --upgrade pip
-~/.csghub-lite/tools/python/bin/python -m pip install --index-url https://download.pytorch.org/whl/cpu torch
-~/.csghub-lite/tools/python/bin/python -m pip install safetensors transformers
+~/.csghub-lite/tools/python/bin/python -m pip install --upgrade --index-url https://mirrors.aliyun.com/pypi/simple pip
+~/.csghub-lite/tools/python/bin/python -m pip install --index-url https://mirrors.aliyun.com/pypi/simple --find-links https://mirrors.aliyun.com/pytorch-wheels/cpu torch
+~/.csghub-lite/tools/python/bin/python -m pip install --index-url https://mirrors.aliyun.com/pypi/simple safetensors transformers sentencepiece
 ```
 
-Use Python 3.10+ on `PATH` (Windows: `python` or `python3`). `gguf-py` is loaded from matching Gitee `llama.cpp` source (`https://gitee.com/xzgan/llama.cpp`), not PyPI. If `transformers` is too old for a new architecture, `csghub-lite` tries to upgrade it inside the managed venv before retrying. Some models may need extra packages (for example `sentencepiece`); see [`internal/convert/data/README.md`](internal/convert/data/README.md) for the full list and troubleshooting.
+Use Python 3.10+ on `PATH` (Windows: `python` or `python3`). `csghub-lite` retries torch from the official PyTorch CPU index (`https://download.pytorch.org/whl/cpu`) if the Aliyun mirror is unavailable. `gguf-py` is loaded from matching Gitee `llama.cpp` source (`https://gitee.com/xzgan/llama.cpp`), not PyPI. If `transformers` is too old for a new architecture, `csghub-lite` tries to upgrade it inside the managed venv before retrying. Some models may need extra packages (for example `sentencepiece`); see [`internal/convert/data/README.md`](internal/convert/data/README.md) for the full list and troubleshooting.
 
 ## Development
 

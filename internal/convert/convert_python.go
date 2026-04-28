@@ -21,9 +21,11 @@ import (
 // (no GitHub access required at runtime).
 
 const (
-	pythonPackageIndexURL         = "https://pypi.tuna.tsinghua.edu.cn/simple"
+	pythonPackageIndexURL         = "https://mirrors.aliyun.com/pypi/simple"
 	pythonPackageIndexArgs        = "--index-url " + pythonPackageIndexURL
-	pythonCPUOnlyTorchInstallArgs = pythonPackageIndexArgs + " torch"
+	pythonCPUOnlyTorchIndexURL    = "https://mirrors.aliyun.com/pytorch-wheels/cpu"
+	pythonCPUOnlyTorchFallbackURL = "https://download.pytorch.org/whl/cpu"
+	pythonCPUOnlyTorchInstallArgs = pythonPackageIndexArgs + " --find-links " + pythonCPUOnlyTorchIndexURL + " torch"
 	pythonDepsInstallArgs         = "safetensors transformers sentencepiece"
 	regionCN                      = "CN"
 	regionINTL                    = "INTL"
@@ -76,6 +78,7 @@ func pythonDepsInstallHintForGOOS(goos string) string {
 				"  %s -m pip install --upgrade %s pip\n"+
 				"  %s -m pip install %s\n"+
 				"  %s -m pip install %s %s\n"+
+				"  csghub-lite automatically tries the official PyTorch CPU index if the Aliyun mirror is unavailable.\n"+
 				"  csghub-lite automatically checks this virtual environment on the next run.",
 			venvDir,
 			venvPython,
@@ -95,6 +98,7 @@ func pythonDepsInstallHintForGOOS(goos string) string {
 			"  %s -m pip install --upgrade %s pip\n"+
 			"  %s -m pip install %s\n"+
 			"  %s -m pip install %s %s\n"+
+			"  csghub-lite automatically tries the official PyTorch CPU index if the Aliyun mirror is unavailable.\n"+
 			"  csghub-lite automatically checks this virtual environment on the next run.",
 		venvDir,
 		venvPython,
@@ -604,16 +608,20 @@ func ensureManagedPythonEnv(basePython string, progress ProgressFunc) (string, s
 
 	var combined []string
 	steps := []struct {
-		progress string
-		args     []string
+		progress         string
+		args             []string
+		fallbackProgress string
+		fallbackArgs     []string
 	}{
 		{
 			progress: "Installing Python package manager updates",
 			args:     []string{"-m", "pip", "install", "--upgrade", "--index-url", pythonPackageIndexURL, "pip"},
 		},
 		{
-			progress: "Installing CPU PyTorch for model conversion",
-			args:     []string{"-m", "pip", "install", "--upgrade", "--index-url", pythonPackageIndexURL, "torch"},
+			progress:         "Installing CPU PyTorch for model conversion from Aliyun mirror",
+			args:             []string{"-m", "pip", "install", "--upgrade", "--index-url", pythonPackageIndexURL, "--find-links", pythonCPUOnlyTorchIndexURL, "torch"},
+			fallbackProgress: "Retrying CPU PyTorch install from official PyTorch index",
+			fallbackArgs:     []string{"-m", "pip", "install", "--upgrade", "--index-url", pythonCPUOnlyTorchFallbackURL, "torch"},
 		},
 		{
 			progress: "Installing model conversion Python packages",
@@ -626,6 +634,15 @@ func ensureManagedPythonEnv(basePython string, progress ProgressFunc) (string, s
 		output, err := runPythonPipCommand(python, step.args...)
 		if output != "" {
 			combined = append(combined, output)
+		}
+		if err != nil && len(step.fallbackArgs) > 0 {
+			combined = append(combined, fmt.Sprintf("%s failed: %v", strings.Join(step.args, " "), err))
+			progress(step.fallbackProgress, 0, 0)
+			log.Printf("CONVERT: %s", step.fallbackProgress)
+			output, err = runPythonPipCommand(python, step.fallbackArgs...)
+			if output != "" {
+				combined = append(combined, output)
+			}
 		}
 		if err != nil {
 			return "", strings.Join(combined, "\n"), err

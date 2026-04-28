@@ -40,6 +40,7 @@ func newLoginCmd() *cobra.Command {
 			if err := config.Save(cfg); err != nil {
 				return fmt.Errorf("saving config: %w", err)
 			}
+			warnIfTokenSyncFailed(cfg)
 
 			fmt.Println("Token saved successfully.")
 			return nil

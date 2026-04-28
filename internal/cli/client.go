@@ -25,6 +25,9 @@ func ensureServer(cfg *config.Config) (string, error) {
 	baseURL := serverBaseURL(cfg)
 
 	if serverHealthy(baseURL) {
+		if strings.TrimSpace(cfg.Token) != "" {
+			warnIfTokenSyncFailed(cfg)
+		}
 		return baseURL, nil
 	}
 
@@ -34,6 +37,9 @@ func ensureServer(cfg *config.Config) (string, error) {
 
 	if err := waitForServer(baseURL, 15*time.Second); err != nil {
 		return "", err
+	}
+	if strings.TrimSpace(cfg.Token) != "" {
+		warnIfTokenSyncFailed(cfg)
 	}
 
 	return baseURL, nil
