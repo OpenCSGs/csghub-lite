@@ -54,6 +54,62 @@ func TestOpenClawDirectChatURL(t *testing.T) {
 	}
 }
 
+func TestOpenClawURLWithGatewayToken(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	cfgDir := filepath.Join(home, ".openclaw-"+openClawWebProfile)
+	if err := os.MkdirAll(cfgDir, 0o755); err != nil {
+		t.Fatalf("mkdir config dir: %v", err)
+	}
+	configJSON := `{
+  "gateway": {
+    "auth": {
+      "mode": "token",
+      "token": "test-gateway-token"
+    }
+  }
+}`
+	if err := os.WriteFile(filepath.Join(cfgDir, "openclaw.json"), []byte(configJSON), 0o644); err != nil {
+		t.Fatalf("write profile: %v", err)
+	}
+
+	got, err := openClawURLWithGatewayToken("http://127.0.0.1:18789/")
+	if err != nil {
+		t.Fatalf("openClawURLWithGatewayToken returned error: %v", err)
+	}
+	if want := "http://127.0.0.1:18789/#token=test-gateway-token"; got != want {
+		t.Fatalf("openClawURLWithGatewayToken = %q, want %q", got, want)
+	}
+}
+
+func TestOpenClawURLWithGatewayTokenKeepsExistingToken(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	cfgDir := filepath.Join(home, ".openclaw-"+openClawWebProfile)
+	if err := os.MkdirAll(cfgDir, 0o755); err != nil {
+		t.Fatalf("mkdir config dir: %v", err)
+	}
+	configJSON := `{
+  "gateway": {
+    "auth": {
+      "mode": "token",
+      "token": "config-token"
+    }
+  }
+}`
+	if err := os.WriteFile(filepath.Join(cfgDir, "openclaw.json"), []byte(configJSON), 0o644); err != nil {
+		t.Fatalf("write profile: %v", err)
+	}
+
+	got, err := openClawURLWithGatewayToken("http://127.0.0.1:18789/#token=cli-token")
+	if err != nil {
+		t.Fatalf("openClawURLWithGatewayToken returned error: %v", err)
+	}
+	if want := "http://127.0.0.1:18789/#token=cli-token"; got != want {
+		t.Fatalf("openClawURLWithGatewayToken = %q, want %q", got, want)
+	}
+}
+
 func TestOpenClawProfileMatches(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)

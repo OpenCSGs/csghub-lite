@@ -25,6 +25,7 @@ const (
 	openClawConfigureTimeout  = 2 * time.Minute
 	openClawContextWindow     = 16000
 	openClawMaxTokens         = 4096
+	openClawDefaultRegistry   = "https://registry.npmmirror.com"
 	csgClawLaunchProviderID   = "csghub-lite"
 	csgClawConfigureTimeout   = 2 * time.Minute
 	csgClawManagerImage       = "opencsg-registry.cn-beijing.cr.aliyuncs.com/opencsghq/picoclaw:2026.4.26"
@@ -597,6 +598,9 @@ func ensureOpenClawProfile(binary, serverURL, modelID string) error {
 		}
 
 		cmd := exec.CommandContext(ctx, binary, args...)
+		cmd.Env = envWithOverrides(map[string]string{
+			"NPM_CONFIG_REGISTRY": openClawNPMRegistry(),
+		})
 		output, err := cmd.CombinedOutput()
 		if ctx.Err() == context.DeadlineExceeded {
 			return fmt.Errorf("configuring OpenClaw timed out after %s", openClawConfigureTimeout)
@@ -627,6 +631,13 @@ func ensureOpenClawProfile(binary, serverURL, modelID string) error {
 		return fmt.Errorf("syncing OpenClaw profile models: %w", err)
 	}
 	return nil
+}
+
+func openClawNPMRegistry() string {
+	if registry := strings.TrimSpace(os.Getenv("NPM_CONFIG_REGISTRY")); registry != "" {
+		return registry
+	}
+	return openClawDefaultRegistry
 }
 
 func openClawProviderBaseURL(serverURL string) string {

@@ -96,14 +96,19 @@ func (s *Server) handleOpenAIResponses(w http.ResponseWriter, r *http.Request) {
 		})
 
 		var full strings.Builder
+		thinkFilter := newResponsesThinkTagFilter()
 		onToken := func(token string) {
 			full.WriteString(token)
+			visible := thinkFilter.Push(token)
+			if visible == "" {
+				return
+			}
 			writeResponsesSSE(w, "response.output_text.delta", map[string]interface{}{
 				"type":          "response.output_text.delta",
 				"output_index":  0,
 				"content_index": 0,
 				"item_id":       itemID,
-				"delta":         token,
+				"delta":         visible,
 			})
 		}
 
@@ -119,7 +124,16 @@ func (s *Server) handleOpenAIResponses(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		text := full.String()
+		text := normalizeResponsesVisibleText(full.String())
+		if visible := thinkFilter.Flush(); visible != "" {
+			writeResponsesSSE(w, "response.output_text.delta", map[string]interface{}{
+				"type":          "response.output_text.delta",
+				"output_index":  0,
+				"content_index": 0,
+				"item_id":       itemID,
+				"delta":         visible,
+			})
+		}
 		writeResponsesSSE(w, "response.output_text.done", map[string]interface{}{
 			"type":          "response.output_text.done",
 			"output_index":  0,
@@ -159,6 +173,7 @@ func (s *Server) handleOpenAIResponses(w http.ResponseWriter, r *http.Request) {
 		writeOpenAIInferenceError(w, err)
 		return
 	}
+	text = normalizeResponsesVisibleText(text)
 
 	writeJSON(w, http.StatusOK, buildResponsesResponse(id, itemID, req.Model, text, created, "completed", inputTokens))
 }
@@ -630,7 +645,7 @@ func responsesOutputFromOpenAIChatResponse(resp api.OpenAIChatResponse) ([]inter
 
 	msg := resp.Choices[0].Message
 	output := make([]interface{}, 0, 1+len(msg.ToolCalls))
-	outputText := strings.TrimSpace(contentAsString(msg.Content))
+	outputText := strings.TrimSpace(normalizeResponsesVisibleText(contentAsString(msg.Content)))
 	if outputText != "" || len(msg.ToolCalls) == 0 {
 		output = append(output, buildResponsesOutputItem(fmt.Sprintf("msg_%d", time.Now().UnixNano()), outputText, "completed"))
 	}
@@ -837,6 +852,112 @@ func writeResponsesToolStream(w http.ResponseWriter, id, modelID string, created
 			"usage":               usage,
 		},
 	})
+}
+
+const (
+	responsesThinkOpenTag  = "<think>"
+	responsesThinkCloseTag = "</think>"
+)
+
+type responsesThinkTagFilter struct {
+	buffer  string
+	inThink bool
+	emitted bool
+}
+
+func newResponsesThinkTagFilter() *responsesThinkTagFilter {
+	return &responsesThinkTagFilter{}
+}
+
+func normalizeResponsesVisibleText(text string) string {
+	filter := newResponsesThinkTagFilter()
+	return filter.Push(text) + filter.Flush()
+}
+
+func (f *responsesThinkTagFilter) Push(chunk string) string {
+	if chunk == "" {
+		return ""
+	}
+
+	f.buffer += chunk
+	var out strings.Builder
+	for {
+		if f.inThink {
+			idx := indexFold(f.buffer, responsesThinkCloseTag)
+			if idx < 0 {
+				f.buffer = suffixMatchingTagPrefixFold(f.buffer, responsesThinkCloseTag)
+				return f.trimLeadingBlankLines(out.String())
+			}
+			f.buffer = f.buffer[idx+len(responsesThinkCloseTag):]
+			f.inThink = false
+			continue
+		}
+
+		idx := indexFold(f.buffer, responsesThinkOpenTag)
+		if idx >= 0 {
+			out.WriteString(f.buffer[:idx])
+			f.buffer = f.buffer[idx+len(responsesThinkOpenTag):]
+			f.inThink = true
+			continue
+		}
+
+		suffix := suffixMatchingTagPrefixFold(f.buffer, responsesThinkOpenTag)
+		emitLen := len(f.buffer) - len(suffix)
+		if emitLen > 0 {
+			out.WriteString(f.buffer[:emitLen])
+		}
+		f.buffer = suffix
+		return f.trimLeadingBlankLines(out.String())
+	}
+}
+
+func (f *responsesThinkTagFilter) Flush() string {
+	if f.inThink {
+		f.buffer = ""
+		f.inThink = false
+		return ""
+	}
+	out := f.trimLeadingBlankLines(f.buffer)
+	f.buffer = ""
+	return out
+}
+
+func (f *responsesThinkTagFilter) trimLeadingBlankLines(text string) string {
+	if text == "" {
+		return ""
+	}
+	if !f.emitted {
+		text = strings.TrimLeft(text, "\r\n")
+	}
+	if text != "" {
+		f.emitted = true
+	}
+	return text
+}
+
+func indexFold(s, substr string) int {
+	if substr == "" {
+		return 0
+	}
+	for i := 0; i+len(substr) <= len(s); i++ {
+		if strings.EqualFold(s[i:i+len(substr)], substr) {
+			return i
+		}
+	}
+	return -1
+}
+
+func suffixMatchingTagPrefixFold(s, tag string) string {
+	max := len(tag) - 1
+	if max > len(s) {
+		max = len(s)
+	}
+	for n := max; n > 0; n-- {
+		if strings.EqualFold(s[len(s)-n:], tag[:n]) {
+			return s[len(s)-n:]
+		}
+	}
+	return ""
 }
 
 func countResponsesTokens(req openAIResponsesRequest) int {

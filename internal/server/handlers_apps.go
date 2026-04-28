@@ -129,7 +129,7 @@ func (s *Server) handleAppOpen(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	log.Printf("AI APP %s: open ready url=%s", req.AppID, url)
+	log.Printf("AI APP %s: open ready url=%s", req.AppID, redactURLToken(url))
 	writeJSON(w, http.StatusOK, api.AIAppOpenResponse{URL: url})
 }
 

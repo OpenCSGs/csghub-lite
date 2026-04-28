@@ -24,11 +24,12 @@ const (
 	openClawProviderID      = "opencsg"
 	openClawProviderAPI     = "openai-completions"
 	openClawOpenTimeout     = 2 * time.Minute
-	openClawGatewayWait     = 12 * time.Second
+	openClawGatewayWait     = 2 * time.Minute
 	openClawGatewayLogName  = "openclaw-gateway.log"
 	openClawDashboardPrefix = "Dashboard URL:"
 	openClawContextWindow   = 16000
 	openClawMaxTokens       = 4096
+	openClawDefaultRegistry = "https://registry.npmmirror.com"
 )
 
 func (s *Server) openAIAppURL(ctx context.Context, appID, modelID, workDir string) (string, error) {
@@ -56,6 +57,9 @@ func (s *Server) openAIAppURL(ctx context.Context, appID, modelID, workDir strin
 }
 
 func (s *Server) openClawChatURL(ctx context.Context, modelID string) (string, error) {
+	s.openclawMu.Lock()
+	defer s.openclawMu.Unlock()
+
 	binary, err := resolveAIAppLaunchBinary([]string{"openclaw"})
 	if err != nil {
 		return "", fmt.Errorf("OpenClaw is installed, but its launch command was not found on PATH")
@@ -75,13 +79,20 @@ func (s *Server) openClawChatURL(ctx context.Context, modelID string) (string, e
 	if err != nil {
 		return "", err
 	}
-	if err := s.startOpenClawGateway(binary); err != nil {
-		return "", err
+	if dashboardReachable(url) {
+		log.Printf("AI APP openclaw: reusing reachable gateway url=%s", redactURLToken(url))
+	} else {
+		cmd, err := s.startOpenClawGateway(binary)
+		if err != nil {
+			return "", err
+		}
+		if err := waitForDashboard(url, openClawGatewayWait); err != nil {
+			stopStartedOpenClawGateway(cmd)
+			return "", err
+		}
+		releaseStartedOpenClawGateway(cmd)
 	}
-	if err := waitForDashboard(url, openClawGatewayWait); err != nil {
-		return "", err
-	}
-	log.Printf("AI APP openclaw: gateway ready url=%s", url)
+	log.Printf("AI APP openclaw: gateway ready url=%s", redactURLToken(url))
 	return openClawDirectChatURL(url, "main")
 }
 
@@ -127,6 +138,9 @@ func (s *Server) ensureOpenClawProfile(ctx context.Context, binary, requestedMod
 			"--skip-health",
 		}
 		cmd := exec.CommandContext(configureCtx, binary, args...)
+		cmd.Env = envWithOverrides(map[string]string{
+			"NPM_CONFIG_REGISTRY": openClawNPMRegistry(),
+		})
 		output, err := cmd.CombinedOutput()
 		if configureCtx.Err() == context.DeadlineExceeded {
 			return fmt.Errorf("configuring OpenClaw timed out after %s", openClawOpenTimeout)
@@ -150,6 +164,13 @@ func (s *Server) ensureOpenClawProfile(ctx context.Context, binary, requestedMod
 	}
 	log.Printf("AI APP openclaw: model catalog synced models=%d selected=%q", len(models), modelID)
 	return nil
+}
+
+func openClawNPMRegistry() string {
+	if registry := strings.TrimSpace(os.Getenv("NPM_CONFIG_REGISTRY")); registry != "" {
+		return registry
+	}
+	return openClawDefaultRegistry
 }
 
 func scoreOpenClawModel(m *model.LocalModel) int64 {
@@ -208,7 +229,7 @@ func openClawDashboardURL(ctx context.Context, binary string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return url, nil
+	return openClawURLWithGatewayToken(url)
 }
 
 func extractDashboardURL(output []byte) (string, error) {
@@ -239,6 +260,92 @@ func openClawDirectChatURL(rawURL, session string) (string, error) {
 	query.Set("session", session)
 	parsed.RawQuery = query.Encode()
 	return parsed.String(), nil
+}
+
+func openClawURLWithGatewayToken(rawURL string) (string, error) {
+	parsed, err := neturl.Parse(rawURL)
+	if err != nil {
+		return "", fmt.Errorf("parsing OpenClaw dashboard URL: %w", err)
+	}
+	if fragmentHasToken(parsed.Fragment) {
+		return parsed.String(), nil
+	}
+
+	token, err := openClawGatewayToken()
+	if err != nil {
+		log.Printf("AI APP openclaw: reading gateway token failed: %v", err)
+		return parsed.String(), nil
+	}
+	if token == "" {
+		return parsed.String(), nil
+	}
+
+	if parsed.Fragment == "" {
+		parsed.Fragment = "token=" + neturl.QueryEscape(token)
+		return parsed.String(), nil
+	}
+	parsed.Fragment += "&token=" + neturl.QueryEscape(token)
+	return parsed.String(), nil
+}
+
+func fragmentHasToken(fragment string) bool {
+	values, err := neturl.ParseQuery(fragment)
+	return err == nil && strings.TrimSpace(values.Get("token")) != ""
+}
+
+func openClawGatewayToken() (string, error) {
+	path, err := openClawProfileConfigPath()
+	if err != nil {
+		return "", err
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return "", nil
+		}
+		return "", err
+	}
+	var cfg struct {
+		Gateway struct {
+			Auth struct {
+				Mode  string `json:"mode"`
+				Token string `json:"token"`
+			} `json:"auth"`
+		} `json:"gateway"`
+	}
+	if err := json.Unmarshal(data, &cfg); err != nil {
+		return "", err
+	}
+	if cfg.Gateway.Auth.Mode != "token" {
+		return "", nil
+	}
+	return strings.TrimSpace(cfg.Gateway.Auth.Token), nil
+}
+
+func redactURLToken(rawURL string) string {
+	parsed, err := neturl.Parse(rawURL)
+	if err != nil {
+		return rawURL
+	}
+	redacted := false
+	query := parsed.Query()
+	if query.Get("token") != "" {
+		query.Set("token", "redacted")
+		parsed.RawQuery = query.Encode()
+		redacted = true
+	}
+	if fragmentHasToken(parsed.Fragment) {
+		values, err := neturl.ParseQuery(parsed.Fragment)
+		if err == nil {
+			values.Set("token", "redacted")
+			parsed.Fragment = values.Encode()
+			redacted = true
+		}
+	}
+	if !redacted {
+		return rawURL
+	}
+	return parsed.String()
 }
 
 func dashboardReachable(rawURL string) bool {
@@ -284,32 +391,50 @@ func dashboardHostPort(rawURL string) (string, error) {
 	return net.JoinHostPort(host, port), nil
 }
 
-func (s *Server) startOpenClawGateway(binary string) error {
+func (s *Server) startOpenClawGateway(binary string) (*exec.Cmd, error) {
 	appHome, err := config.AppHome()
 	if err != nil {
-		return err
+		return nil, err
 	}
 	logDir := filepath.Join(appHome, "apps", "logs")
 	if err := os.MkdirAll(logDir, 0o755); err != nil {
-		return fmt.Errorf("creating OpenClaw gateway log dir: %w", err)
+		return nil, fmt.Errorf("creating OpenClaw gateway log dir: %w", err)
 	}
 	logPath := filepath.Join(logDir, openClawGatewayLogName)
 	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
 	if err != nil {
-		return fmt.Errorf("opening OpenClaw gateway log: %w", err)
+		return nil, fmt.Errorf("opening OpenClaw gateway log: %w", err)
 	}
 
 	cmd := exec.Command(binary, "--profile", openClawWebProfile, "gateway", "run", "--force")
+	cmd.Env = envWithOverrides(map[string]string{
+		"NPM_CONFIG_REGISTRY":      openClawNPMRegistry(),
+		"OPENCLAW_DISABLE_BONJOUR": "1",
+	})
 	cmd.Stdout = logFile
 	cmd.Stderr = logFile
 	if err := cmd.Start(); err != nil {
 		_ = logFile.Close()
-		return fmt.Errorf("starting OpenClaw gateway: %w", err)
+		return nil, fmt.Errorf("starting OpenClaw gateway: %w", err)
 	}
 	log.Printf("AI APP openclaw: gateway process started pid=%d log=%s", cmd.Process.Pid, logPath)
 	_ = logFile.Close()
+	return cmd, nil
+}
+
+func releaseStartedOpenClawGateway(cmd *exec.Cmd) {
+	if cmd == nil || cmd.Process == nil || cmd.ProcessState != nil {
+		return
+	}
 	_ = cmd.Process.Release()
-	return nil
+}
+
+func stopStartedOpenClawGateway(cmd *exec.Cmd) {
+	if cmd == nil || cmd.Process == nil || cmd.ProcessState != nil {
+		return
+	}
+	_ = cmd.Process.Kill()
+	_ = cmd.Wait()
 }
 
 func openClawProfileMatches(serverURL, modelID string) (bool, error) {

@@ -30,6 +30,9 @@ const (
 )
 
 func (s *Server) openCSGClawURL(ctx context.Context, modelID string) (string, error) {
+	s.csgclawMu.Lock()
+	defer s.csgclawMu.Unlock()
+
 	binary, err := resolveAIAppLaunchBinary([]string{"csgclaw"})
 	if err != nil {
 		return "", fmt.Errorf("CSGClaw is installed, but its launch command was not found on PATH")
@@ -63,6 +66,9 @@ func (s *Server) openCSGClawURL(ctx context.Context, modelID string) (string, er
 }
 
 func (s *Server) saveCSGClawModel(ctx context.Context, modelID string) error {
+	s.csgclawMu.Lock()
+	defer s.csgclawMu.Unlock()
+
 	binary, err := resolveAIAppLaunchBinary([]string{"csgclaw"})
 	if err != nil {
 		return fmt.Errorf("CSGClaw is installed, but its launch command was not found on PATH")

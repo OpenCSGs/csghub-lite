@@ -67,10 +67,12 @@ type Server struct {
 	http           *http.Server
 	logBuf         *LogBuffer
 
-	mu      sync.RWMutex
-	engines map[string]*managedEngine
-	loading map[string]*engineLoadState
-	prefsMu sync.Mutex
+	mu         sync.RWMutex
+	engines    map[string]*managedEngine
+	loading    map[string]*engineLoadState
+	prefsMu    sync.Mutex
+	openclawMu sync.Mutex
+	csgclawMu  sync.Mutex
 
 	cloudRefreshMu   sync.Mutex
 	cloudRefreshAt   time.Time

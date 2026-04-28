@@ -177,6 +177,98 @@ EOF
   log "INFO: created launcher: ${launcher_path}"
 }
 
+prewarm_openclaw_runtime() {
+  local registry="$1"
+  if ! command -v openclaw >/dev/null 2>&1; then
+    return 0
+  fi
+
+  emit_progress 70 prewarming_runtime
+  log "INFO: prewarming OpenClaw runtime dependencies for csghub-lite profile"
+  NPM_CONFIG_REGISTRY="${registry}" OPENCLAW_DISABLE_BONJOUR=1 openclaw --profile csghub-lite onboard \
+    --non-interactive \
+    --auth-choice custom-api-key \
+    --custom-provider-id opencsg \
+    --custom-compatibility openai \
+    --custom-base-url http://127.0.0.1:11435/v1 \
+    --custom-model-id Qwen/Qwen3-0.6B \
+    --custom-api-key csghub-lite \
+    --accept-risk \
+    --skip-channels \
+    --skip-search \
+    --skip-ui \
+    --skip-skills \
+    --skip-daemon \
+    --skip-health
+}
+
+wait_for_openclaw_dependency_installs() {
+  local timeout_seconds="${1:-600}"
+  if ! command -v pgrep >/dev/null 2>&1; then
+    return 0
+  fi
+
+  local deadline=$((SECONDS + timeout_seconds))
+  while ((SECONDS < deadline)); do
+    if ! pgrep -f 'npm install .*(@openai/codex|@mariozechner/pi|@anthropic-ai/sdk)' >/dev/null 2>&1; then
+      return 0
+    fi
+    sleep 2
+  done
+  log "WARN: OpenClaw dependency npm install is still running after ${timeout_seconds}s"
+}
+
+wait_for_tcp_port() {
+  local port="$1"
+  local timeout_seconds="$2"
+  python3 - "$port" "$timeout_seconds" <<'PY'
+import socket
+import sys
+import time
+
+port = int(sys.argv[1])
+deadline = time.time() + int(sys.argv[2])
+while time.time() < deadline:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.settimeout(0.5)
+        try:
+            sock.connect(("127.0.0.1", port))
+            sys.exit(0)
+        except OSError:
+            time.sleep(0.5)
+sys.exit(1)
+PY
+}
+
+prewarm_openclaw_gateway_runtime() {
+  local registry="$1"
+  if ! command -v openclaw >/dev/null 2>&1; then
+    return 0
+  fi
+
+  emit_progress 75 prewarming_gateway
+  log "INFO: prewarming OpenClaw gateway runtime dependencies for csghub-lite profile"
+  local gateway_log=""
+  gateway_log="$(mktemp "${TMPDIR:-/tmp}/openclaw-gateway-prewarm.XXXXXX.log")"
+  NPM_CONFIG_REGISTRY="${registry}" OPENCLAW_DISABLE_BONJOUR=1 openclaw --profile csghub-lite gateway run --force >"${gateway_log}" 2>&1 &
+  local gateway_pid="$!"
+
+  if wait_for_tcp_port 18789 180; then
+    log "INFO: OpenClaw gateway prewarm completed"
+  else
+    log "WARN: OpenClaw gateway prewarm did not become ready within 180s"
+  fi
+
+  if kill -0 "${gateway_pid}" >/dev/null 2>&1; then
+    kill "${gateway_pid}" >/dev/null 2>&1 || true
+    wait "${gateway_pid}" >/dev/null 2>&1 || true
+  fi
+  if [[ -s "${gateway_log}" ]]; then
+    sed 's/^/openclaw-gateway-prewarm: /' "${gateway_log}" || true
+  fi
+  rm -f "${gateway_log}"
+}
+
 choose_registry() {
   local seen=""
   local registry
@@ -212,12 +304,14 @@ log "INFO: using npm registry ${registry}"
 emit_progress 35 installing
 npm install -g "${PACKAGE}" --registry "${registry}"
 create_launcher
+prewarm_openclaw_runtime "${registry}"
+wait_for_openclaw_dependency_installs 600
+prewarm_openclaw_gateway_runtime "${registry}"
 
 emit_progress 80 verifying
 if command -v openclaw >/dev/null 2>&1; then
   log "INFO: installed binary: $(command -v openclaw)"
   openclaw --version || true
-  log "INFO: run 'openclaw onboard --install-daemon' to finish interactive onboarding."
 fi
 
 emit_progress 100 complete
