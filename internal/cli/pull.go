@@ -3,17 +3,23 @@ package cli
 import (
 	"fmt"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/opencsgs/csghub-lite/internal/config"
 	"github.com/opencsgs/csghub-lite/internal/csghub"
 	"github.com/opencsgs/csghub-lite/internal/dataset"
+	"github.com/opencsgs/csghub-lite/internal/ggufpick"
 	"github.com/opencsgs/csghub-lite/internal/model"
 	"github.com/spf13/cobra"
 )
 
 func newPullCmd() *cobra.Command {
+	quantHelp := "GGUF quantization to download when multiple weight variants exist. " +
+		"Common choice: Q4_K_M for smaller local models, Q8_0 for higher quality. " +
+		"Ignored for non-GGUF models. Supported labels: " + strings.Join(ggufpick.KnownQuantLabels(), ", ")
+
 	cmd := &cobra.Command{
 		Use:   "pull NAME",
 		Short: "Download a model or dataset from CSGHub",
@@ -22,13 +28,27 @@ NAME should be in the format namespace/name.
 
 By default it downloads a model. Use --dataset to download a dataset instead.
 
+For GGUF repositories that publish several quantization variants, use --quant to pick one
+(for example Q4_K_M or Q8_0). Other model formats ignore --quant.
+
+Common choices:
+  Q4_K_M  smaller download and memory footprint, good default for local use
+  Q5_K_M  better quality than Q4_K_M, still much smaller than Q8_0
+  Q8_0    higher quality, larger download and memory usage
+  F16/BF16 highest quality among common GGUF variants, largest files
+
+Supported quantization labels:
+  ` + strings.Join(ggufpick.KnownQuantLabels(), ", ") + `
+
 Examples:
   csghub-lite pull Qwen/Qwen3-0.6B-GGUF
+  csghub-lite pull Qwen/Qwen3-0.6B-GGUF --quant Q4_K_M
   csghub-lite pull --dataset wikitext/wikitext-2-raw-v1`,
 		Args: cobra.ExactArgs(1),
 		RunE: runPull,
 	}
 	cmd.Flags().BoolP("dataset", "d", false, "Download a dataset instead of a model")
+	cmd.Flags().String("quant", "", quantHelp)
 	return cmd
 }
 
@@ -48,12 +68,13 @@ func runPullModel(cmd *cobra.Command, args []string) error {
 
 	mgr := model.NewManager(cfg)
 	modelID := args[0]
+	quant, _ := cmd.Flags().GetString("quant")
 
 	fmt.Printf("Pulling model %s from %s...\n", modelID, cfg.ServerURL)
 
 	progress := snapshotProgress()
 
-	lm, err := mgr.Pull(cmd.Context(), modelID, progress)
+	lm, err := mgr.Pull(cmd.Context(), modelID, quant, progress)
 	if err != nil {
 		return fmt.Errorf("pull failed: %w", err)
 	}

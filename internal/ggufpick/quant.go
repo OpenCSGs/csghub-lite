@@ -4,6 +4,7 @@ import (
 	"io/fs"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 )
 
@@ -49,6 +50,24 @@ var quantRanks = map[string]int{
 }
 
 var shardSuffixRe = regexp.MustCompile(`-\d+-of-\d+$`)
+
+// KnownQuantLabels returns the GGUF quantization labels recognized by the picker,
+// ordered from higher precision to lower precision.
+func KnownQuantLabels() []string {
+	labels := make([]string, 0, len(quantRanks))
+	for label := range quantRanks {
+		labels = append(labels, strings.ToUpper(label))
+	}
+	sort.Slice(labels, func(i, j int) bool {
+		li := strings.ToLower(labels[i])
+		lj := strings.ToLower(labels[j])
+		if quantRanks[li] == quantRanks[lj] {
+			return labels[i] < labels[j]
+		}
+		return quantRanks[li] > quantRanks[lj]
+	})
+	return labels
+}
 
 // IsMMProjGGUF reports whether name looks like a multimodal projector GGUF.
 func IsMMProjGGUF(name string) bool {
@@ -238,6 +257,27 @@ func FilterWeightGGUFFiles(entries []FileEntry) []FileEntry {
 	}
 	if len(out) == 0 {
 		return entries
+	}
+	return out
+}
+
+// FilterWeightGGUFFilesByQuant keeps every shard whose GGUF quantization label matches want (case-insensitive).
+// want must be non-empty. Matching uses QuantLabelFromRepoPath on each entry path.
+func FilterWeightGGUFFilesByQuant(entries []FileEntry, want string) []FileEntry {
+	want = strings.TrimSpace(want)
+	if want == "" || len(entries) == 0 {
+		return nil
+	}
+	var out []FileEntry
+	for _, e := range entries {
+		p := e.Path
+		if p == "" {
+			p = e.Name
+		}
+		label := QuantLabelFromRepoPath(p)
+		if label != "" && strings.EqualFold(label, want) {
+			out = append(out, e)
+		}
 	}
 	return out
 }

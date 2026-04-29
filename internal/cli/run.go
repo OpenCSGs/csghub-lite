@@ -125,7 +125,7 @@ func runRun(cmd *cobra.Command, args []string, numCtx, numParallel, nGPULayers i
 	// Pull model if not present
 	if !mgr.Exists(modelID) {
 		fmt.Printf("Model %s not found locally. Pulling from %s...\n", modelID, cfg.DisplayURL())
-		if _, err := mgr.Pull(cmd.Context(), modelID, snapshotProgress()); err != nil {
+		if _, err := mgr.Pull(cmd.Context(), modelID, "", snapshotProgress()); err != nil {
 			return fmt.Errorf("pull failed: %w", err)
 		}
 		fmt.Println("Pull complete.")

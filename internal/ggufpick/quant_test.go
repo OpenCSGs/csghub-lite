@@ -156,3 +156,18 @@ func TestFilterWeightGGUFFiles_ShardedPerQuantFolder(t *testing.T) {
 		}
 	}
 }
+
+func TestFilterWeightGGUFFilesByQuant(t *testing.T) {
+	entries := []FileEntry{
+		{Path: "Q4_K_M/Qwen3.5-122B-A10B-Q4_K_M-00001-of-00002.gguf"},
+		{Path: "Q4_K_M/Qwen3.5-122B-A10B-Q4_K_M-00002-of-00002.gguf"},
+		{Path: "Q3_K_M/Qwen3.5-122B-A10B-Q3_K_M-00001-of-00003.gguf"},
+	}
+	got := FilterWeightGGUFFilesByQuant(entries, "Q4_K_M")
+	if len(got) != 2 {
+		t.Fatalf("len = %d, want 2: %#v", len(got), got)
+	}
+	if empty := FilterWeightGGUFFilesByQuant(entries, "IQ4_XS"); len(empty) != 0 {
+		t.Fatalf("want empty, got %#v", empty)
+	}
+}

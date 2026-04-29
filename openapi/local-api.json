@@ -2661,6 +2661,10 @@
         "properties": {
           "model": {
             "type": "string"
+          },
+          "quant": {
+            "type": "string",
+            "description": "GGUF quantization when multiple weight variants exist (e.g. Q4_K_M). Ignored for non-GGUF models."
           }
         }
       },

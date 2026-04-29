@@ -181,7 +181,7 @@ func (s *Server) handlePull(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	_, err := s.manager.Pull(r.Context(), req.Model, progress)
+	_, err := s.manager.Pull(r.Context(), req.Model, strings.TrimSpace(req.Quant), progress)
 	if err != nil {
 		log.Printf("pull %s failed: %v", req.Model, err)
 		safeSSE(api.PullResponse{Status: "error: " + err.Error()})

@@ -22,6 +22,8 @@ type ChatRequest struct {
 
 type PullRequest struct {
 	Model string `json:"model"`
+	// Quant selects a GGUF weight variant when multiple quantizations exist (e.g. Q4_K_M). Ignored for non-GGUF models.
+	Quant string `json:"quant,omitempty"`
 }
 
 type DeleteRequest struct {

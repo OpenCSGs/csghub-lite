@@ -11,7 +11,10 @@ func TestFilterGGUFMultiQuantDownload(t *testing.T) {
 		{Type: "file", Path: "Q8_0.gguf", Name: "Q8_0.gguf", LFS: true},
 		{Type: "file", Path: "Q4_0.gguf", Name: "Q4_0.gguf", LFS: true},
 	}
-	got := filterGGUFMultiQuantDownload(files)
+	got, err := filterGGUFMultiQuantDownload(files, "")
+	if err != nil {
+		t.Fatal(err)
+	}
 	var names []string
 	for _, f := range got {
 		names = append(names, f.Name)
@@ -26,7 +29,10 @@ func TestFilterGGUFMultiQuantDownload_singleGGUF(t *testing.T) {
 	files := []RepoFile{
 		{Type: "file", Path: "Q4_0.gguf", Name: "Q4_0.gguf"},
 	}
-	got := filterGGUFMultiQuantDownload(files)
+	got, err := filterGGUFMultiQuantDownload(files, "")
+	if err != nil {
+		t.Fatal(err)
+	}
 	if len(got) != 1 {
 		t.Fatalf("len = %d", len(got))
 	}
@@ -38,7 +44,10 @@ func TestFilterGGUFMultiQuantDownload_nestedQuantDirs(t *testing.T) {
 		{Type: "file", Path: "Q4_0/model.gguf", Name: "model.gguf", LFS: true},
 		{Type: "file", Path: "Q8_0/model.gguf", Name: "model.gguf", LFS: true},
 	}
-	got := filterGGUFMultiQuantDownload(files)
+	got, err := filterGGUFMultiQuantDownload(files, "")
+	if err != nil {
+		t.Fatal(err)
+	}
 	var paths []string
 	for _, f := range got {
 		paths = append(paths, f.Path)
@@ -46,6 +55,37 @@ func TestFilterGGUFMultiQuantDownload_nestedQuantDirs(t *testing.T) {
 	want := []string{"README.md", "Q8_0/model.gguf"}
 	if !reflect.DeepEqual(paths, want) {
 		t.Errorf("got %v, want %v", paths, want)
+	}
+}
+
+func TestFilterGGUFMultiQuantDownload_explicitQuant(t *testing.T) {
+	files := []RepoFile{
+		{Type: "file", Path: "README.md", Name: "README.md"},
+		{Type: "file", Path: "Q8_0.gguf", Name: "Q8_0.gguf", LFS: true},
+		{Type: "file", Path: "Q4_0.gguf", Name: "Q4_0.gguf", LFS: true},
+	}
+	got, err := filterGGUFMultiQuantDownload(files, "Q4_0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var names []string
+	for _, f := range got {
+		names = append(names, f.Name)
+	}
+	want := []string{"README.md", "Q4_0.gguf"}
+	if !reflect.DeepEqual(names, want) {
+		t.Errorf("got %v, want %v", names, want)
+	}
+}
+
+func TestFilterGGUFMultiQuantDownload_unknownQuantReturnsError(t *testing.T) {
+	files := []RepoFile{
+		{Type: "file", Path: "Q8_0.gguf", Name: "Q8_0.gguf", LFS: true},
+		{Type: "file", Path: "Q4_0.gguf", Name: "Q4_0.gguf", LFS: true},
+	}
+	_, err := filterGGUFMultiQuantDownload(files, "IQ4_XS")
+	if err == nil {
+		t.Fatal("expected error for unknown quantization")
 	}
 }
 

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 
@@ -25,13 +26,13 @@ type SnapshotProgressFunc func(SnapshotProgress)
 
 // SnapshotDownload downloads all files in a model repository, similar to
 // pycsghub's snapshot_download.
-func (c *Client) SnapshotDownload(ctx context.Context, namespace, name, destDir string, progress SnapshotProgressFunc) ([]RepoFile, error) {
+func (c *Client) SnapshotDownload(ctx context.Context, namespace, name, destDir string, quant string, progress SnapshotProgressFunc) ([]RepoFile, error) {
 	files, err := c.GetModelTree(ctx, namespace, name)
 	if err != nil {
 		return nil, fmt.Errorf("fetching file tree: %w", err)
 	}
 
-	return c.downloadSnapshot(ctx, "models", namespace, name, destDir, files, progress)
+	return c.downloadSnapshot(ctx, "models", namespace, name, destDir, quant, files, progress)
 }
 
 const maxConcurrentDownloads = 3
@@ -129,7 +130,7 @@ func (c *Client) DatasetSnapshotDownload(ctx context.Context, namespace, name, d
 	return downloadFiles, nil
 }
 
-func (c *Client) downloadSnapshot(ctx context.Context, repoType, namespace, name, destDir string, files []RepoFile, progress SnapshotProgressFunc) ([]RepoFile, error) {
+func (c *Client) downloadSnapshot(ctx context.Context, repoType, namespace, name, destDir, quant string, files []RepoFile, progress SnapshotProgressFunc) ([]RepoFile, error) {
 	var downloadFiles []RepoFile
 	for _, f := range files {
 		if f.Type == "file" {
@@ -138,7 +139,11 @@ func (c *Client) downloadSnapshot(ctx context.Context, repoType, namespace, name
 	}
 
 	if repoType == "models" {
-		downloadFiles = filterGGUFMultiQuantDownload(downloadFiles)
+		var err error
+		downloadFiles, err = filterGGUFMultiQuantDownload(downloadFiles, quant)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	if len(downloadFiles) == 0 {
@@ -207,7 +212,39 @@ func repoFileBaseName(f RepoFile) string {
 	return filepath.Base(f.Path)
 }
 
-func filterGGUFMultiQuantDownload(files []RepoFile) []RepoFile {
+func distinctQuantLabels(entries []ggufpick.FileEntry) []string {
+	seen := make(map[string]struct{})
+	var out []string
+	for _, e := range entries {
+		p := e.Path
+		if p == "" {
+			p = e.Name
+		}
+		if l := ggufpick.QuantLabelFromRepoPath(p); l != "" {
+			if _, ok := seen[l]; !ok {
+				seen[l] = struct{}{}
+				out = append(out, l)
+			}
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+func entriesHaveQuantLabels(entries []ggufpick.FileEntry) bool {
+	for _, e := range entries {
+		p := e.Path
+		if p == "" {
+			p = e.Name
+		}
+		if ggufpick.QuantLabelFromRepoPath(p) != "" {
+			return true
+		}
+	}
+	return false
+}
+
+func filterGGUFMultiQuantDownload(files []RepoFile, quant string) ([]RepoFile, error) {
 	var weights []RepoFile
 	for _, f := range files {
 		if ggufpick.IsWeightGGUF(repoFileBaseName(f)) {
@@ -215,13 +252,29 @@ func filterGGUFMultiQuantDownload(files []RepoFile) []RepoFile {
 		}
 	}
 	if len(weights) <= 1 {
-		return files
+		return files, nil
 	}
 	entries := make([]ggufpick.FileEntry, len(weights))
 	for i, f := range weights {
 		entries[i] = ggufpick.FileEntry{Path: f.Path, Name: repoFileBaseName(f), Size: f.Size}
 	}
-	filtered := ggufpick.FilterWeightGGUFFiles(entries)
+
+	quant = strings.TrimSpace(quant)
+	var filtered []ggufpick.FileEntry
+	if quant != "" {
+		filtered = ggufpick.FilterWeightGGUFFilesByQuant(entries, quant)
+		if len(filtered) == 0 {
+			if !entriesHaveQuantLabels(entries) {
+				filtered = ggufpick.FilterWeightGGUFFiles(entries)
+			} else {
+				return nil, fmt.Errorf("no GGUF weight files match quantization %q (available: %s)",
+					quant, strings.Join(distinctQuantLabels(entries), ", "))
+			}
+		}
+	} else {
+		filtered = ggufpick.FilterWeightGGUFFiles(entries)
+	}
+
 	kept := make(map[string]struct{}, len(filtered))
 	for _, e := range filtered {
 		kept[e.Path] = struct{}{}
@@ -236,7 +289,7 @@ func filterGGUFMultiQuantDownload(files []RepoFile) []RepoFile {
 			out = append(out, f)
 		}
 	}
-	return out
+	return out, nil
 }
 
 // ParseModelID splits a model identifier like "namespace/name" into parts.
