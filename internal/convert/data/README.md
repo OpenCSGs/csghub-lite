@@ -4,7 +4,7 @@ This file is embedded into the `csghub-lite` binary (`go:embed`) so SafeTensors 
 
 | Field | Value |
 |-------|--------|
-| Upstream tag | `b8967` (see `BundledConverterLLamacppRef` in `bundled_converter.go`) |
+| Upstream tag | `b8914` (see `BundledConverterLLamacppRef` in `bundled_converter.go`) |
 
 ## Refreshing from llama.cpp
 
@@ -19,7 +19,7 @@ This file is embedded into the `csghub-lite` binary (`go:embed`) so SafeTensors 
 
    ```bash
    source ~/.myshrc
-   ./scripts/sync-llama-converter.sh --tag b8967
+   ./scripts/sync-llama-converter.sh --tag b8914
    ```
 
 2. Review the updated `convert_hf_to_gguf.py`, `bundled_converter.go`, and this README.
