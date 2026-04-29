@@ -301,6 +301,16 @@ func TestHandlePsRemainsResponsiveWhileModelLoads(t *testing.T) {
 	case <-time.After(200 * time.Millisecond):
 		t.Fatal("handlePs blocked while model load was in progress")
 	}
+	var psResp api.PsResponse
+	if err := json.NewDecoder(w.Body).Decode(&psResp); err != nil {
+		t.Fatalf("decode ps response: %v", err)
+	}
+	if len(psResp.Models) != 1 {
+		t.Fatalf("running models = %d, want loading model; body=%s", len(psResp.Models), w.Body.String())
+	}
+	if got := psResp.Models[0].Status; got != "loading" {
+		t.Fatalf("status = %q, want loading", got)
+	}
 
 	close(release)
 	if err := <-errCh; err != nil {

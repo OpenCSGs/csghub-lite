@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/opencsgs/csghub-lite/internal/inference"
 	"github.com/opencsgs/csghub-lite/internal/model"
 	"github.com/opencsgs/csghub-lite/pkg/api"
 )
@@ -99,30 +100,44 @@ func (s *Server) localModelInfo(item *model.LocalModel) api.ModelInfo {
 	modelID := strings.TrimSpace(item.FullName())
 	pipelineTag := strings.TrimSpace(item.PipelineTag)
 	hasMMProj := false
+	var contextWindow int64
 
 	if dir, err := s.manager.ModelPath(modelID); err == nil {
 		if pipelineTag == "" {
 			pipelineTag = model.DetectPipelineTag(dir)
 		}
 		hasMMProj = model.FindMMProj(dir) != ""
+		contextWindow = s.localModelContextWindow(modelID, dir)
 	}
 	if pipelineTag == "" {
 		pipelineTag = "text-generation"
 	}
 
 	return api.ModelInfo{
-		Name:        modelID,
-		Model:       modelID,
-		Size:        item.Size,
-		Format:      string(item.Format),
-		ModifiedAt:  item.DownloadedAt,
-		DisplayName: modelID,
-		Source:      "local",
-		PipelineTag: pipelineTag,
-		HasMMProj:   hasMMProj,
-		Description: strings.TrimSpace(item.Description),
-		License:     strings.TrimSpace(item.License),
+		Name:          modelID,
+		Model:         modelID,
+		Size:          item.Size,
+		Format:        string(item.Format),
+		ModifiedAt:    item.DownloadedAt,
+		DisplayName:   modelID,
+		Source:        "local",
+		PipelineTag:   pipelineTag,
+		HasMMProj:     hasMMProj,
+		ContextWindow: contextWindow,
+		Description:   strings.TrimSpace(item.Description),
+		License:       strings.TrimSpace(item.License),
 	}
+}
+
+func (s *Server) localModelContextWindow(modelID, modelDir string) int64 {
+	s.mu.RLock()
+	if me, ok := s.engines[modelID]; ok && me.numCtx > 0 {
+		numCtx := me.numCtx
+		s.mu.RUnlock()
+		return int64(numCtx)
+	}
+	s.mu.RUnlock()
+	return int64(inference.ResolveNumCtx(modelDir, 0))
 }
 
 func matchesLocalModelSearch(item api.ModelInfo, query, formatFilter, pipelineTagFilter string) bool {

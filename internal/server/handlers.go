@@ -84,7 +84,7 @@ func (s *Server) handlePs(w http.ResponseWriter, r *http.Request) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	var models []api.RunningModel
+	models := make([]api.RunningModel, 0, len(s.engines)+len(s.loading))
 	for id, me := range s.engines {
 		lm, err := s.manager.Get(id)
 		if err != nil {
@@ -95,7 +95,24 @@ func (s *Server) handlePs(w http.ResponseWriter, r *http.Request) {
 			Model:     lm.FullName(),
 			Size:      lm.Size,
 			Format:    string(lm.Format),
+			Status:    "running",
 			ExpiresAt: me.expiresAt(),
+		})
+	}
+	for id := range s.loading {
+		if _, ok := s.engines[id]; ok {
+			continue
+		}
+		lm, err := s.manager.Get(id)
+		if err != nil {
+			continue
+		}
+		models = append(models, api.RunningModel{
+			Name:   lm.FullName(),
+			Model:  lm.FullName(),
+			Size:   lm.Size,
+			Format: string(lm.Format),
+			Status: "loading",
 		})
 	}
 

@@ -2915,6 +2915,13 @@
           "format": {
             "type": "string"
           },
+          "status": {
+            "type": "string",
+            "enum": [
+              "running",
+              "loading"
+            ]
+          },
           "expires_at": {
             "type": "string",
             "format": "date-time"

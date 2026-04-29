@@ -41,6 +41,12 @@ func TestResolveNumCtxFallsBackToDefault(t *testing.T) {
 	}
 }
 
+func TestResolveNumParallelFallsBackToSingleSlot(t *testing.T) {
+	if got := ResolveNumParallel(0); got != 1 {
+		t.Fatalf("ResolveNumParallel returned %d, want 1", got)
+	}
+}
+
 func TestResolveNGPULayersUsesExplicitRequest(t *testing.T) {
 	if got := ResolveNGPULayers(42); got != 42 {
 		t.Fatalf("ResolveNGPULayers returned %d, want %d", got, 42)

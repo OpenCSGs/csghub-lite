@@ -28,7 +28,7 @@ import (
 const (
 	defaultLlamaCtxSize      = 8192
 	autoExpandedLlamaCtxSize = 16384
-	defaultLlamaParallel     = 4
+	defaultLlamaParallel     = 1
 	unsetNGPULayers          = -1
 	defaultNGPULayers        = 9999
 )

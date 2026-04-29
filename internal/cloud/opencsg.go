@@ -185,16 +185,18 @@ func modelInfoFromRemote(item remoteModel) (api.ModelInfo, bool) {
 	if item.Created > 0 {
 		modifiedAt = time.Unix(item.Created, 0).UTC()
 	}
+	limits := modelTokenLimitsFromRemote(item)
 
 	return api.ModelInfo{
-		Name:        item.ID,
-		Model:       item.ID,
-		Format:      "cloud",
-		ModifiedAt:  modifiedAt,
-		DisplayName: displayName,
-		Source:      "cloud",
-		PipelineTag: pipelineTag,
-		HasMMProj:   item.Task == "image-text-to-text",
+		Name:          item.ID,
+		Model:         item.ID,
+		Format:        "cloud",
+		ModifiedAt:    modifiedAt,
+		DisplayName:   displayName,
+		Source:        "cloud",
+		PipelineTag:   pipelineTag,
+		HasMMProj:     item.Task == "image-text-to-text",
+		ContextWindow: int64(limits.MaxInputTokens),
 	}, true
 }
 

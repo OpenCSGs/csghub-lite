@@ -29,7 +29,8 @@ const (
 	csgClawLaunchProviderID   = "csghub-lite"
 	csgClawConfigureTimeout   = 2 * time.Minute
 	csgClawManagerImage       = "opencsg-registry.cn-beijing.cr.aliyuncs.com/opencsghq/picoclaw:2026.4.26"
-	codexContextWindow        = 272000
+	codexCloudContextWindow   = 272000
+	codexLocalContextWindow   = 8192
 	codexBaseInstructions     = "You are Codex, a coding agent. You and the user share the same workspace and collaborate to achieve the user's goals. Focus on practical, safe, concise help for software tasks."
 )
 
@@ -558,10 +559,20 @@ func codexModelCatalogEntries(models []api.ModelInfo) []codexModelCatalogEntry {
 			SupportsParallelToolCalls:  false,
 			ExperimentalSupportedTools: []string{},
 			InputModalities:            inputModalities,
-			ContextWindow:              codexContextWindow,
+			ContextWindow:              codexContextWindowForModel(item),
 		})
 	}
 	return entries
+}
+
+func codexContextWindowForModel(item api.ModelInfo) int64 {
+	if item.ContextWindow > 0 {
+		return item.ContextWindow
+	}
+	if strings.EqualFold(strings.TrimSpace(item.Source), "local") {
+		return codexLocalContextWindow
+	}
+	return codexCloudContextWindow
 }
 
 func launchDataDir() (string, error) {

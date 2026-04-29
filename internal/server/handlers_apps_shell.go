@@ -26,16 +26,17 @@ import (
 )
 
 const (
-	aiAppShellDefaultCols = 120
-	aiAppShellDefaultRows = 36
-	aiAppShellReplayLimit = 256 * 1024
-	aiAppShellEventBuffer = 1024
-	aiAppShellReadBuffer  = 64 * 1024
-	aiAppShellWriteBatch  = 64 * 1024
-	openCodeWebProviderID = "csghub-lite"
-	codexWebProviderID    = "csghub_lite"
-	codexContextWindow    = 272000
-	codexBaseInstructions = "You are Codex, a coding agent. You and the user share the same workspace and collaborate to achieve the user's goals. Focus on practical, safe, concise help for software tasks."
+	aiAppShellDefaultCols   = 120
+	aiAppShellDefaultRows   = 36
+	aiAppShellReplayLimit   = 256 * 1024
+	aiAppShellEventBuffer   = 1024
+	aiAppShellReadBuffer    = 64 * 1024
+	aiAppShellWriteBatch    = 64 * 1024
+	openCodeWebProviderID   = "csghub-lite"
+	codexWebProviderID      = "csghub_lite"
+	codexCloudContextWindow = 272000
+	codexLocalContextWindow = 8192
+	codexBaseInstructions   = "You are Codex, a coding agent. You and the user share the same workspace and collaborate to achieve the user's goals. Focus on practical, safe, concise help for software tasks."
 )
 
 var (
@@ -751,7 +752,7 @@ func (s *Server) prepareAIAppShellLaunch(target aiAppOpenTarget, modelID string,
 			Dir: workingDir,
 		}, nil
 	case "codex":
-		configArgs, err := codexShellConfigArgs(serverURL, modelIDs)
+		configArgs, err := s.codexShellConfigArgs(serverURL, modelIDs)
 		if err != nil {
 			return aiAppPreparedLaunch{}, err
 		}
@@ -871,7 +872,7 @@ func writeOpenCodeWebLaunchConfig(serverURL, defaultModel string, modelIDs []str
 	return path, nil
 }
 
-func writeCodexWebModelCatalog(modelIDs []string) (string, error) {
+func (s *Server) writeCodexWebModelCatalog(modelIDs []string) (string, error) {
 	dir, err := aiAppLaunchDir()
 	if err != nil {
 		return "", err
@@ -881,7 +882,7 @@ func writeCodexWebModelCatalog(modelIDs []string) (string, error) {
 	}
 
 	catalog := codexModelCatalog{
-		Models: codexModelCatalogEntries(modelIDs),
+		Models: s.codexModelCatalogEntries(modelIDs),
 	}
 	if len(catalog.Models) == 0 {
 		return "", fmt.Errorf("building Codex model catalog: no models available")
@@ -899,7 +900,7 @@ func writeCodexWebModelCatalog(modelIDs []string) (string, error) {
 	return path, nil
 }
 
-func codexModelCatalogEntries(modelIDs []string) []codexModelCatalogEntry {
+func (s *Server) codexModelCatalogEntries(modelIDs []string) []codexModelCatalogEntry {
 	entries := make([]codexModelCatalogEntry, 0, len(modelIDs))
 	seen := make(map[string]struct{}, len(modelIDs))
 	for _, modelID := range modelIDs {
@@ -930,15 +931,25 @@ func codexModelCatalogEntries(modelIDs []string) []codexModelCatalogEntry {
 			SupportsParallelToolCalls:  false,
 			ExperimentalSupportedTools: []string{},
 			InputModalities:            []string{"text"},
-			ContextWindow:              codexContextWindow,
+			ContextWindow:              s.codexContextWindowForModel(modelID),
 		})
 	}
 	return entries
 }
 
-func codexShellConfigArgs(serverURL string, modelIDs []string) ([]string, error) {
+func (s *Server) codexContextWindowForModel(modelID string) int64 {
+	modelID = strings.TrimSpace(modelID)
+	if modelID != "" {
+		if modelDir, err := s.manager.ModelPath(modelID); err == nil {
+			return s.localModelContextWindow(modelID, modelDir)
+		}
+	}
+	return codexCloudContextWindow
+}
+
+func (s *Server) codexShellConfigArgs(serverURL string, modelIDs []string) ([]string, error) {
 	baseURL := strings.TrimRight(serverURL, "/") + "/v1"
-	modelCatalogPath, err := writeCodexWebModelCatalog(modelIDs)
+	modelCatalogPath, err := s.writeCodexWebModelCatalog(modelIDs)
 	if err != nil {
 		return nil, err
 	}

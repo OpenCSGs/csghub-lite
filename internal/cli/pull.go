@@ -31,15 +31,6 @@ By default it downloads a model. Use --dataset to download a dataset instead.
 For GGUF repositories that publish several quantization variants, use --quant to pick one
 (for example Q4_K_M or Q8_0). Other model formats ignore --quant.
 
-Common choices:
-  Q4_K_M  smaller download and memory footprint, good default for local use
-  Q5_K_M  better quality than Q4_K_M, still much smaller than Q8_0
-  Q8_0    higher quality, larger download and memory usage
-  F16/BF16 highest quality among common GGUF variants, largest files
-
-Supported quantization labels:
-  ` + strings.Join(ggufpick.KnownQuantLabels(), ", ") + `
-
 Examples:
   csghub-lite pull Qwen/Qwen3-0.6B-GGUF
   csghub-lite pull Qwen/Qwen3-0.6B-GGUF --quant Q4_K_M

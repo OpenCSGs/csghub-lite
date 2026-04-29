@@ -122,6 +122,7 @@ type RunningModel struct {
 	Model     string    `json:"model"`
 	Size      int64     `json:"size"`
 	Format    string    `json:"format"`
+	Status    string    `json:"status,omitempty"`
 	ExpiresAt time.Time `json:"expires_at"`
 }
 
@@ -157,17 +158,18 @@ type ToolFunction struct {
 }
 
 type ModelInfo struct {
-	Name        string    `json:"name"`
-	Model       string    `json:"model"`
-	Size        int64     `json:"size"`
-	Format      string    `json:"format"`
-	ModifiedAt  time.Time `json:"modified_at"`
-	DisplayName string    `json:"display_name,omitempty"`
-	Source      string    `json:"source,omitempty"`
-	PipelineTag string    `json:"pipeline_tag,omitempty"`
-	HasMMProj   bool      `json:"has_mmproj,omitempty"`
-	Description string    `json:"description,omitempty"`
-	License     string    `json:"license,omitempty"`
+	Name          string    `json:"name"`
+	Model         string    `json:"model"`
+	Size          int64     `json:"size"`
+	Format        string    `json:"format"`
+	ModifiedAt    time.Time `json:"modified_at"`
+	DisplayName   string    `json:"display_name,omitempty"`
+	Source        string    `json:"source,omitempty"`
+	PipelineTag   string    `json:"pipeline_tag,omitempty"`
+	HasMMProj     bool      `json:"has_mmproj,omitempty"`
+	ContextWindow int64     `json:"context_window,omitempty"`
+	Description   string    `json:"description,omitempty"`
+	License       string    `json:"license,omitempty"`
 }
 
 type ModelOptions struct {

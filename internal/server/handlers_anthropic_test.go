@@ -39,7 +39,7 @@ func newAnthropicProxyTestServer(t *testing.T, engine inference.Engine) *Server 
 	}
 
 	s := New(cfg, "test")
-	s.engines["test/model"] = &managedEngine{engine: engine, numCtx: defaultAnthropicMaxInputTokens, numParallel: 4}
+	s.engines["test/model"] = &managedEngine{engine: engine, numCtx: defaultAnthropicMaxInputTokens, numParallel: inference.ResolveNumParallel(0)}
 	return s
 }
 
