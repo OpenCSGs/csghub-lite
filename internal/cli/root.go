@@ -21,6 +21,7 @@ and the full CSGHub platform.`,
 
 	cmd.AddCommand(
 		newServeCmd(version),
+		newAppsCmd(),
 		newLaunchCmd(),
 		newRunCmd(),
 		newChatCmd(),
