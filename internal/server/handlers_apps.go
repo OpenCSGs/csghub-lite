@@ -144,6 +144,8 @@ func (s *Server) enrichAIApp(ctx context.Context, info *api.AIAppInfo) {
 		return
 	}
 
+	s.appManager.EnrichLatestVersion(ctx, info)
+
 	var (
 		modelID string
 		err     error

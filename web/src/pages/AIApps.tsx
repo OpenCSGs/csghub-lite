@@ -421,6 +421,11 @@ function AIAppCard({
               {state.version && (
                 <div class="text-[11px] text-gray-400 truncate mt-1">{state.version}</div>
               )}
+              {state.updateAvailable && state.latestVersion && (
+                <div class="text-[11px] text-amber-600 truncate mt-1">
+                  {t("aiApps.updateAvailableShort", state.latestVersion)}
+                </div>
+              )}
             </div>
             <div class="flex items-center gap-3">
               <button onClick={onOpenDetails} class="text-xs text-gray-500 hover:text-indigo-600 transition-colors">
@@ -779,13 +784,15 @@ function LiveLogsDrawer({
             {drawerNotice(state)}
           </div>
 
-          <div class={`grid grid-cols-1 ${showProgressSummary ? "sm:grid-cols-4" : "sm:grid-cols-3"} gap-3`}>
+          <div class={`grid grid-cols-1 ${showProgressSummary ? "sm:grid-cols-5" : "sm:grid-cols-4"} gap-3`}>
             <SummaryTile label={t("aiApps.installMode")} value={installModeLabel(app.installMode)} />
             {showProgressSummary && (
               <SummaryTile label={t("aiApps.progressMode")} value={renderProgressValue(state.progressMode, state.progress)} />
             )}
             <SummaryTile label={t("aiApps.currentStatus")} value={statusLabel(state)} />
-            <SummaryTile label={t("aiApps.version")} value={state.version || "—"} />
+            <SummaryTile label={t("aiApps.currentVersion")} value={state.version || "—"} />
+            <SummaryTile label={t("aiApps.latestVersion")} value={state.latestVersion || "—"} />
+            <SummaryTile label={t("aiApps.updateStatus")} value={updateStatusLabel(state)} />
           </div>
 
           {state.installPath && (
@@ -1172,6 +1179,8 @@ function mergeAppStates(remoteApps: RemoteAIAppInfo[]) {
       disabled: remote.disabled,
       installPath: remote.install_path,
       version: remote.version,
+      latestVersion: remote.latest_version,
+      updateAvailable: Boolean(remote.update_available),
       modelID: remote.model_id || "",
       logPath: remote.log_path,
       lastError: remote.last_error,
@@ -1222,6 +1231,12 @@ function statusLabel(state: AIAppRuntimeState): string {
   return t(`aiApps.status.${state.status}`);
 }
 
+function updateStatusLabel(state: AIAppRuntimeState): string {
+  if (!state.latestVersion) return t("aiApps.latestUnknown");
+  if (state.status !== "installed") return t("aiApps.latestKnown");
+  return state.updateAvailable ? t("aiApps.updateAvailable") : t("aiApps.upToDate");
+}
+
 function phaseLabel(phase: string): string {
   const key = `aiApps.phase.${phase}`;
   const translated = t(key);
@@ -1264,6 +1279,9 @@ function drawerNotice(state: AIAppRuntimeState): string {
   }
   if (state.status === "installed" && !state.managed) {
     return t("aiApps.installedExternalReady");
+  }
+  if (state.status === "installed" && state.updateAvailable && state.latestVersion) {
+    return t("aiApps.updateAvailableNotice", state.latestVersion);
   }
   if (state.status === "installed") {
     return t("aiApps.installedReady");

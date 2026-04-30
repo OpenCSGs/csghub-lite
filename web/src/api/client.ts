@@ -162,6 +162,8 @@ export interface AIAppInfo {
   progress?: number;
   install_path?: string;
   version?: string;
+  latest_version?: string;
+  update_available?: boolean;
   model_id?: string;
   log_path?: string;
   last_error?: string;

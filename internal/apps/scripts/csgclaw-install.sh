@@ -157,10 +157,23 @@ install_extracted_runtime() {
   local launcher_dir="${HOME}/.local/bin"
   local launcher_path="${launcher_dir}/csgclaw"
   local binary_path="${version_dir}/${binary_name}"
+  local candidate=""
 
   mkdir -p "$versions_dir" "$launcher_dir"
   rm -rf "$version_dir"
   mv "$extract_dir" "$version_dir"
+
+  for candidate in \
+    "${version_dir}/${binary_name}" \
+    "${version_dir}/bin/${binary_name}" \
+    "${version_dir}/${binary_name}/bin/${binary_name}"
+  do
+    if [[ -f "$candidate" ]]; then
+      binary_path="$candidate"
+      break
+    fi
+  done
+
   [[ -f "$binary_path" ]] || {
     log "ERROR: extracted binary not found at ${binary_path}"
     exit 1

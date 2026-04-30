@@ -3421,6 +3421,7 @@
         "required": [
           "id",
           "installed",
+          "managed",
           "supported",
           "disabled",
           "status",
@@ -3432,6 +3433,9 @@
             "type": "string"
           },
           "installed": {
+            "type": "boolean"
+          },
+          "managed": {
             "type": "boolean"
           },
           "supported": {
@@ -3469,6 +3473,12 @@
           },
           "version": {
             "type": "string"
+          },
+          "latest_version": {
+            "type": "string"
+          },
+          "update_available": {
+            "type": "boolean"
           },
           "model_id": {
             "type": "string"

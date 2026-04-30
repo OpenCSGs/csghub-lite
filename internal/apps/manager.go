@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strconv"
 	"strings"
@@ -31,9 +32,13 @@ const (
 	mirrorBaseURL             = "https://git-devops.opencsg.com/opensource/apps/-/raw/main"
 	repoRawBaseURL            = "https://git-devops.opencsg.com/opensource/csghub-lite/-/raw/main"
 	installTimeout            = 20 * time.Minute
+	latestVersionCacheTTL     = 10 * time.Minute
+	latestVersionTimeout      = 3 * time.Second
 	installerPTYCols          = 120
 	installerPTYRows          = 36
 )
+
+var versionTokenPattern = regexp.MustCompile(`(?i)v?\d+(?:\.\d+)+(?:[-+][0-9A-Za-z.-]+)?`)
 
 //go:embed scripts/*
 var embeddedScripts embed.FS
@@ -45,6 +50,11 @@ type scriptSource struct {
 	requiresPTY  bool
 }
 
+type latestVersionSource struct {
+	baseURL string
+	envVar  string
+}
+
 type appSpec struct {
 	id             string
 	binaryName     string
@@ -53,6 +63,7 @@ type appSpec struct {
 	supported      bool
 	disabledReason string
 	versionArgs    []string
+	latest         *latestVersionSource
 	unix           *scriptSource
 	windows        *scriptSource
 	uninstallUnix  *scriptSource
@@ -66,13 +77,20 @@ type appState struct {
 	running bool
 }
 
+type latestVersionCacheEntry struct {
+	version   string
+	expiresAt time.Time
+}
+
 type Manager struct {
 	cfg        *config.Config
 	httpClient *http.Client
 
-	mu     sync.RWMutex
-	specs  []appSpec
-	states map[string]*appState
+	mu          sync.RWMutex
+	specs       []appSpec
+	states      map[string]*appState
+	latestMu    sync.Mutex
+	latestCache map[string]latestVersionCacheEntry
 }
 
 type installDetectionState struct {
@@ -88,8 +106,9 @@ func NewManager(cfg *config.Config) *Manager {
 		httpClient: &http.Client{
 			Timeout: 20 * time.Second,
 		},
-		specs:  appSpecs(),
-		states: make(map[string]*appState),
+		specs:       appSpecs(),
+		states:      make(map[string]*appState),
+		latestCache: make(map[string]latestVersionCacheEntry),
 	}
 
 	for _, spec := range m.specs {
@@ -136,6 +155,10 @@ func appSpecs() []appSpec {
 			progressMode: progressModeIndeterminate,
 			supported:    true,
 			versionArgs:  []string{"--version"},
+			latest: &latestVersionSource{
+				baseURL: "https://opencsg-public-resource.oss-cn-beijing.aliyuncs.com/claude-code-releases",
+				envVar:  "CSGHUB_LITE_CLAUDE_DIST_BASE_URL",
+			},
 			unix: &scriptSource{
 				mirrorURL:    repoRawBaseURL + "/internal/apps/scripts/claude-code-install.sh",
 				embeddedPath: "scripts/claude-code-install.sh",
@@ -162,6 +185,10 @@ func appSpecs() []appSpec {
 			progressMode: progressModePercent,
 			supported:    true,
 			versionArgs:  []string{"--version"},
+			latest: &latestVersionSource{
+				baseURL: "https://opencsg-public-resource.oss-cn-beijing.aliyuncs.com/open-code-releases",
+				envVar:  "CSGHUB_LITE_OPEN_CODE_DIST_BASE_URL",
+			},
 			unix: &scriptSource{
 				mirrorURL:    mirrorBaseURL + "/open-code/install.sh",
 				embeddedPath: "scripts/open-code-install.sh",
@@ -207,6 +234,10 @@ func appSpecs() []appSpec {
 			supported:      runtime.GOOS != "windows",
 			disabledReason: csgclawDisabledReason(),
 			versionArgs:    []string{"--version"},
+			latest: &latestVersionSource{
+				baseURL: "https://opencsg-public-resource.oss-cn-beijing.aliyuncs.com/csgclaw-releases",
+				envVar:  "CSGHUB_LITE_CSGCLAW_DIST_BASE_URL",
+			},
 			unix: &scriptSource{
 				mirrorURL:    mirrorBaseURL + "/csgclaw/install.sh",
 				embeddedPath: "scripts/csgclaw-install.sh",
@@ -222,6 +253,10 @@ func appSpecs() []appSpec {
 			progressMode: progressModePercent,
 			supported:    true,
 			versionArgs:  []string{"--version"},
+			latest: &latestVersionSource{
+				baseURL: "https://opencsg-public-resource.oss-cn-beijing.aliyuncs.com/codex-releases",
+				envVar:  "CSGHUB_LITE_CODEX_DIST_BASE_URL",
+			},
 			unix: &scriptSource{
 				mirrorURL:    mirrorBaseURL + "/codex/install.sh",
 				embeddedPath: "scripts/codex-install.sh",
@@ -408,6 +443,109 @@ func (m *Manager) UnsubscribeLogs(appID string, ch chan string) {
 	if st != nil {
 		st.logBuf.Unsubscribe(ch)
 	}
+}
+
+func (m *Manager) EnrichLatestVersion(ctx context.Context, info *api.AIAppInfo) {
+	if info == nil || !info.Supported || info.Disabled || !info.Installed || !info.Managed {
+		return
+	}
+	spec, ok := m.specByID(info.ID)
+	if !ok || spec.latest == nil {
+		return
+	}
+	latest, ok := m.resolveLatestVersion(ctx, spec)
+	if !ok {
+		return
+	}
+	info.LatestVersion = latest
+	info.UpdateAvailable = appUpdateAvailable(info.Version, latest)
+}
+
+func (m *Manager) specByID(appID string) (appSpec, bool) {
+	for _, spec := range m.specs {
+		if spec.id == appID {
+			return spec, true
+		}
+	}
+	return appSpec{}, false
+}
+
+func (m *Manager) resolveLatestVersion(ctx context.Context, spec appSpec) (string, bool) {
+	cacheKey := spec.id
+	now := time.Now()
+	m.latestMu.Lock()
+	if cached, ok := m.latestCache[cacheKey]; ok && now.Before(cached.expiresAt) {
+		m.latestMu.Unlock()
+		return cached.version, cached.version != ""
+	}
+	m.latestMu.Unlock()
+
+	latest, err := m.fetchLatestVersion(ctx, spec)
+	if err != nil {
+		log.Printf("AI APP %s: latest version lookup skipped: %v", spec.id, err)
+	}
+
+	m.latestMu.Lock()
+	m.latestCache[cacheKey] = latestVersionCacheEntry{
+		version:   latest,
+		expiresAt: now.Add(latestVersionCacheTTL),
+	}
+	m.latestMu.Unlock()
+	return latest, latest != ""
+}
+
+func (m *Manager) fetchLatestVersion(ctx context.Context, spec appSpec) (string, error) {
+	if spec.latest == nil {
+		return "", nil
+	}
+	baseURL := strings.TrimSpace(spec.latest.baseURL)
+	if override := strings.TrimSpace(os.Getenv(spec.latest.envVar)); override != "" {
+		baseURL = override
+	}
+	baseURL = strings.TrimRight(baseURL, "/")
+	if baseURL == "" {
+		return "", nil
+	}
+
+	reqCtx, cancel := context.WithTimeout(ctx, latestVersionTimeout)
+	defer cancel()
+	req, err := http.NewRequestWithContext(reqCtx, http.MethodGet, baseURL+"/latest", nil)
+	if err != nil {
+		return "", err
+	}
+	resp, err := m.httpClient.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+		return "", fmt.Errorf("latest endpoint returned %s", resp.Status)
+	}
+	data, err := io.ReadAll(io.LimitReader(resp.Body, 1024))
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(string(data)), nil
+}
+
+func appUpdateAvailable(installedVersion, latestVersion string) bool {
+	installed := comparableVersion(installedVersion)
+	latest := comparableVersion(latestVersion)
+	if installed == "" || latest == "" {
+		return false
+	}
+	return installed != latest
+}
+
+func comparableVersion(version string) string {
+	version = strings.TrimSpace(version)
+	if version == "" {
+		return ""
+	}
+	if token := versionTokenPattern.FindString(version); token != "" {
+		return strings.TrimPrefix(strings.ToLower(token), "v")
+	}
+	return strings.TrimPrefix(strings.ToLower(version), "v")
 }
 
 func actionStatus(action string) string {

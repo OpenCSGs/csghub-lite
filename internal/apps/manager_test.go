@@ -2,10 +2,14 @@ package apps
 
 import (
 	"context"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"runtime"
 	"testing"
+
+	"github.com/opencsgs/csghub-lite/pkg/api"
 )
 
 func TestAppSpecsRequirePTYForClaudeInstall(t *testing.T) {
@@ -163,6 +167,61 @@ func TestInstallReturnsExistingExternalAppWithoutRunningInstaller(t *testing.T) 
 	}
 	if state := mgr.states["claude-code"]; state != nil && state.running {
 		t.Fatal("expected installer to short-circuit for unmanaged existing app")
+	}
+}
+
+func TestEnrichLatestVersionReportsMirrorUpdate(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/latest" {
+			t.Fatalf("latest path = %q, want /latest", r.URL.Path)
+		}
+		_, _ = w.Write([]byte("1.2.4\n"))
+	}))
+	defer server.Close()
+
+	t.Setenv("CSGHUB_LITE_CLAUDE_DIST_BASE_URL", server.URL)
+	mgr := NewManager(nil)
+	info := api.AIAppInfo{
+		ID:        "claude-code",
+		Installed: true,
+		Managed:   true,
+		Supported: true,
+		Version:   "claude 1.2.3",
+	}
+
+	mgr.EnrichLatestVersion(context.Background(), &info)
+
+	if info.LatestVersion != "1.2.4" {
+		t.Fatalf("latest_version = %q, want 1.2.4", info.LatestVersion)
+	}
+	if !info.UpdateAvailable {
+		t.Fatal("expected update_available to be true")
+	}
+}
+
+func TestEnrichLatestVersionIgnoresMatchingMirrorVersion(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte("v1.2.3\n"))
+	}))
+	defer server.Close()
+
+	t.Setenv("CSGHUB_LITE_CLAUDE_DIST_BASE_URL", server.URL)
+	mgr := NewManager(nil)
+	info := api.AIAppInfo{
+		ID:        "claude-code",
+		Installed: true,
+		Managed:   true,
+		Supported: true,
+		Version:   "Claude Code 1.2.3",
+	}
+
+	mgr.EnrichLatestVersion(context.Background(), &info)
+
+	if info.LatestVersion != "v1.2.3" {
+		t.Fatalf("latest_version = %q, want v1.2.3", info.LatestVersion)
+	}
+	if info.UpdateAvailable {
+		t.Fatal("expected update_available to be false")
 	}
 }
 

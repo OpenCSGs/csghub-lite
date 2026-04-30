@@ -315,22 +315,24 @@ type AIAppUninstallRequest = AIAppActionRequest
 type AIAppOpenRequest = AIAppActionRequest
 
 type AIAppInfo struct {
-	ID             string    `json:"id"`
-	Installed      bool      `json:"installed"`
-	Managed        bool      `json:"managed"`
-	Supported      bool      `json:"supported"`
-	Disabled       bool      `json:"disabled"`
-	Status         string    `json:"status"`
-	Phase          string    `json:"phase,omitempty"`
-	ProgressMode   string    `json:"progress_mode"`
-	Progress       int       `json:"progress,omitempty"`
-	InstallPath    string    `json:"install_path,omitempty"`
-	Version        string    `json:"version,omitempty"`
-	ModelID        string    `json:"model_id,omitempty"`
-	LogPath        string    `json:"log_path,omitempty"`
-	LastError      string    `json:"last_error,omitempty"`
-	DisabledReason string    `json:"disabled_reason,omitempty"`
-	UpdatedAt      time.Time `json:"updated_at"`
+	ID              string    `json:"id"`
+	Installed       bool      `json:"installed"`
+	Managed         bool      `json:"managed"`
+	Supported       bool      `json:"supported"`
+	Disabled        bool      `json:"disabled"`
+	Status          string    `json:"status"`
+	Phase           string    `json:"phase,omitempty"`
+	ProgressMode    string    `json:"progress_mode"`
+	Progress        int       `json:"progress,omitempty"`
+	InstallPath     string    `json:"install_path,omitempty"`
+	Version         string    `json:"version,omitempty"`
+	LatestVersion   string    `json:"latest_version,omitempty"`
+	UpdateAvailable bool      `json:"update_available,omitempty"`
+	ModelID         string    `json:"model_id,omitempty"`
+	LogPath         string    `json:"log_path,omitempty"`
+	LastError       string    `json:"last_error,omitempty"`
+	DisabledReason  string    `json:"disabled_reason,omitempty"`
+	UpdatedAt       time.Time `json:"updated_at"`
 }
 
 type AIAppsResponse struct {
