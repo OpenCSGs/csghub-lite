@@ -257,7 +257,7 @@ export const aiAppsCatalog: AIAppCatalogEntry[] = [
       en: "The installer uses the configured npm registry and defaults to npmmirror for faster domestic installs.",
       zh: "安装脚本会使用配置的 npm registry，默认走 npmmirror 以改善国内安装速度。",
     },
-    commandPreview: "npm install -g @mariozechner/pi-coding-agent",
+    commandPreview: "npm install -g --prefix ~/.local/share/pi-coding-agent @mariozechner/pi-coding-agent",
     liveLogsReady: true,
     plannedSteps: [
       {
@@ -265,8 +265,8 @@ export const aiAppsCatalog: AIAppCatalogEntry[] = [
         zh: "检查本地环境是否可用 npm。",
       },
       {
-        en: "Install the @mariozechner/pi-coding-agent package globally.",
-        zh: "全局安装 @mariozechner/pi-coding-agent 包。",
+        en: "Install the @mariozechner/pi-coding-agent package into a user-owned prefix.",
+        zh: "将 @mariozechner/pi-coding-agent 安装到当前用户拥有的 prefix。",
       },
       {
         en: "Write the csghub-lite provider into Pi models.json and launch the terminal agent.",
