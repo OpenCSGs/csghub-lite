@@ -33,7 +33,7 @@ Options:
   --skip-github          Skip GitHub upload
   --skip-gitlab          Skip GitLab upload
   --skip-gitlab-git      Skip git push to GitLab (only upload packages + release links)
-  --skip-converter-check Skip checking whether bundled llama.cpp converter is fresh
+  --skip-converter-check Skip checking bundled llama.cpp converter consistency
   --skip-build           Skip make package (reuse existing dist/)
   -h, --help             Show this help
 
@@ -78,7 +78,7 @@ VERSION="${TAG#v}"
 info "Release tag: ${TAG} (version: ${VERSION})"
 
 if [ "$SKIP_CONVERTER_CHECK" -eq 0 ]; then
-    info "Checking bundled llama.cpp converter freshness..."
+    info "Checking bundled llama.cpp converter consistency..."
     ./scripts/sync-llama-converter.sh --check
 fi
 

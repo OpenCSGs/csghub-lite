@@ -2,7 +2,6 @@
 set -eu
 
 REPO_ROOT="$(CDPATH='' cd "$(dirname "$0")/.." && pwd)"
-LLAMA_CPP_REPO="ggml-org/llama.cpp"
 MODE="sync"
 TAG="${LLAMA_CPP_CONVERTER_TAG:-}"
 
@@ -23,15 +22,16 @@ Usage: scripts/sync-llama-converter.sh [options]
 Check or sync the bundled llama.cpp convert_hf_to_gguf.py copy.
 
 Options:
-  --check               Fail if the bundled converter is older than upstream
+  --check               Fail if bundled converter/install references are inconsistent
   --tag TAG             Sync/check against a specific llama.cpp release tag
   -h, --help            Show this help
 
 Environment variables:
-  LLAMA_CPP_CONVERTER_TAG   Optional llama.cpp release tag to use when --tag is omitted
+  LLAMA_CPP_CONVERTER_TAG   Optional llama.cpp release tag to sync/check explicitly
 
 Notes:
-  For GitHub access in this environment, run `source ~/.myshrc` before this script.
+  By default, this script uses the tag already locked in bundled_converter.go.
+  Pass --tag only when intentionally upgrading the bundled llama.cpp version.
 EOF
 }
 
@@ -88,7 +88,7 @@ resolve_tag() {
         printf "%s\n" "${TAG}"
         return
     fi
-    gh release view --repo "${LLAMA_CPP_REPO}" --json tagName --jq '.tagName'
+    extract_current_tag
 }
 
 while [ $# -gt 0 ]; do
@@ -113,24 +113,23 @@ done
 [ -f "${INSTALL_GUIDE}" ] || die "installation guide not found: ${INSTALL_GUIDE}"
 
 need_tool curl
-need_tool gh
 need_tool python3
 
-UPSTREAM_TAG="$(resolve_tag)"
-[ -n "${UPSTREAM_TAG}" ] || die "failed to resolve llama.cpp release tag"
+CURRENT_TAG="$(extract_current_tag)"
+CURRENT_REVISION="$(extract_current_revision)"
+[ -n "${CURRENT_TAG}" ] || die "failed to parse current bundled converter tag"
+[ -n "${CURRENT_REVISION}" ] || die "failed to parse current bundled converter revision"
 
-RAW_URL="https://raw.githubusercontent.com/ggml-org/llama.cpp/${UPSTREAM_TAG}/convert_hf_to_gguf.py"
+TARGET_TAG="$(resolve_tag)"
+[ -n "${TARGET_TAG}" ] || die "failed to resolve llama.cpp release tag"
+
+RAW_URL="https://raw.githubusercontent.com/ggml-org/llama.cpp/${TARGET_TAG}/convert_hf_to_gguf.py"
 TMP_SCRIPT="$(mktemp "${TMPDIR:-/tmp}/llama-converter.XXXXXX")"
 trap 'rm -f "${TMP_SCRIPT}"' EXIT INT TERM
 
 info "Fetching ${RAW_URL}"
 curl -fsSL -o "${TMP_SCRIPT}" "${RAW_URL}"
 apply_local_converter_patches "${TMP_SCRIPT}"
-
-CURRENT_TAG="$(extract_current_tag)"
-CURRENT_REVISION="$(extract_current_revision)"
-[ -n "${CURRENT_TAG}" ] || die "failed to parse current bundled converter tag"
-[ -n "${CURRENT_REVISION}" ] || die "failed to parse current bundled converter revision"
 
 SAME_SCRIPT=1
 if ! cmp -s "${TMP_SCRIPT}" "${TARGET_SCRIPT}"; then
@@ -140,11 +139,11 @@ fi
 if [ "${MODE}" = "check" ]; then
     INSTALL_SH_TAG="$(extract_install_sh_tag)"
     INSTALL_PS1_TAG="$(extract_install_ps1_tag)"
-    if [ "${SAME_SCRIPT}" -eq 1 ] && [ "${CURRENT_TAG}" = "${UPSTREAM_TAG}" ] && [ "${INSTALL_SH_TAG}" = "${UPSTREAM_TAG}" ] && [ "${INSTALL_PS1_TAG}" = "${UPSTREAM_TAG}" ]; then
-        info "Bundled converter already matches ${UPSTREAM_TAG}"
+    if [ "${SAME_SCRIPT}" -eq 1 ] && [ "${CURRENT_TAG}" = "${TARGET_TAG}" ] && [ "${INSTALL_SH_TAG}" = "${TARGET_TAG}" ] && [ "${INSTALL_PS1_TAG}" = "${TARGET_TAG}" ]; then
+        info "Bundled converter already matches ${TARGET_TAG}"
         exit 0
     fi
-    die "Bundled llama.cpp references are stale or inconsistent (converter: ${CURRENT_TAG}, install.sh: ${INSTALL_SH_TAG:-missing}, install.ps1: ${INSTALL_PS1_TAG:-missing}, upstream: ${UPSTREAM_TAG}). Run ./scripts/sync-llama-converter.sh --tag ${UPSTREAM_TAG}, commit the result, retag, and rerun release."
+    die "Bundled llama.cpp references are inconsistent (converter: ${CURRENT_TAG}, install.sh: ${INSTALL_SH_TAG:-missing}, install.ps1: ${INSTALL_PS1_TAG:-missing}, target: ${TARGET_TAG}). Run ./scripts/sync-llama-converter.sh --tag ${TARGET_TAG} only when intentionally upgrading llama.cpp."
 fi
 
 NEW_REVISION="${CURRENT_REVISION}"
@@ -153,10 +152,10 @@ if [ "${SAME_SCRIPT}" -eq 0 ]; then
     NEW_REVISION=$((CURRENT_REVISION + 1))
     info "Updated bundled converter script content"
 else
-    info "Bundled converter script content already matches ${UPSTREAM_TAG}"
+    info "Bundled converter script content already matches ${TARGET_TAG}"
 fi
 
-python3 - "${BUNDLED_GO}" "${README_FILE}" "${INSTALL_SH}" "${INSTALL_PS1}" "${INSTALL_GUIDE}" "${UPSTREAM_TAG}" "${NEW_REVISION}" <<'PY'
+python3 - "${BUNDLED_GO}" "${README_FILE}" "${INSTALL_SH}" "${INSTALL_PS1}" "${INSTALL_GUIDE}" "${TARGET_TAG}" "${NEW_REVISION}" <<'PY'
 from pathlib import Path
 import re
 import sys
@@ -237,4 +236,4 @@ if n7 != 1:
 install_guide_path.write_text(install_guide_text, encoding="utf-8")
 PY
 
-info "Synced bundled converter to ${UPSTREAM_TAG} (revision ${NEW_REVISION})"
+info "Synced bundled converter to ${TARGET_TAG} (revision ${NEW_REVISION})"
