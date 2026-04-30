@@ -5,17 +5,7 @@ alwaysApply: true
 
 # GitLab Token Source
 
-When any task requires GitLab API authentication, always load the token from `local/secrets.env`.
+Canonical rule: `docs/agent-guidelines/network-and-secrets.md`.
 
-- Preferred source: `local/secrets.env` with `GITLAB_TOKEN="glpat-..."`
-- If `GITLAB_TOKEN` is unset, source `local/secrets.env` before running GitLab API or release upload commands.
-- Never hardcode, paste, or commit GitLab tokens in commands, code, docs, commit messages, or chat output.
-- Keep `local/secrets.env` local-only (gitignored).
-
-Example:
-
-```sh
-if [ -z "${GITLAB_TOKEN:-}" ] && [ -f "./local/secrets.env" ]; then
-  . "./local/secrets.env"
-fi
-```
+Follow that file. Do not add duplicated rule text here; update the canonical
+guideline instead.

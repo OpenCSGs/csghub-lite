@@ -5,27 +5,7 @@ alwaysApply: true
 
 # Network & Proxy Conventions
 
-The dev environment requires proxy for external sites but direct access for internal sites.
+Canonical rule: `docs/agent-guidelines/network-and-secrets.md`.
 
-## Rules
-
-- **GitHub / PyPI / external sites**: Run `source ~/.myshrc` first to enable proxy.
-- **GitLab (`git-devops.opencsg.com`) / internal sites**: Use direct connection. If proxy was previously enabled, run `unset https_proxy` before accessing.
-
-## Git Push Workflow
-
-When pushing to both remotes:
-
-1. Push to **GitLab** first (no proxy needed): `git push gitlab main`
-2. Then push to **GitHub** (proxy needed): `source ~/.myshrc && git push origin main`
-
-## Download / Upload Workflow
-
-- Downloading from GitHub releases: `source ~/.myshrc` then `curl` / `wget`
-- Uploading to GitLab: `unset https_proxy` then use GitLab API
-
-## GitLab API token (local only)
-
-- **`local/secrets.env`** (gitignored): set `GITLAB_TOKEN="glpat-..."` for `scripts/push.sh`.
-- Copy from `local/secrets.env.example`. **`scripts/push.sh` auto-sources `local/secrets.env`** when `GITLAB_TOKEN` is unset.
-- **Never commit** `local/secrets.env`. If a PAT was pasted in chat, **revoke and rotate** it in GitLab.
+Follow that file. Do not add duplicated rule text here; update the canonical
+guideline instead.
