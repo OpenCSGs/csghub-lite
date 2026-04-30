@@ -999,6 +999,69 @@ func TestPrepareAIAppShellLaunchUsesCustomProviderForCodex(t *testing.T) {
 	}
 }
 
+func TestPrepareAIAppShellLaunchUsesPiProviderConfig(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	binDir := t.TempDir()
+	commandPath := filepath.Join(binDir, "pi")
+	content := "#!/bin/sh\nexit 0\n"
+	if runtime.GOOS == "windows" {
+		commandPath = filepath.Join(binDir, "pi.cmd")
+		content = "@echo off\r\nexit /b 0\r\n"
+	}
+	if err := os.WriteFile(commandPath, []byte(content), 0o755); err != nil {
+		t.Fatalf("write fake binary: %v", err)
+	}
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	s := New(&config.Config{ListenAddr: ":11435"}, "test")
+	workDir := t.TempDir()
+	prepared, err := s.prepareAIAppShellLaunch(aiAppOpenTarget{
+		AppID:       "pi",
+		DisplayName: "Pi",
+		Binaries:    []string{"pi"},
+	}, "Qwen/Qwen3.5-2B", []string{"Qwen/Qwen3.5-2B", "minimax-m2.5"}, workDir)
+	if err != nil {
+		t.Fatalf("prepareAIAppShellLaunch returned error: %v", err)
+	}
+	if got := argValue(prepared.Args, "--provider"); got != "csghub-lite" {
+		t.Fatalf("--provider = %q, want csghub-lite in args %#v", got, prepared.Args)
+	}
+	if got := argValue(prepared.Args, "--model"); got != "Qwen/Qwen3.5-2B" {
+		t.Fatalf("--model = %q, want selected model in args %#v", got, prepared.Args)
+	}
+	if envHasKey(prepared.Env, "NO_COLOR") {
+		t.Fatalf("NO_COLOR should be removed from Pi web shell environment: %#v", prepared.Env)
+	}
+
+	data, err := os.ReadFile(filepath.Join(home, ".pi", "agent", "models.json"))
+	if err != nil {
+		t.Fatalf("read Pi models: %v", err)
+	}
+	var payload struct {
+		Providers map[string]struct {
+			BaseURL string `json:"baseUrl"`
+			Models  []struct {
+				ID string `json:"id"`
+			} `json:"models"`
+		} `json:"providers"`
+	}
+	if err := json.Unmarshal(data, &payload); err != nil {
+		t.Fatalf("decode Pi models: %v", err)
+	}
+	provider, ok := payload.Providers["csghub-lite"]
+	if !ok {
+		t.Fatalf("Pi csghub-lite provider missing: %#v", payload.Providers)
+	}
+	if provider.BaseURL != "http://127.0.0.1:11435/v1" {
+		t.Fatalf("provider baseUrl = %q, want local v1 URL", provider.BaseURL)
+	}
+	if got := collectOpenClawModelIDs(provider.Models); !sameStrings(got, []string{"Qwen/Qwen3.5-2B", "minimax-m2.5"}) {
+		t.Fatalf("Pi model ids = %#v, want launch models", got)
+	}
+}
+
 func TestWriteOpenCodeWebLaunchConfigIncludesAllModels(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)

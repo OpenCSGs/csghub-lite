@@ -23,6 +23,8 @@ import (
 	"github.com/gorilla/websocket"
 
 	"github.com/opencsgs/csghub-lite/internal/config"
+	"github.com/opencsgs/csghub-lite/internal/piagent"
+	"github.com/opencsgs/csghub-lite/pkg/api"
 )
 
 const (
@@ -562,6 +564,12 @@ func resolveAIAppOpenTarget(appID string) (aiAppOpenTarget, error) {
 			DisplayName: "Codex",
 			Binaries:    []string{"codex"},
 		}, nil
+	case "pi":
+		return aiAppOpenTarget{
+			AppID:       "pi",
+			DisplayName: "Pi",
+			Binaries:    []string{"pi"},
+		}, nil
 	default:
 		return aiAppOpenTarget{}, fmt.Errorf("%s does not provide a web shell entry yet", appID)
 	}
@@ -759,6 +767,20 @@ func (s *Server) prepareAIAppShellLaunch(target aiAppOpenTarget, modelID string,
 		return aiAppPreparedLaunch{
 			Binary: binary,
 			Args:   append(configArgs, "--no-alt-screen", "--model", modelID),
+			Env:    envWithOverridesAndUnset(aiAppShellEnvOverrides(nil), "NO_COLOR"),
+			Dir:    workingDir,
+		}, nil
+	case "pi":
+		models := make([]api.ModelInfo, 0, len(modelIDs))
+		for _, modelID := range modelIDs {
+			models = append(models, api.ModelInfo{Model: modelID})
+		}
+		if err := piagent.SyncConfig(serverURL, openClawProviderAPIKey(config.Get().Token), modelID, models); err != nil {
+			return aiAppPreparedLaunch{}, err
+		}
+		return aiAppPreparedLaunch{
+			Binary: binary,
+			Args:   []string{"--provider", piagent.ProviderID, "--model", modelID},
 			Env:    envWithOverridesAndUnset(aiAppShellEnvOverrides(nil), "NO_COLOR"),
 			Dir:    workingDir,
 		}, nil

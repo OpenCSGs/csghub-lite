@@ -150,7 +150,7 @@ func (s *Server) enrichAIApp(ctx context.Context, info *api.AIAppInfo) {
 	)
 
 	switch info.ID {
-	case "claude-code", "open-code", "codex":
+	case "claude-code", "open-code", "codex", "pi":
 		modelID, _, err = s.resolveAIAppShellLaunchModels(ctx, info.ID, "")
 	case "openclaw", "csgclaw":
 		preferred := s.preferredAIAppModel(info.ID)

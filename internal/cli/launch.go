@@ -32,7 +32,7 @@ type launchOptions struct {
 	Model       string
 }
 
-const launchSupportedApps = "claude-code, open-code, codex, openclaw, csgclaw, dify, anythingllm"
+const launchSupportedApps = "claude-code, open-code, codex, pi, openclaw, csgclaw, dify, anythingllm"
 
 func newLaunchCmd() *cobra.Command {
 	var opts launchOptions
@@ -51,6 +51,7 @@ Supported apps: ` + launchSupportedApps + `
 Use ` + "`--`" + ` to pass through arguments to the launched app binary.`,
 		Example: `  csghub-lite launch claude-code
   csghub-lite launch codex --model Qwen/Qwen2.5-Coder-7B
+  csghub-lite launch pi
   csghub-lite launch csgclaw
   csghub-lite launch open-code -- --help
   csghub-lite launch anythingllm`,
@@ -185,6 +186,12 @@ func resolveLaunchTarget(name string) (launchTarget, error) {
 			AppID:       "codex",
 			DisplayName: "Codex",
 			Binaries:    []string{"codex"},
+		}, nil
+	case "pi", "picoding", "picodingagent":
+		return launchTarget{
+			AppID:       "pi",
+			DisplayName: "Pi",
+			Binaries:    []string{"pi"},
 		}, nil
 	case "openclaw":
 		return launchTarget{

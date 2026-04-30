@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/opencsgs/csghub-lite/internal/config"
+	"github.com/opencsgs/csghub-lite/internal/piagent"
 	"github.com/opencsgs/csghub-lite/pkg/api"
 )
 
@@ -206,6 +207,8 @@ func prepareLaunchExecution(target launchTarget, serverURL, modelID string, user
 		return prepareOpenCodeLaunch(target, serverURL, modelID, userArgs)
 	case "codex":
 		return prepareCodexLaunch(target, serverURL, modelID, userArgs)
+	case "pi":
+		return preparePiLaunch(target, serverURL, modelID, userArgs)
 	case "openclaw":
 		return prepareOpenClawLaunch(target, serverURL, modelID, userArgs)
 	case "csgclaw":
@@ -269,6 +272,26 @@ func prepareCodexLaunch(target launchTarget, serverURL, modelID string, userArgs
 		return preparedLaunch{}, err
 	}
 
+	env := envWithOverrides(nil)
+	return preparedLaunch{Binary: binary, Args: args, Env: env}, nil
+}
+
+func preparePiLaunch(target launchTarget, serverURL, modelID string, userArgs []string) (preparedLaunch, error) {
+	binary, err := resolveLaunchBinary(target.Binaries)
+	if err != nil {
+		return preparedLaunch{}, fmt.Errorf("%s is installed, but the launch command was not found on PATH", target.DisplayName)
+	}
+	models, err := getLaunchModels(serverURL)
+	if err != nil {
+		return preparedLaunch{}, err
+	}
+	if err := piagent.SyncConfig(serverURL, openClawProviderAPIKey(config.Get().Token), modelID, models); err != nil {
+		return preparedLaunch{}, err
+	}
+
+	args := append([]string{}, userArgs...)
+	args = prependArgsIfMissing(args, []string{"--provider", piagent.ProviderID}, "--provider")
+	args = prependArgsIfMissing(args, []string{"--model", modelID}, "--model", "-m")
 	env := envWithOverrides(nil)
 	return preparedLaunch{Binary: binary, Args: args, Env: env}, nil
 }

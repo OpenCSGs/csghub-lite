@@ -238,6 +238,26 @@ func appSpecs() []appSpec {
 			},
 		},
 		{
+			id:           "pi",
+			binaryName:   "pi",
+			installMode:  "script",
+			progressMode: progressModeIndeterminate,
+			supported:    true,
+			versionArgs:  []string{"--version"},
+			unix: &scriptSource{
+				embeddedPath: "scripts/pi-install.sh",
+			},
+			windows: &scriptSource{
+				embeddedPath: "scripts/pi-install.ps1",
+			},
+			uninstallUnix: &scriptSource{
+				embeddedPath: "scripts/pi-uninstall.sh",
+			},
+			uninstallWin: &scriptSource{
+				embeddedPath: "scripts/pi-uninstall.ps1",
+			},
+		},
+		{
 			id:             "dify",
 			installMode:    "docker",
 			progressMode:   progressModeIndeterminate,

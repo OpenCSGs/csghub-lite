@@ -49,7 +49,7 @@ func (s *Server) openAIAppURL(ctx context.Context, appID, modelID, workDir strin
 		return s.openClawChatURL(ctx, modelID)
 	case "csgclaw":
 		return s.openCSGClawURL(ctx, modelID)
-	case "claude-code", "open-code", "codex":
+	case "claude-code", "open-code", "codex", "pi":
 		return s.openAIAppShellURL(ctx, appID, modelID, workDir)
 	default:
 		return "", fmt.Errorf("%s does not provide a direct chat entry yet", appID)

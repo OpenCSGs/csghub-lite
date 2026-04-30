@@ -236,6 +236,50 @@ export const aiAppsCatalog: AIAppCatalogEntry[] = [
     },
   },
   {
+    id: "pi",
+    name: "Pi",
+    siteLabel: "@pi.dev",
+    website: "https://pi.dev",
+    detailsUrl: "https://docs.ollama.com/integrations/pi",
+    icon: "/apps/pi.svg",
+    category: "coding",
+    description: {
+      en: "A minimal terminal coding agent with read, write, edit, and bash tools, configurable for local OpenAI-compatible models.",
+      zh: "轻量级终端编程 Agent，内置读取、写入、编辑和 bash 工具，可连接本地 OpenAI 兼容模型。",
+    },
+    installMode: "script",
+    progressMode: "indeterminate",
+    installHint: {
+      en: "Install Pi Coding Agent from npm, then launch it with the csghub-lite provider and selected model.",
+      zh: "通过 npm 安装 Pi Coding Agent，然后使用 csghub-lite provider 和所选模型启动。",
+    },
+    cnInstallHint: {
+      en: "The installer uses the configured npm registry and defaults to npmmirror for faster domestic installs.",
+      zh: "安装脚本会使用配置的 npm registry，默认走 npmmirror 以改善国内安装速度。",
+    },
+    commandPreview: "npm install -g @mariozechner/pi-coding-agent",
+    liveLogsReady: true,
+    plannedSteps: [
+      {
+        en: "Ensure npm is available in the local environment.",
+        zh: "检查本地环境是否可用 npm。",
+      },
+      {
+        en: "Install the @mariozechner/pi-coding-agent package globally.",
+        zh: "全局安装 @mariozechner/pi-coding-agent 包。",
+      },
+      {
+        en: "Write the csghub-lite provider into Pi models.json and launch the terminal agent.",
+        zh: "将 csghub-lite provider 写入 Pi 的 models.json，并启动终端 Agent。",
+      },
+    ],
+    status: "idle",
+    statusText: {
+      en: "Ready to install",
+      zh: "可安装",
+    },
+  },
+  {
     id: "csgclaw",
     name: "CSGClaw",
     siteLabel: "@opencsg.com",

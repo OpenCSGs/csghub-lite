@@ -217,6 +217,56 @@ func TestPrepareCodexLaunchIncludesModelCatalog(t *testing.T) {
 	}
 }
 
+func TestPreparePiLaunchSyncsConfigAndSetsProviderArgs(t *testing.T) {
+	server := launchModelTestServer([]api.ModelInfo{
+		{Model: "Qwen/Qwen3.5-2B", Source: "local"},
+		{Model: "minimax-m2.5", Source: "cloud"},
+	})
+	defer server.Close()
+
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	binDir := t.TempDir()
+	commandPath := filepath.Join(binDir, "pi")
+	content := "#!/bin/sh\nexit 0\n"
+	if runtime.GOOS == "windows" {
+		commandPath = filepath.Join(binDir, "pi.cmd")
+		content = "@echo off\r\nexit /b 0\r\n"
+	}
+	if err := os.WriteFile(commandPath, []byte(content), 0o755); err != nil {
+		t.Fatalf("write fake binary: %v", err)
+	}
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	prepared, err := preparePiLaunch(launchTarget{
+		AppID:       "pi",
+		DisplayName: "Pi",
+		Binaries:    []string{"pi"},
+	}, server.URL, "minimax-m2.5", nil)
+	if err != nil {
+		t.Fatalf("preparePiLaunch returned error: %v", err)
+	}
+	if got := argValue(prepared.Args, "--provider"); got != "csghub-lite" {
+		t.Fatalf("--provider = %q, want csghub-lite in args %#v", got, prepared.Args)
+	}
+	if got := argValue(prepared.Args, "--model"); got != "minimax-m2.5" {
+		t.Fatalf("--model = %q, want selected model in args %#v", got, prepared.Args)
+	}
+
+	data, err := os.ReadFile(filepath.Join(home, ".pi", "agent", "settings.json"))
+	if err != nil {
+		t.Fatalf("read Pi settings: %v", err)
+	}
+	var settings map[string]string
+	if err := json.Unmarshal(data, &settings); err != nil {
+		t.Fatalf("decode Pi settings: %v", err)
+	}
+	if settings["defaultProvider"] != "csghub-lite" || settings["defaultModel"] != "minimax-m2.5" {
+		t.Fatalf("unexpected Pi settings: %#v", settings)
+	}
+}
+
 func TestOpenClawProfileMatches(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
@@ -537,6 +587,15 @@ func configValue(args []string, prefix string) string {
 	for i := 0; i+1 < len(args); i++ {
 		if (args[i] == "-c" || args[i] == "--config") && strings.HasPrefix(args[i+1], prefix) {
 			return strings.TrimPrefix(args[i+1], prefix)
+		}
+	}
+	return ""
+}
+
+func argValue(args []string, flag string) string {
+	for i := 0; i+1 < len(args); i++ {
+		if args[i] == flag {
+			return args[i+1]
 		}
 	}
 	return ""
