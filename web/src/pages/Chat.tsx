@@ -43,6 +43,7 @@ const contextLengthSteps = [4096, 8192, 16384, 32768, 65536, 131072, 262144];
 const contextLengthLabels = ["4k", "8k", "16k", "32k", "64k", "128k", "256k"];
 const parallelStorageKey = "csghub.chat.num_parallel";
 const parallelSteps = [1, 2, 4, 8];
+const selectedModelStorageKey = "csghub.chat.selected_model";
 
 function modelKey(model: Pick<ModelInfo, "model" | "name" | "source">): string {
   return `${model.source || "local"}:${model.model || model.name}`;
@@ -58,6 +59,26 @@ function modelLabel(model: ModelInfo): string {
   return tags.length > 0 ? `${label} [${tags.join("] [")}]` : label;
 }
 
+function readSelectedModelKey(): string {
+  try {
+    return localStorage.getItem(selectedModelStorageKey) || "";
+  } catch {
+    return "";
+  }
+}
+
+function saveSelectedModelKey(key: string) {
+  try {
+    if (key) {
+      localStorage.setItem(selectedModelStorageKey, key);
+    } else {
+      localStorage.removeItem(selectedModelStorageKey);
+    }
+  } catch {
+    /* ignore storage failures */
+  }
+}
+
 const selectedModelInfo = computed(() =>
   availableModels.value.find((x) => modelKey(x) === selectedModelKey.value)
 );
@@ -65,6 +86,11 @@ const selectedModelInfo = computed(() =>
 function setAvailableModels(models: ModelInfo[]) {
   availableModels.value = models;
   if (selectedModelKey.value && models.some((x) => modelKey(x) === selectedModelKey.value)) {
+    return;
+  }
+  const savedModelKey = readSelectedModelKey();
+  if (savedModelKey && models.some((x) => modelKey(x) === savedModelKey)) {
+    selectedModelKey.value = savedModelKey;
     return;
   }
   if (models.length === 0) {
@@ -77,6 +103,7 @@ function setAvailableModels(models: ModelInfo[]) {
   const fallback = gguf[0] || localModels[0] || models[0];
   if (fallback) {
     selectedModelKey.value = modelKey(fallback);
+    saveSelectedModelKey(selectedModelKey.value);
   }
 }
 
@@ -217,6 +244,7 @@ export function Chat() {
 
   const handleModelChange = (nextKey: string) => {
     selectedModelKey.value = nextKey;
+    saveSelectedModelKey(nextKey);
     const model = availableModels.value.find((x) => modelKey(x) === nextKey);
     if (model?.source === "cloud" && !hasCloudAuth(cloudAuth.value)) {
       void openCloudAuthDialog(t("chat.cloudLoginRequired"));
@@ -274,6 +302,7 @@ export function Chat() {
     getPs().then((running) => {
       if (running.length > 0 && !selectedModelKey.value) {
         selectedModelKey.value = `local:${running[0].model || running[0].name}`;
+        saveSelectedModelKey(selectedModelKey.value);
       }
     }).catch(() => {});
     getCloudAuthStatus().then((status) => {
