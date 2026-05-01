@@ -129,12 +129,13 @@ type RunningModel struct {
 // -- Shared types --
 
 type Message struct {
-	Role       string      `json:"role"`
-	Content    interface{} `json:"content"`
-	Thinking   string      `json:"thinking,omitempty"`
-	ToolCalls  []ToolCall  `json:"tool_calls,omitempty"`
-	ToolName   string      `json:"tool_name,omitempty"`
-	ToolCallID string      `json:"tool_call_id,omitempty"`
+	Role             string      `json:"role"`
+	Content          interface{} `json:"content"`
+	Thinking         string      `json:"thinking,omitempty"`
+	ReasoningContent string      `json:"reasoning_content,omitempty"`
+	ToolCalls        []ToolCall  `json:"tool_calls,omitempty"`
+	ToolName         string      `json:"tool_name,omitempty"`
+	ToolCallID       string      `json:"tool_call_id,omitempty"`
 }
 
 type Tool struct {
@@ -414,4 +415,45 @@ type UpgradeProgressResponse struct {
 	Progress int    `json:"progress"` // 0-100
 	Message  string `json:"message"`
 	Version  string `json:"version,omitempty"`
+}
+
+// -- Third-party Provider types --
+
+type ThirdPartyProvider struct {
+	ID       string `json:"id"`
+	Name     string `json:"name"`
+	BaseURL  string `json:"base_url"`
+	APIKey   string `json:"api_key,omitempty"`
+	Provider string `json:"provider,omitempty"` // e.g., "openai", "anthropic", "deepseek"
+}
+
+type ThirdPartyProvidersResponse struct {
+	Providers []ThirdPartyProvider `json:"providers"`
+}
+
+type ThirdPartyProviderCreateRequest struct {
+	Name     string `json:"name"`
+	BaseURL  string `json:"base_url"`
+	APIKey   string `json:"api_key"`
+	Provider string `json:"provider,omitempty"`
+}
+
+type ThirdPartyProviderValidateRequest struct {
+	ID       string `json:"id,omitempty"`
+	Name     string `json:"name,omitempty"`
+	BaseURL  string `json:"base_url"`
+	APIKey   string `json:"api_key,omitempty"`
+	Provider string `json:"provider,omitempty"`
+}
+
+type ThirdPartyProviderValidateResponse struct {
+	Valid      bool `json:"valid"`
+	ModelCount int  `json:"model_count"`
+}
+
+type ThirdPartyProviderUpdateRequest struct {
+	Name     string `json:"name,omitempty"`
+	BaseURL  string `json:"base_url,omitempty"`
+	APIKey   string `json:"api_key,omitempty"`
+	Provider string `json:"provider,omitempty"`
 }

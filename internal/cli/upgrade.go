@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"fmt"
 	"os"
+	"runtime"
 	"strings"
 
 	"github.com/opencsgs/csghub-lite/internal/upgrade"
@@ -79,7 +80,11 @@ func runUpgrade(skipConfirm bool) error {
 	fmt.Println()
 	fmt.Println()
 	fmt.Printf("Successfully upgraded to version %s!\n", result.LatestVersion)
-	fmt.Println("Please restart any running csghub-lite services to use the new version.")
+	if runtime.GOOS == "windows" {
+		fmt.Println("The Windows upgrade helper will finish replacement automatically.")
+	} else {
+		fmt.Println("Please restart any running csghub-lite services to use the new version.")
+	}
 
 	return nil
 }

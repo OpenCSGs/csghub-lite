@@ -596,14 +596,8 @@ func (u *Updater) installBinary(newBinary, currentBinary string) error {
 		return err
 	}
 
-	// On Windows, we need to rename the old binary first
 	if runtime.GOOS == "windows" {
-		oldBinary := currentBinary + ".old"
-		if err := os.Rename(currentBinary, oldBinary); err != nil {
-			return fmt.Errorf("failed to rename old binary: %w", err)
-		}
-		// Try to remove the old binary later (on next restart)
-		go os.Remove(oldBinary)
+		return u.installBinaryWindows(newBinary, currentBinary)
 	}
 
 	// Move the new binary to the current location
@@ -615,6 +609,133 @@ func (u *Updater) installBinary(newBinary, currentBinary string) error {
 	}
 
 	return nil
+}
+
+func (u *Updater) installBinaryWindows(newBinary, currentBinary string) error {
+	stageDir := filepath.Join(os.TempDir(), fmt.Sprintf("csghub-lite-upgrade-%d-%d", os.Getpid(), time.Now().UnixNano()))
+	if err := os.MkdirAll(stageDir, 0o755); err != nil {
+		return fmt.Errorf("creating Windows upgrade staging directory: %w", err)
+	}
+
+	stagedBinary := filepath.Join(stageDir, filepath.Base(currentBinary))
+	if err := u.copyFile(newBinary, stagedBinary); err != nil {
+		return fmt.Errorf("staging Windows upgrade binary: %w", err)
+	}
+
+	scriptPath := filepath.Join(stageDir, "apply-upgrade.ps1")
+	script, err := windowsUpgradeScript(os.Getpid(), currentBinary, stagedBinary, stageDir, windowsRestartArgs())
+	if err != nil {
+		return err
+	}
+	if err := os.WriteFile(scriptPath, []byte(script), 0o600); err != nil {
+		return fmt.Errorf("writing Windows upgrade script: %w", err)
+	}
+
+	powershell, err := exec.LookPath("powershell.exe")
+	if err != nil {
+		if powershell, err = exec.LookPath("powershell"); err != nil {
+			if powershell, err = exec.LookPath("pwsh.exe"); err != nil {
+				if powershell, err = exec.LookPath("pwsh"); err != nil {
+					return fmt.Errorf("PowerShell not found for Windows upgrade: %w", err)
+				}
+			}
+		}
+	}
+
+	cmd := exec.Command(powershell, "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", scriptPath)
+	cmd.Stdout = nil
+	cmd.Stderr = nil
+	cmd.Stdin = nil
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("starting Windows upgrade helper: %w", err)
+	}
+
+	// Give HTTP/CLI callers time to report success, then release the locked exe
+	// so the helper can replace it and restart the original command.
+	go func() {
+		time.Sleep(1500 * time.Millisecond)
+		os.Exit(0)
+	}()
+	return nil
+}
+
+func windowsRestartArgs() []string {
+	if len(os.Args) <= 1 {
+		return nil
+	}
+	first := strings.ToLower(os.Args[1])
+	if first == "upgrade" {
+		return nil
+	}
+	return append([]string(nil), os.Args[1:]...)
+}
+
+func windowsUpgradeScript(pid int, target, stagedBinary, stageDir string, restartArgs []string) (string, error) {
+	wd, err := os.Getwd()
+	if err != nil {
+		wd = filepath.Dir(target)
+	}
+
+	var args []string
+	for _, arg := range restartArgs {
+		args = append(args, psSingleQuote(arg))
+	}
+	argList := "@()"
+	if len(args) > 0 {
+		argList = "@(" + strings.Join(args, ", ") + ")"
+	}
+
+	return fmt.Sprintf(`$ErrorActionPreference = 'Stop'
+$target = %s
+$staged = %s
+$stageDir = %s
+$workingDir = %s
+$restartArgs = %s
+$log = Join-Path $stageDir 'upgrade.log'
+function Log([string]$message) {
+  Add-Content -Path $log -Value ("[{0}] {1}" -f (Get-Date -Format o), $message)
+}
+try {
+  Log 'Waiting for csghub-lite to exit'
+  for ($i = 0; $i -lt 240; $i++) {
+    $proc = Get-Process -Id %d -ErrorAction SilentlyContinue
+    if ($null -eq $proc) { break }
+    Start-Sleep -Milliseconds 500
+  }
+  $proc = Get-Process -Id %d -ErrorAction SilentlyContinue
+  if ($null -ne $proc) {
+    throw 'Timed out waiting for csghub-lite to exit'
+  }
+
+  $old = "$target.old"
+  if (Test-Path -LiteralPath $old) {
+    Remove-Item -LiteralPath $old -Force -ErrorAction SilentlyContinue
+  }
+  if (Test-Path -LiteralPath $target) {
+    Move-Item -LiteralPath $target -Destination $old -Force
+  }
+  Copy-Item -LiteralPath $staged -Destination $target -Force
+  if (Test-Path -LiteralPath $old) {
+    Remove-Item -LiteralPath $old -Force -ErrorAction SilentlyContinue
+  }
+  Log 'Installed new csghub-lite binary'
+
+  if ($restartArgs.Count -gt 0) {
+    Start-Process -FilePath $target -ArgumentList $restartArgs -WorkingDirectory $workingDir
+    Log 'Restarted csghub-lite'
+  }
+} catch {
+  Log ("Upgrade failed: " + $_.Exception.Message)
+  exit 1
+}
+Start-Sleep -Seconds 1
+Remove-Item -LiteralPath $staged -Force -ErrorAction SilentlyContinue
+Remove-Item -LiteralPath $MyInvocation.MyCommand.Path -Force -ErrorAction SilentlyContinue
+`, psSingleQuote(target), psSingleQuote(stagedBinary), psSingleQuote(stageDir), psSingleQuote(wd), argList, pid, pid), nil
+}
+
+func psSingleQuote(value string) string {
+	return "'" + strings.ReplaceAll(value, "'", "''") + "'"
 }
 
 // copyFile copies a file from src to dst

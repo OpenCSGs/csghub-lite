@@ -113,6 +113,9 @@ func (s *Server) cloudAuthStatus(ctx context.Context) cloudAuthStatus {
 
 func (s *Server) getChatEngine(ctx context.Context, modelID, source string, numCtx, numParallel, nGPULayers int, cacheTypeK, cacheTypeV, dtype string) (inference.Engine, error) {
 	source = strings.TrimSpace(strings.ToLower(source))
+	if providerIDFromSource(source) != "" {
+		return newThirdPartyProviderEngine(source, modelID)
+	}
 	if source == "cloud" {
 		return s.newCloudEngine(modelID)
 	}
@@ -142,6 +145,12 @@ func (s *Server) getChatEngine(ctx context.Context, modelID, source string, numC
 	}
 	if modelInfoListContains(models, modelID) {
 		return s.newCloudEngine(modelID)
+	}
+
+	for _, item := range s.listThirdPartyProviderModels(ctx) {
+		if strings.TrimSpace(item.Model) == strings.TrimSpace(modelID) {
+			return newThirdPartyProviderEngine(item.Source, modelID)
+		}
 	}
 
 	return nil, err

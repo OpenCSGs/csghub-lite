@@ -13,8 +13,13 @@ import {
   saveCloudToken,
   saveSettings,
   upgradeWithProgress,
+  getProviders,
+  createProvider,
+  updateProvider,
+  deleteProvider,
+  validateProvider,
 } from "../api/client";
-import type { AppSettings, CloudAuthStatus, LocalDirectoryBrowseResponse } from "../api/client";
+import type { AppSettings, CloudAuthStatus, LocalDirectoryBrowseResponse, ThirdPartyProvider } from "../api/client";
 
 const contextLengthSteps = [4096, 8192, 16384, 32768, 65536, 131072, 262144];
 const contextLengthLabels = ["4k", "8k", "16k", "32k", "64k", "128k", "256k"];
@@ -51,6 +56,24 @@ const upgradeProgress = signal<UpgradeProgress>({
   percent: 0,
   message: "",
 });
+const providers = signal<ThirdPartyProvider[]>([]);
+const providersLoading = signal(false);
+const providersError = signal("");
+const isProviderDialogOpen = signal(false);
+const editingProvider = signal<ThirdPartyProvider | null>(null);
+const providerFormName = signal("");
+const providerFormBaseURL = signal("");
+const providerFormAPIKey = signal("");
+const providerFormType = signal("openai");
+const providerFormError = signal("");
+const providerFormSaving = signal(false);
+
+const providerTypes = [
+  { value: "openai", label: "OpenAI Compatible", baseURL: "https://api.openai.com/v1" },
+  { value: "deepseek", label: "DeepSeek", baseURL: "https://api.deepseek.com/v1" },
+  { value: "openrouter", label: "OpenRouter", baseURL: "https://openrouter.ai/api/v1" },
+  { value: "other", label: "Other", baseURL: "" },
+];
 
 function loadContextIndex(): number {
   try {
@@ -134,6 +157,18 @@ function fetchCloudAuth() {
       cloudAuth.value = null;
       cloudAuthError.value = err?.message || "";
     });
+}
+
+async function fetchProviders() {
+  providersLoading.value = true;
+  providersError.value = "";
+  try {
+    providers.value = await getProviders();
+  } catch (err: any) {
+    providersError.value = err?.message || t("settings.providersLoadFailed");
+  } finally {
+    providersLoading.value = false;
+  }
 }
 
 async function fetchUpgradeInfo() {
@@ -227,6 +262,84 @@ function openExternal(url?: string) {
   }
 }
 
+function openProviderDialog(provider?: ThirdPartyProvider) {
+  editingProvider.value = provider || null;
+  providerFormName.value = provider?.name || "";
+  providerFormBaseURL.value = provider?.base_url || "";
+  providerFormAPIKey.value = "";
+  providerFormType.value = provider?.provider || "openai";
+  providerFormError.value = "";
+  isProviderDialogOpen.value = true;
+}
+
+function closeProviderDialog() {
+  if (providerFormSaving.value) return;
+  isProviderDialogOpen.value = false;
+  editingProvider.value = null;
+  providerFormError.value = "";
+}
+
+async function saveProviderForm() {
+  const name = providerFormName.value.trim();
+  const baseURL = providerFormBaseURL.value.trim();
+  const apiKey = providerFormAPIKey.value.trim();
+  const providerType = providerFormType.value.trim() || "openai";
+
+  if (!name || !baseURL) {
+    providerFormError.value = t("settings.providerNameURLRequired");
+    return;
+  }
+  if (!editingProvider.value && !apiKey) {
+    providerFormError.value = t("settings.providerAPIKeyRequired");
+    return;
+  }
+
+  providerFormSaving.value = true;
+  providerFormError.value = "";
+  try {
+    await validateProvider({
+      id: editingProvider.value?.id,
+      name,
+      base_url: baseURL,
+      api_key: apiKey || undefined,
+      provider: providerType,
+    });
+    if (editingProvider.value) {
+      await updateProvider(editingProvider.value.id, {
+        name,
+        base_url: baseURL,
+        api_key: apiKey || undefined,
+        provider: providerType,
+      });
+    } else {
+      await createProvider({
+        name,
+        base_url: baseURL,
+        api_key: apiKey,
+        provider: providerType,
+      });
+    }
+    await fetchProviders();
+    isProviderDialogOpen.value = false;
+    editingProvider.value = null;
+  } catch (err: any) {
+    providerFormError.value = err?.message || t("settings.providerSaveFailed");
+  } finally {
+    providerFormSaving.value = false;
+  }
+}
+
+async function removeProvider(provider: ThirdPartyProvider) {
+  if (!confirm(t("settings.providerDeleteConfirm", provider.name))) return;
+  providersError.value = "";
+  try {
+    await deleteProvider(provider.id);
+    providers.value = providers.value.filter((item) => item.id !== provider.id);
+  } catch (err: any) {
+    providersError.value = err?.message || t("settings.providerDeleteFailed");
+  }
+}
+
 async function saveStorageDir() {
   const newDir = storageDirInput.value.trim();
   if (!newDir) return;
@@ -292,6 +405,7 @@ export function Settings() {
   useEffect(() => {
     fetchSettings();
     fetchCloudAuth();
+    void fetchProviders();
     void fetchUpgradeInfo();
     contextIndex.value = loadContextIndex();
     parallelIndex.value = loadParallelIndex();
@@ -628,6 +742,67 @@ export function Settings() {
         </div>
       </div>
 
+      {/* Third-party providers */}
+      <div class="mb-10">
+        <div class="flex items-center gap-2 mb-1">
+          <svg class="w-5 h-5 text-gray-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M13.5 10.5V6.75A2.25 2.25 0 0011.25 4.5h-4.5A2.25 2.25 0 004.5 6.75v10.5A2.25 2.25 0 006.75 19.5h10.5a2.25 2.25 0 002.25-2.25v-4.5a2.25 2.25 0 00-2.25-2.25H13.5z" />
+            <path stroke-linecap="round" stroke-linejoin="round" d="M13.5 4.5h6m0 0v6m0-6L10.5 13.5" />
+          </svg>
+          <span class="font-semibold text-gray-900">{t("settings.providers")}</span>
+        </div>
+        <p class="text-sm text-gray-500 mb-3 ml-7">{t("settings.providersDesc")}</p>
+        <div class="ml-7 rounded-xl border border-gray-200 bg-white p-4">
+          <div class="flex items-center justify-between gap-3">
+            <div>
+              <p class="text-sm font-semibold text-gray-900">{t("settings.providersConfigured", providers.value.length)}</p>
+              <p class="mt-1 text-sm text-gray-500">{t("settings.providersHint")}</p>
+            </div>
+            <button
+              type="button"
+              onClick={() => openProviderDialog()}
+              class="px-4 py-2 border border-indigo-200 rounded-lg text-sm text-indigo-700 hover:bg-indigo-50 transition-colors"
+            >
+              {t("settings.providerAdd")}
+            </button>
+          </div>
+          {providersError.value && <p class="mt-3 text-sm text-red-600">{providersError.value}</p>}
+          <div class="mt-4 space-y-2">
+            {providersLoading.value ? (
+              <p class="text-sm text-gray-500">...</p>
+            ) : providers.value.length === 0 ? (
+              <p class="text-sm text-gray-400">{t("settings.providersEmpty")}</p>
+            ) : (
+              providers.value.map((provider) => (
+                <div key={provider.id} class="flex flex-col gap-3 rounded-lg border border-gray-100 px-3 py-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div class="min-w-0">
+                    <p class="text-sm font-medium text-gray-900 truncate">{provider.name}</p>
+                    <p class="text-xs text-gray-500 truncate">{provider.base_url}</p>
+                    <p class="mt-1 text-[11px] uppercase tracking-wide text-gray-400">{provider.provider || "openai"}</p>
+                  </div>
+                  <div class="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => openProviderDialog(provider)}
+                      class="px-3 py-1.5 border border-gray-200 rounded-lg text-xs text-gray-700 hover:bg-gray-50 transition-colors"
+                    >
+                      {t("settings.providerEdit")}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void removeProvider(provider)}
+                      class="px-3 py-1.5 border border-red-200 rounded-lg text-xs text-red-600 hover:bg-red-50 transition-colors"
+                    >
+                      {t("settings.providerDelete")}
+                    </button>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+      </div>
+
       {/* Version information */}
       <div class="mb-10">
         <div class="flex items-center gap-2 mb-1">
@@ -676,6 +851,28 @@ export function Settings() {
         onBrowse={(path) => void browseStorageDir(path)}
         onSelect={selectStorageDir}
       />
+      <ProviderDialog
+        open={isProviderDialogOpen.value}
+        editing={!!editingProvider.value}
+        name={providerFormName.value}
+        baseURL={providerFormBaseURL.value}
+        apiKey={providerFormAPIKey.value}
+        providerType={providerFormType.value}
+        error={providerFormError.value}
+        saving={providerFormSaving.value}
+        onClose={closeProviderDialog}
+        onSave={() => void saveProviderForm()}
+        onChangeName={(value) => (providerFormName.value = value)}
+        onChangeBaseURL={(value) => (providerFormBaseURL.value = value)}
+        onChangeAPIKey={(value) => (providerFormAPIKey.value = value)}
+        onChangeProviderType={(value) => {
+          providerFormType.value = value;
+          const option = providerTypes.find((item) => item.value === value);
+          if (option?.baseURL && !providerFormBaseURL.value.trim()) {
+            providerFormBaseURL.value = option.baseURL;
+          }
+        }}
+      />
       <UpgradeDialog
         open={upgradeDialogOpen.value}
         progress={upgradeProgress.value}
@@ -704,5 +901,112 @@ function LangBtn({ code, label }: { code: Locale; label: string }) {
     >
       {label}
     </button>
+  );
+}
+
+function ProviderDialog({
+  open,
+  editing,
+  name,
+  baseURL,
+  apiKey,
+  providerType,
+  error,
+  saving,
+  onClose,
+  onSave,
+  onChangeName,
+  onChangeBaseURL,
+  onChangeAPIKey,
+  onChangeProviderType,
+}: {
+  open: boolean;
+  editing: boolean;
+  name: string;
+  baseURL: string;
+  apiKey: string;
+  providerType: string;
+  error: string;
+  saving: boolean;
+  onClose: () => void;
+  onSave: () => void;
+  onChangeName: (value: string) => void;
+  onChangeBaseURL: (value: string) => void;
+  onChangeAPIKey: (value: string) => void;
+  onChangeProviderType: (value: string) => void;
+}) {
+  if (!open) return null;
+  return (
+    <div class="fixed inset-0 z-50 flex items-center justify-center bg-gray-900/40 px-4" onClick={onClose}>
+      <div class="w-full max-w-lg rounded-2xl bg-white shadow-2xl" onClick={(e) => e.stopPropagation()}>
+        <div class="border-b border-gray-100 px-6 py-5">
+          <h2 class="text-lg font-semibold text-gray-900">{editing ? t("settings.providerEditTitle") : t("settings.providerAddTitle")}</h2>
+          <p class="mt-1 text-sm text-gray-500">{t("settings.providerDialogDesc")}</p>
+        </div>
+        <div class="space-y-4 px-6 py-5">
+          <div>
+            <label class="mb-1 block text-sm font-medium text-gray-700">{t("settings.providerType")}</label>
+            <select
+              class="w-full rounded-lg border border-gray-200 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              value={providerType}
+              onChange={(e) => onChangeProviderType((e.target as HTMLSelectElement).value)}
+            >
+              {providerTypes.map((item) => (
+                <option key={item.value} value={item.value}>{item.label}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label class="mb-1 block text-sm font-medium text-gray-700">{t("settings.providerName")}</label>
+            <input
+              class="w-full rounded-lg border border-gray-200 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              value={name}
+              onInput={(e) => onChangeName((e.target as HTMLInputElement).value)}
+              placeholder="OpenAI"
+            />
+          </div>
+          <div>
+            <label class="mb-1 block text-sm font-medium text-gray-700">{t("settings.providerBaseURL")}</label>
+            <input
+              class="w-full rounded-lg border border-gray-200 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              value={baseURL}
+              onInput={(e) => onChangeBaseURL((e.target as HTMLInputElement).value)}
+              placeholder="https://api.openai.com/v1"
+            />
+          </div>
+          <div>
+            <label class="mb-1 block text-sm font-medium text-gray-700">{t("settings.providerAPIKey")}</label>
+            <input
+              type="password"
+              autoComplete="off"
+              spellcheck={false}
+              class="w-full rounded-lg border border-gray-200 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              value={apiKey}
+              onInput={(e) => onChangeAPIKey((e.target as HTMLInputElement).value)}
+              placeholder={editing ? t("settings.providerAPIKeyUnchanged") : "sk-..."}
+            />
+          </div>
+          {error && <p class="text-sm text-red-600">{error}</p>}
+        </div>
+        <div class="flex justify-end gap-3 border-t border-gray-100 px-6 py-4">
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={saving}
+            class="rounded-lg border border-gray-200 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-60 transition-colors"
+          >
+            {t("upgrade.cancel")}
+          </button>
+          <button
+            type="button"
+            onClick={onSave}
+            disabled={saving}
+            class="rounded-lg bg-indigo-600 px-4 py-2 text-sm text-white hover:bg-indigo-700 disabled:opacity-60 transition-colors"
+          >
+            {saving ? "..." : t("settings.providerSave")}
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }

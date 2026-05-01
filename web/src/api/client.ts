@@ -1026,3 +1026,78 @@ export function upgradeWithProgress(
       .catch(reject);
   });
 }
+
+// Third-party Provider API
+export interface ThirdPartyProvider {
+  id: string;
+  name: string;
+  base_url: string;
+  api_key?: string;
+  provider?: string;
+}
+
+export interface ThirdPartyProvidersResponse {
+  providers: ThirdPartyProvider[];
+}
+
+export interface ThirdPartyProviderCreateRequest {
+  name: string;
+  base_url: string;
+  api_key: string;
+  provider?: string;
+}
+
+export interface ThirdPartyProviderUpdateRequest {
+  name?: string;
+  base_url?: string;
+  api_key?: string;
+  provider?: string;
+}
+
+export interface ThirdPartyProviderValidateRequest {
+  id?: string;
+  name?: string;
+  base_url: string;
+  api_key?: string;
+  provider?: string;
+}
+
+export interface ThirdPartyProviderValidateResponse {
+  valid: boolean;
+  model_count: number;
+}
+
+export async function getProviders(): Promise<ThirdPartyProvider[]> {
+  const resp = await fetchJSON<ThirdPartyProvidersResponse>("/api/providers");
+  return resp.providers || [];
+}
+
+export async function validateProvider(req: ThirdPartyProviderValidateRequest): Promise<ThirdPartyProviderValidateResponse> {
+  return fetchJSON<ThirdPartyProviderValidateResponse>("/api/providers/validate", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(req),
+  });
+}
+
+export async function createProvider(req: ThirdPartyProviderCreateRequest): Promise<ThirdPartyProvider> {
+  return fetchJSON<ThirdPartyProvider>("/api/providers", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(req),
+  });
+}
+
+export async function updateProvider(id: string, req: ThirdPartyProviderUpdateRequest): Promise<ThirdPartyProvider> {
+  return fetchJSON<ThirdPartyProvider>(`/api/providers/${encodeURIComponent(id)}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(req),
+  });
+}
+
+export async function deleteProvider(id: string): Promise<void> {
+  await fetchJSON<{ status: string }>(`/api/providers/${encodeURIComponent(id)}`, {
+    method: "DELETE",
+  });
+}

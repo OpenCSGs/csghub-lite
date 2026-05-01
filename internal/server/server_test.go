@@ -34,11 +34,21 @@ func (f *fakeEngine) ModelName() string { return "fake" }
 
 func TestMain(m *testing.M) {
 	_ = os.Setenv(config.DisableFileLoggingEnv, "1")
+	if home, err := os.MkdirTemp("", "csghub-lite-server-test-home-*"); err == nil {
+		_ = os.Setenv("HOME", home)
+		_ = os.Setenv("USERPROFILE", home)
+	}
+	config.ResetProviders()
 	os.Exit(m.Run())
 }
 
 func newTestServer(t *testing.T) *Server {
 	t.Helper()
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	config.ResetProviders()
+	t.Cleanup(config.ResetProviders)
 	dir := t.TempDir()
 	cfg := &config.Config{
 		ServerURL:  "https://hub.opencsg.com",

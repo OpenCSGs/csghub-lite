@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"runtime"
 	"strings"
 
 	"github.com/opencsgs/csghub-lite/internal/upgrade"
@@ -85,5 +86,9 @@ func (s *Server) handleUpgrade(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	sendProgress("completed", fmt.Sprintf("Successfully upgraded to %s. Please restart the application.", latestVersion), 100, latestVersion)
+	message := fmt.Sprintf("Successfully upgraded to %s. Please restart the application.", latestVersion)
+	if runtime.GOOS == "windows" {
+		message = fmt.Sprintf("Successfully downloaded %s. Applying update and restarting automatically.", latestVersion)
+	}
+	sendProgress("completed", message, 100, latestVersion)
 }

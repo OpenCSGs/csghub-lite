@@ -86,8 +86,14 @@ function normalizeShellModels(models: ModelInfo[]): ModelInfo[] {
 
 function formatShellModelLabel(model: ModelInfo): string {
   const name = model.display_name || model.model;
-  const source = model.source === "cloud" ? t("aiApps.modelSourceCloud") : t("aiApps.modelSourceLocal");
-  return `${name} (${source})`;
+  const src = model.source || "local";
+  if (src === "cloud") {
+    return `${name} [${t("aiApps.modelSourceCloud")}]`;
+  }
+  if (src.startsWith("provider:")) {
+    return name;
+  }
+  return `${name} [${t("aiApps.modelSourceLocal")}]`;
 }
 
 async function closeShellSession(sessionId: string): Promise<void> {

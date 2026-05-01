@@ -56,6 +56,20 @@ func (s *Server) listAvailableModelsWithRefresh(ctx context.Context, refreshClou
 		}
 	}
 
+	for _, item := range s.listThirdPartyProviderModels(ctx) {
+		modelID := strings.TrimSpace(item.Model)
+		source := strings.TrimSpace(item.Source)
+		if modelID == "" || source == "" {
+			continue
+		}
+		key := source + ":" + modelID
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		out = append(out, item)
+	}
+
 	return out, nil
 }
 

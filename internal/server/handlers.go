@@ -59,21 +59,14 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
-// GET /api/tags -- list local models
+// GET /api/tags -- list available local, OpenCSG, and third-party provider models
 func (s *Server) handleTags(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-cache")
 
-	infos, err := s.listLocalModelInfos()
+	infos, err := s.listAvailableModelsWithRefresh(r.Context(), requestWantsModelRefresh(r))
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
-	}
-
-	cloudModels, err := s.listCloudModels(r.Context(), requestWantsModelRefresh(r))
-	if err != nil {
-		log.Printf("cloud models unavailable: %v", err)
-	} else {
-		infos = append(infos, cloudModels...)
 	}
 
 	writeJSON(w, http.StatusOK, api.TagsResponse{Models: infos})

@@ -41,6 +41,10 @@
       "description": "Local machine and application settings endpoints."
     },
     {
+      "name": "Providers",
+      "description": "Third-party OpenAI-compatible provider configuration."
+    },
+    {
       "name": "Upgrade",
       "description": "Local application update checks and upgrade progress."
     },
@@ -1326,6 +1330,185 @@
         }
       }
     },
+    "/api/providers": {
+      "get": {
+        "tags": [
+          "Providers"
+        ],
+        "summary": "List third-party providers",
+        "operationId": "listThirdPartyProviders",
+        "responses": {
+          "200": {
+            "description": "Configured third-party providers without API keys.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ThirdPartyProvidersResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Providers"
+        ],
+        "summary": "Create a third-party provider",
+        "operationId": "createThirdPartyProvider",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ThirdPartyProviderCreateRequest"
+              },
+              "example": {
+                "name": "OpenAI",
+                "base_url": "https://api.openai.com/v1",
+                "api_key": "sk-...",
+                "provider": "openai"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Created provider without its API key.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ThirdPartyProvider"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          }
+        }
+      }
+    },
+    "/api/providers/validate": {
+      "post": {
+        "tags": [
+          "Providers"
+        ],
+        "summary": "Validate a third-party provider",
+        "description": "Checks the provider base URL and API key by fetching its OpenAI-compatible `/models` endpoint. The provider is not saved.",
+        "operationId": "validateThirdPartyProvider",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ThirdPartyProviderValidateRequest"
+              },
+              "example": {
+                "name": "OpenAI",
+                "base_url": "https://api.openai.com/v1",
+                "api_key": "sk-...",
+                "provider": "openai"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Provider settings are valid and returned at least one model.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ThirdPartyProviderValidateResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          }
+        }
+      }
+    },
+    "/api/providers/{id}": {
+      "put": {
+        "tags": [
+          "Providers"
+        ],
+        "summary": "Update a third-party provider",
+        "operationId": "updateThirdPartyProvider",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ThirdPartyProviderUpdateRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated provider without its API key.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ThirdPartyProvider"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Providers"
+        ],
+        "summary": "Delete a third-party provider",
+        "operationId": "deleteThirdPartyProvider",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Provider deleted.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StatusResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      }
+    },
     "/api/upgrade/check": {
       "get": {
         "tags": [
@@ -2325,6 +2508,135 @@
         ],
         "properties": {
           "status": {
+            "type": "string"
+          }
+        }
+      },
+      "ThirdPartyProvider": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "name",
+          "base_url"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "base_url": {
+            "type": "string",
+            "format": "uri"
+          },
+          "provider": {
+            "type": "string",
+            "description": "Provider type hint, currently OpenAI-compatible."
+          }
+        }
+      },
+      "ThirdPartyProvidersResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "providers"
+        ],
+        "properties": {
+          "providers": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ThirdPartyProvider"
+            }
+          }
+        }
+      },
+      "ThirdPartyProviderCreateRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "name",
+          "base_url",
+          "api_key"
+        ],
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "base_url": {
+            "type": "string",
+            "format": "uri"
+          },
+          "api_key": {
+            "type": "string",
+            "writeOnly": true
+          },
+          "provider": {
+            "type": "string"
+          }
+        }
+      },
+      "ThirdPartyProviderValidateRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "base_url"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Existing provider ID. When supplied, a blank API key reuses the saved key for validation."
+          },
+          "name": {
+            "type": "string"
+          },
+          "base_url": {
+            "type": "string",
+            "format": "uri"
+          },
+          "api_key": {
+            "type": "string",
+            "writeOnly": true
+          },
+          "provider": {
+            "type": "string"
+          }
+        }
+      },
+      "ThirdPartyProviderValidateResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "valid",
+          "model_count"
+        ],
+        "properties": {
+          "valid": {
+            "type": "boolean"
+          },
+          "model_count": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      },
+      "ThirdPartyProviderUpdateRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "base_url": {
+            "type": "string",
+            "format": "uri"
+          },
+          "api_key": {
+            "type": "string",
+            "writeOnly": true
+          },
+          "provider": {
             "type": "string"
           }
         }

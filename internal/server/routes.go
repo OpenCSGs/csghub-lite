@@ -43,6 +43,12 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("GET /api/settings", s.handleSettings)
 	mux.HandleFunc("POST /api/settings", s.handleSettingsUpdate)
 	mux.HandleFunc("POST /api/settings/directories", s.handleSettingsDirectories)
+	// Third-party providers
+	mux.HandleFunc("GET /api/providers", s.handleProvidersList)
+	mux.HandleFunc("POST /api/providers/validate", s.handleProviderValidate)
+	mux.HandleFunc("POST /api/providers", s.handleProviderCreate)
+	mux.HandleFunc("PUT /api/providers/{id}", s.handleProviderUpdate)
+	mux.HandleFunc("DELETE /api/providers/{id}", s.handleProviderDelete)
 	mux.HandleFunc("GET /api/cloud/auth", s.handleCloudAuthStatus)
 	mux.HandleFunc("POST /api/cloud/auth/token", s.handleCloudAuthTokenSave)
 	mux.HandleFunc("DELETE /api/cloud/auth/token", s.handleCloudAuthTokenDelete)

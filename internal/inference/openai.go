@@ -124,6 +124,7 @@ func (e *openAIEngine) Chat(ctx context.Context, messages []Message, opts Option
 func (e *openAIEngine) handleStream(body io.Reader, onToken TokenCallback) (string, error) {
 	scanner := bufio.NewScanner(body)
 	var full strings.Builder
+	reasoningOpen := false
 
 	for scanner.Scan() {
 		line := scanner.Text()
@@ -135,6 +136,10 @@ func (e *openAIEngine) handleStream(body io.Reader, onToken TokenCallback) (stri
 			continue
 		}
 		if data == "[DONE]" {
+			if reasoningOpen {
+				full.WriteString("</think>")
+				onToken("</think>")
+			}
 			break
 		}
 
@@ -146,7 +151,23 @@ func (e *openAIEngine) handleStream(body io.Reader, onToken TokenCallback) (stri
 			continue
 		}
 
-		if token := openAIContentString(chatResp.Choices[0].Delta.Content); token != "" {
+		delta := chatResp.Choices[0].Delta
+		if reasoning := openAIContentString(delta.ReasoningContent); reasoning != "" {
+			if !reasoningOpen {
+				reasoningOpen = true
+				full.WriteString("<think>")
+				onToken("<think>")
+			}
+			full.WriteString(reasoning)
+			onToken(reasoning)
+		}
+
+		if token := openAIContentString(delta.Content); token != "" {
+			if reasoningOpen {
+				reasoningOpen = false
+				full.WriteString("</think>")
+				onToken("</think>")
+			}
 			full.WriteString(token)
 			onToken(token)
 		}
@@ -208,27 +229,139 @@ func sanitizeOpenAIRequestBody(modelName string, reqBody map[string]interface{})
 	if len(reqBody) == 0 {
 		return reqBody
 	}
-	if !openAIModelRequiresSingleSamplingParam(modelName) {
+	var out map[string]interface{}
+	if openAIModelRequiresSingleSamplingParam(modelName) {
+		if _, hasTemp := reqBody["temperature"]; hasTemp {
+			if _, hasTopP := reqBody["top_p"]; hasTopP {
+				out = cloneOpenAIRequestBody(reqBody)
+				delete(out, "top_p")
+			}
+		}
+	}
+	if openAIModelRequiresTemperatureOne(modelName) {
+		if _, hasTemp := reqBody["temperature"]; hasTemp {
+			if out == nil {
+				out = cloneOpenAIRequestBody(reqBody)
+			}
+			out["temperature"] = 1
+		}
+		if _, hasTopP := reqBody["top_p"]; hasTopP {
+			if out == nil {
+				out = cloneOpenAIRequestBody(reqBody)
+			}
+			out["top_p"] = 0.95
+		}
+		messages := reqBody["messages"]
+		if out != nil {
+			messages = out["messages"]
+		}
+		if normalized, changed := normalizeKimiToolCallMessages(messages); changed {
+			if out == nil {
+				out = cloneOpenAIRequestBody(reqBody)
+			}
+			out["messages"] = normalized
+		}
+	}
+	if out == nil {
 		return reqBody
 	}
-	if _, hasTemp := reqBody["temperature"]; !hasTemp {
-		return reqBody
-	}
-	if _, hasTopP := reqBody["top_p"]; !hasTopP {
-		return reqBody
-	}
+	return out
+}
 
+func cloneOpenAIRequestBody(reqBody map[string]interface{}) map[string]interface{} {
 	out := make(map[string]interface{}, len(reqBody))
 	for key, value := range reqBody {
 		out[key] = value
 	}
-	delete(out, "top_p")
 	return out
 }
 
 func openAIModelRequiresSingleSamplingParam(modelName string) bool {
 	modelName = strings.TrimSpace(strings.ToLower(modelName))
 	return strings.HasPrefix(modelName, "claude")
+}
+
+func openAIModelRequiresTemperatureOne(modelName string) bool {
+	modelName = strings.TrimSpace(strings.ToLower(modelName))
+	return strings.HasPrefix(modelName, "kimi-") || strings.HasPrefix(modelName, "moonshot-")
+}
+
+func normalizeKimiToolCallMessages(messages interface{}) (interface{}, bool) {
+	switch v := messages.(type) {
+	case []map[string]interface{}:
+		out := make([]map[string]interface{}, len(v))
+		changed := false
+		for i, msg := range v {
+			next, msgChanged := normalizeKimiToolCallMessageMap(msg)
+			out[i] = next
+			changed = changed || msgChanged
+		}
+		if changed {
+			return out, true
+		}
+	case []interface{}:
+		out := make([]interface{}, len(v))
+		changed := false
+		for i, item := range v {
+			msg, ok := item.(map[string]interface{})
+			if !ok {
+				out[i] = item
+				continue
+			}
+			next, msgChanged := normalizeKimiToolCallMessageMap(msg)
+			out[i] = next
+			changed = changed || msgChanged
+		}
+		if changed {
+			return out, true
+		}
+	case []api.Message:
+		out := make([]map[string]interface{}, len(v))
+		changed := false
+		for i, msg := range v {
+			next := map[string]interface{}{
+				"role":    msg.Role,
+				"content": msg.Content,
+			}
+			if len(msg.ToolCalls) > 0 {
+				next["tool_calls"] = msg.ToolCalls
+			}
+			if msg.ToolCallID != "" {
+				next["tool_call_id"] = msg.ToolCallID
+			}
+			if msg.ToolName != "" {
+				next["name"] = msg.ToolName
+			}
+			if msg.ReasoningContent != "" {
+				next["reasoning_content"] = msg.ReasoningContent
+			}
+			normalized, msgChanged := normalizeKimiToolCallMessageMap(next)
+			out[i] = normalized
+			changed = changed || msgChanged
+		}
+		if changed {
+			return out, true
+		}
+	}
+	return messages, false
+}
+
+func normalizeKimiToolCallMessageMap(msg map[string]interface{}) (map[string]interface{}, bool) {
+	if strings.TrimSpace(fmt.Sprint(msg["role"])) != "assistant" {
+		return msg, false
+	}
+	if _, ok := msg["tool_calls"]; !ok {
+		return msg, false
+	}
+	if _, ok := msg["reasoning_content"]; ok {
+		return msg, false
+	}
+	out := make(map[string]interface{}, len(msg)+1)
+	for key, value := range msg {
+		out[key] = value
+	}
+	out["reasoning_content"] = ""
+	return out, true
 }
 
 func messagesToOpenAI(messages []Message) []map[string]interface{} {
