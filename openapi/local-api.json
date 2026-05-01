@@ -41,6 +41,10 @@
       "description": "Local machine and application settings endpoints."
     },
     {
+      "name": "Upgrade",
+      "description": "Local application update checks and upgrade progress."
+    },
+    {
       "name": "CloudAuth",
       "description": "OpenCSG access token status and management."
     },
@@ -1322,6 +1326,56 @@
         }
       }
     },
+    "/api/upgrade/check": {
+      "get": {
+        "tags": [
+          "Upgrade"
+        ],
+        "summary": "Check for application updates",
+        "operationId": "checkUpgrade",
+        "responses": {
+          "200": {
+            "description": "Current version and latest release information when available.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UpgradeCheckResponse"
+                },
+                "example": {
+                  "current_version": "0.8.19",
+                  "latest_version": "0.8.20",
+                  "update_available": true,
+                  "release_url": "https://github.com/opencsgs/csghub-lite/releases/tag/v0.8.20"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/upgrade": {
+      "post": {
+        "tags": [
+          "Upgrade"
+        ],
+        "summary": "Upgrade the local application binary",
+        "description": "Streams Server-Sent Events with check, download, extract, install, completion, or error status updates.",
+        "operationId": "upgradeApplication",
+        "responses": {
+          "200": {
+            "description": "Upgrade progress event stream.",
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "$ref": "#/components/schemas/UpgradeProgressEventStream"
+                },
+                "example": "data: {\"status\":\"checking\",\"progress\":0,\"message\":\"Checking for updates...\"}\n\ndata: {\"status\":\"completed\",\"progress\":100,\"message\":\"Successfully upgraded to 0.8.20. Please restart the application.\",\"version\":\"0.8.20\"}\n\n"
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/cloud/auth": {
       "get": {
         "tags": [
@@ -2242,6 +2296,10 @@
         "type": "string",
         "description": "Server-Sent Event stream payload."
       },
+      "UpgradeProgressEventStream": {
+        "type": "string",
+        "description": "Server-Sent Event stream containing UpgradeProgressResponse JSON payloads."
+      },
       "NDJSONStream": {
         "type": "string",
         "description": "Newline-delimited JSON stream payload."
@@ -2363,6 +2421,66 @@
             "type": "string"
           },
           "dataset_dir": {
+            "type": "string"
+          }
+        }
+      },
+      "UpgradeCheckResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "current_version",
+          "latest_version",
+          "update_available"
+        ],
+        "properties": {
+          "current_version": {
+            "type": "string"
+          },
+          "latest_version": {
+            "type": "string"
+          },
+          "update_available": {
+            "type": "boolean"
+          },
+          "release_notes": {
+            "type": "string"
+          },
+          "release_url": {
+            "type": "string",
+            "format": "uri"
+          }
+        }
+      },
+      "UpgradeProgressResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "status",
+          "progress",
+          "message"
+        ],
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "checking",
+              "downloading",
+              "extracting",
+              "installing",
+              "completed",
+              "error"
+            ]
+          },
+          "progress": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 100
+          },
+          "message": {
+            "type": "string"
+          },
+          "version": {
             "type": "string"
           }
         }

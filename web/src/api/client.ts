@@ -959,3 +959,68 @@ export function streamAIAppLogs(
   };
   signal?.addEventListener("abort", () => evtSource.close());
 }
+
+// Upgrade API
+export interface UpgradeCheckResponse {
+  current_version: string;
+  latest_version: string;
+  update_available: boolean;
+  release_notes?: string;
+  release_url?: string;
+}
+
+export async function checkUpgrade(): Promise<UpgradeCheckResponse> {
+  return fetchJSON<UpgradeCheckResponse>("/api/upgrade/check");
+}
+
+export interface UpgradeProgressEvent {
+  status: string;
+  progress?: number;
+  message?: string;
+  version?: string;
+}
+
+export function upgradeWithProgress(
+  onProgress: (event: UpgradeProgressEvent) => void,
+  signal?: AbortSignal
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    fetch("/api/upgrade", { method: "POST", signal })
+      .then((resp) => {
+        if (!resp.ok || !resp.body) {
+          reject(new Error("upgrade failed"));
+          return;
+        }
+        const reader = resp.body.getReader();
+        const decoder = new TextDecoder();
+        let buf = "";
+
+        function processLine(line: string) {
+          if (!line.startsWith("data: ")) return;
+          try {
+            onProgress(JSON.parse(line.slice(6)));
+          } catch {
+            /* skip malformed SSE frames */
+          }
+        }
+
+        function read(): Promise<void> {
+          return reader.read().then(({ done, value }) => {
+            if (done) {
+              if (buf.trim()) processLine(buf.trim());
+              resolve();
+              return;
+            }
+            buf += decoder.decode(value, { stream: true });
+            const lines = buf.split("\n");
+            buf = lines.pop() || "";
+            for (const line of lines) processLine(line);
+            return read();
+          });
+        }
+
+        read().catch(reject);
+      })
+      .catch(reject);
+  });
+}
