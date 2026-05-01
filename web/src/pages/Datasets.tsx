@@ -4,7 +4,7 @@ import { getDatasetTags, searchDatasets, getDatasetFiles, deleteDataset, getData
 import type { DatasetInfo, DatasetFileEntry, DatasetManifestResponse, DatasetDownloadFile } from "../api/client";
 import { t, locale } from "../i18n";
 import { DownloadTableCell } from "../components/DownloadProgressPanel";
-import { getDownloadTask, getDownloadTasks, hasActiveDownload } from "../downloads";
+import { getDownloadTask, getDownloadTasks, hasActiveDownload, clearDownloadTask } from "../downloads";
 import type { DownloadTask } from "../downloads";
 
 type View = { kind: "list" } | { kind: "detail"; dataset: string; path: string };
@@ -58,7 +58,6 @@ function datasetRows(datasets: DatasetInfo[]): DatasetTableRow[] {
   const known = new Set(datasets.map((dataset) => dataset.name));
   for (const task of getDownloadTasks("dataset")) {
     if (known.has(task.name)) continue;
-    if (task.status === "success") continue;
     rows.push({
       dataset: {
         name: task.name,
@@ -118,6 +117,9 @@ function DatasetList() {
     if (hasActiveDownload.value) return;
     if (!confirm(t("ds.deleteConfirm", name))) return;
     await deleteDataset(name);
+    // 清除对应的下载任务记录
+    const task = getDownloadTask("dataset", name);
+    if (task) clearDownloadTask(task);
     allDatasets.value = allDatasets.value.filter((d) => d.name !== name);
   };
 
