@@ -113,6 +113,15 @@ export function Datasets() {
 }
 
 function DatasetList() {
+  const completedDownloadsKey = getDownloadTasks("dataset")
+    .filter((task) => task.status === "success" && task.completedAt)
+    .map((task) => `${task.name}:${task.completedAt}`)
+    .join("|");
+
+  useEffect(() => {
+    if (completedDownloadsKey) loadDatasets();
+  }, [completedDownloadsKey]);
+
   const handleDelete = async (name: string) => {
     if (hasActiveDownload.value) return;
     if (!confirm(t("ds.deleteConfirm", name))) return;

@@ -204,10 +204,18 @@ function loadRunningModels() {
 
 export function Library() {
   void locale.value;
+  const completedDownloadsKey = getDownloadTasks("model")
+    .filter((task) => task.status === "success" && task.completedAt)
+    .map((task) => `${task.name}:${task.completedAt}`)
+    .join("|");
 
   useEffect(() => {
     loadRunningModels();
   }, []);
+
+  useEffect(() => {
+    if (completedDownloadsKey) void loadModels();
+  }, [completedDownloadsKey]);
 
   useEffect(() => {
     const timeout = window.setTimeout(() => {

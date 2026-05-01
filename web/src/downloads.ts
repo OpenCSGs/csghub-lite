@@ -110,7 +110,11 @@ function applyProgress(task: DownloadTask, p: PullProgress): DownloadTask {
   const aggregate = aggregateFiles(files);
   const totalBytes = aggregate.total || task.totalBytes;
   const completedBytes = aggregate.total ? aggregate.completed : task.completedBytes;
+  
+  // 当单个文件完成时（completed == total），直接计算百分比
+  // 不再强制限制为 99%，因为后端现在会在文件完成时报告最终进度
   let percent = totalBytes > 0 ? Math.min(100, Math.round((completedBytes / totalBytes) * 100)) : task.percent;
+  // 只有在总进度达到 100% 但还有文件未完成时才限制为 99%
   if (percent >= 100 && completedBytes < totalBytes) {
     percent = 99;
   }
