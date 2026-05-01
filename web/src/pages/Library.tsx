@@ -4,7 +4,7 @@ import { deleteModel, getPs, loadModel, searchLocalModels } from "../api/client"
 import type { LoadModelOptions, ModelInfo, RunningModel } from "../api/client";
 import { locale, t } from "../i18n";
 import { DownloadTableCell } from "../components/DownloadProgressPanel";
-import { getDownloadTask, getDownloadTasks, hasActiveDownload } from "../downloads";
+import { getDownloadTask, getDownloadTasks, hasActiveDownload, clearDownloadTask } from "../downloads";
 import type { DownloadTask } from "../downloads";
 
 type FormatFilter = "all" | "gguf" | "safetensors";
@@ -144,7 +144,6 @@ function modelRows(models: ModelInfo[]): ModelTableRow[] {
   const known = new Set(models.map((model) => model.name));
   for (const task of getDownloadTasks("model")) {
     if (known.has(task.name)) continue;
-    if (task.status === "success") continue;
     rows.push({
       model: {
         name: task.name,
@@ -221,6 +220,9 @@ export function Library() {
     if (hasActiveDownload.value) return;
     if (!confirm(t("lib.deleteConfirm", name))) return;
     await deleteModel(name);
+    // 清除对应的下载任务记录
+    const task = getDownloadTask("model", name);
+    if (task) clearDownloadTask(task);
     await loadModels();
     loadRunningModels();
   };

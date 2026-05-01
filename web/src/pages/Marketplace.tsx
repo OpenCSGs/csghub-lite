@@ -5,11 +5,10 @@ import {
   getMarketplaceDatasets,
   getTags,
   getDatasetTags,
-  pullModel,
-  pullDataset,
 } from "../api/client";
 import type { MarketplaceModel, MarketplaceDataset } from "../api/client";
 import { t, locale } from "../i18n";
+import { startDownload, getDownloadTask } from "../downloads";
 import {
   MarketplaceModelDetailDialog,
   getMarketplaceModelFormats,
@@ -31,9 +30,7 @@ const datasets = signal<MarketplaceDataset[]>([]);
 const total = signal(0);
 const loading = signal(false);
 
-const pullingModels = signal<Record<string, { status: string; percent: number }>>({});
 const localModelNames = signal<Set<string>>(new Set());
-const pullingDatasets = signal<Record<string, { status: string; percent: number }>>({});
 const localDatasetNames = signal<Set<string>>(new Set());
 
 function loadLocalModels() {
@@ -106,113 +103,14 @@ export function Marketplace() {
   };
 
   const handleDownload = (modelPath: string) => {
-    const cur = { ...pullingModels.value };
-    cur[modelPath] = { status: "downloading", percent: 0 };
-    pullingModels.value = cur;
-
-    const fileMap: Record<string, { completed: number; total: number }> = {};
-
-    pullModel(
-      modelPath,
-      (p) => {
-        if (p.digest && p.total && p.total > 0) {
-          fileMap[p.digest] = { completed: p.completed || 0, total: p.total };
-        }
-
-        let totalBytes = 0;
-        let completedBytes = 0;
-        let hasPartial = false;
-        for (const fp of Object.values(fileMap)) {
-          totalBytes += fp.total;
-          completedBytes += fp.completed;
-          if (fp.completed < fp.total) hasPartial = true;
-        }
-        const pct = (hasPartial && totalBytes > 0)
-          ? Math.round((completedBytes / totalBytes) * 100)
-          : 0;
-
-        const cur = { ...pullingModels.value };
-        cur[modelPath] = { status: p.status, percent: pct };
-        pullingModels.value = cur;
-        if (p.status === "success") {
-          loadLocalModels();
-          setTimeout(() => {
-            const c = { ...pullingModels.value };
-            delete c[modelPath];
-            pullingModels.value = c;
-          }, 5000);
-        } else if (p.status.startsWith("error")) {
-          setTimeout(() => {
-            const c = { ...pullingModels.value };
-            delete c[modelPath];
-            pullingModels.value = c;
-          }, 5000);
-        }
-      }
-    ).catch(() => {
-      const c = { ...pullingModels.value };
-      c[modelPath] = { status: "error: download failed", percent: 0 };
-      pullingModels.value = c;
-      setTimeout(() => {
-        const d = { ...pullingModels.value };
-        delete d[modelPath];
-        pullingModels.value = d;
-      }, 5000);
+    startDownload("model", modelPath, () => {
+      loadLocalModels();
     });
   };
 
   const handleDatasetDownload = (datasetPath: string) => {
-    const cur = { ...pullingDatasets.value };
-    cur[datasetPath] = { status: "downloading", percent: 0 };
-    pullingDatasets.value = cur;
-
-    const fileMap: Record<string, { completed: number; total: number }> = {};
-    let maxPct = 0;
-
-    pullDataset(
-      datasetPath,
-      (p) => {
-        if (p.digest && p.total && p.total > 0) {
-          fileMap[p.digest] = { completed: p.completed || 0, total: p.total };
-        }
-
-        let totalBytes = 0;
-        let completedBytes = 0;
-        for (const fp of Object.values(fileMap)) {
-          totalBytes += fp.total;
-          completedBytes += fp.completed;
-        }
-        if (totalBytes > 0) {
-          maxPct = Math.max(maxPct, Math.round((completedBytes / totalBytes) * 100));
-        }
-
-        const cur = { ...pullingDatasets.value };
-        cur[datasetPath] = { status: p.status, percent: maxPct };
-        pullingDatasets.value = cur;
-        if (p.status === "success") {
-          loadLocalDatasets();
-          setTimeout(() => {
-            const c = { ...pullingDatasets.value };
-            delete c[datasetPath];
-            pullingDatasets.value = c;
-          }, 5000);
-        } else if (p.status.startsWith("error")) {
-          setTimeout(() => {
-            const c = { ...pullingDatasets.value };
-            delete c[datasetPath];
-            pullingDatasets.value = c;
-          }, 5000);
-        }
-      }
-    ).catch(() => {
-      const c = { ...pullingDatasets.value };
-      c[datasetPath] = { status: "error: download failed", percent: 0 };
-      pullingDatasets.value = c;
-      setTimeout(() => {
-        const d = { ...pullingDatasets.value };
-        delete d[datasetPath];
-        pullingDatasets.value = d;
-      }, 5000);
+    startDownload("dataset", datasetPath, () => {
+      loadLocalDatasets();
     });
   };
 
@@ -307,7 +205,7 @@ export function Marketplace() {
               <ModelGridCard
                 key={m.id}
                 model={m}
-                pulling={pullingModels.value[m.path]}
+                pulling={getDownloadTask("model", m.path)}
                 isLocal={localModelNames.value.has(m.path)}
                 onDownload={handleDownload}
                 onOpenDetail={setSelectedModelPath}
@@ -321,7 +219,7 @@ export function Marketplace() {
               <ModelCard
                 key={m.id}
                 model={m}
-                pulling={pullingModels.value[m.path]}
+                pulling={getDownloadTask("model", m.path)}
                 isLocal={localModelNames.value.has(m.path)}
                 onDownload={handleDownload}
                 onOpenDetail={setSelectedModelPath}
@@ -333,14 +231,14 @@ export function Marketplace() {
       ) : viewMode.value === "grid" ? (
         <div class="grid grid-cols-2 gap-4">
           {datasets.value.map((d) => (
-            <DatasetGridCard key={d.id} dataset={d} pulling={pullingDatasets.value[d.path]} isLocal={localDatasetNames.value.has(d.path)} onDownload={handleDatasetDownload} />
+            <DatasetGridCard key={d.id} dataset={d} pulling={getDownloadTask("dataset", d.path)} isLocal={localDatasetNames.value.has(d.path)} onDownload={handleDatasetDownload} />
           ))}
           {datasets.value.length === 0 && <p class="col-span-2 text-center py-16 text-gray-400">{t("mp.noDatasets")}</p>}
         </div>
       ) : (
         <div class="space-y-0 divide-y divide-gray-100">
           {datasets.value.map((d) => (
-            <DatasetCard key={d.id} dataset={d} pulling={pullingDatasets.value[d.path]} isLocal={localDatasetNames.value.has(d.path)} onDownload={handleDatasetDownload} />
+            <DatasetCard key={d.id} dataset={d} pulling={getDownloadTask("dataset", d.path)} isLocal={localDatasetNames.value.has(d.path)} onDownload={handleDatasetDownload} />
           ))}
           {datasets.value.length === 0 && <p class="text-center py-16 text-gray-400">{t("mp.noDatasets")}</p>}
         </div>
@@ -402,7 +300,7 @@ function ModelCard({
   onOpenDetail,
 }: {
   model: MarketplaceModel;
-  pulling?: { status: string; percent: number };
+  pulling?: { status: string; percent: number; error?: string };
   isLocal?: boolean;
   onDownload: (path: string) => void;
   onOpenDetail: (path: string) => void;
@@ -447,7 +345,7 @@ function ModelCard({
         </div>
       </div>
       <div class="ml-4 flex-shrink-0 w-28 flex items-center justify-end">
-        {isLocal && !pulling ? (
+        {(isLocal || pulling?.status === "success") && !pulling?.status?.startsWith("downloading") ? (
           <span class="inline-flex items-center gap-1.5 px-4 py-1.5 text-sm text-indigo-600 font-medium">
             <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
               <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
@@ -507,7 +405,7 @@ function ModelGridCard({
   onOpenDetail,
 }: {
   model: MarketplaceModel;
-  pulling?: { status: string; percent: number };
+  pulling?: { status: string; percent: number; error?: string };
   isLocal?: boolean;
   onDownload: (path: string) => void;
   onOpenDetail: (path: string) => void;
@@ -558,7 +456,7 @@ function ModelGridCard({
           {t("mp.updatedAt", new Date(model.updated_at).toLocaleDateString())}
         </span>
         <div class="flex-shrink-0">
-          {isLocal && !pulling ? (
+          {(isLocal || pulling?.status === "success") && !pulling?.status?.startsWith("downloading") ? (
             <span class="inline-flex items-center gap-1 text-indigo-600 font-medium">
               <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
@@ -596,7 +494,7 @@ function DatasetGridCard({
   onDownload,
 }: {
   dataset: MarketplaceDataset;
-  pulling?: { status: string; percent: number };
+  pulling?: { status: string; percent: number; error?: string };
   isLocal?: boolean;
   onDownload: (path: string) => void;
 }) {
@@ -639,7 +537,7 @@ function DatasetGridCard({
           {t("mp.updatedAt", new Date(dataset.updated_at).toLocaleDateString())}
         </span>
         <div class="flex-shrink-0">
-          {isLocal && !pulling ? (
+          {(isLocal || pulling?.status === "success") && !pulling?.status?.startsWith("downloading") ? (
             <span class="inline-flex items-center gap-1 text-purple-600 font-medium">
               <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
@@ -677,7 +575,7 @@ function DatasetCard({
   onDownload,
 }: {
   dataset: MarketplaceDataset;
-  pulling?: { status: string; percent: number };
+  pulling?: { status: string; percent: number; error?: string };
   isLocal?: boolean;
   onDownload: (path: string) => void;
 }) {
@@ -714,7 +612,7 @@ function DatasetCard({
         </div>
       </div>
       <div class="ml-4 flex-shrink-0 w-28 flex items-center justify-end">
-        {isLocal && !pulling ? (
+        {(isLocal || pulling?.status === "success") && !pulling?.status?.startsWith("downloading") ? (
           <span class="inline-flex items-center gap-1.5 px-4 py-1.5 text-sm text-purple-600 font-medium">
             <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
               <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
