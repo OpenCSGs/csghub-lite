@@ -398,3 +398,20 @@ type OpenAIModel struct {
 	Created int64  `json:"created"`
 	OwnedBy string `json:"owned_by"`
 }
+
+// -- Upgrade types --
+
+type UpgradeCheckResponse struct {
+	CurrentVersion  string `json:"current_version"`
+	LatestVersion   string `json:"latest_version"`
+	UpdateAvailable bool   `json:"update_available"`
+	ReleaseNotes    string `json:"release_notes,omitempty"`
+	ReleaseURL      string `json:"release_url,omitempty"`
+}
+
+type UpgradeProgressResponse struct {
+	Status   string `json:"status"`   // "checking", "downloading", "extracting", "installing", "completed", "error"
+	Progress int    `json:"progress"` // 0-100
+	Message  string `json:"message"`
+	Version  string `json:"version,omitempty"`
+}

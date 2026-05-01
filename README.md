@@ -16,6 +16,27 @@ Inspired by [Ollama](https://ollama.com), csghub-lite provides model download, l
 - **Cross-platform** — macOS, Linux, Windows
 - **Resume downloads** — interrupted downloads resume where they left off
 
+## Supported Platforms
+
+### Operating Systems
+
+| OS | Support |
+|---|---|
+| Ubuntu | Supported |
+| Debian | Supported |
+| CentOS | Supported |
+| macOS | Supported |
+| Windows | Supported |
+
+### Accelerators and Compute Boxes
+
+| Hardware | Support |
+|---|---|
+| Mac mini | Supported |
+| AMD Instinct MI50 | Supported |
+| AMD Instinct MI200 / MI250 | Supported |
+| NVIDIA GPU series | Supported |
+
 ## Installation
 
 ### Quick install (Linux / macOS)

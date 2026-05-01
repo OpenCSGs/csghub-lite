@@ -1,15 +1,18 @@
 import { signal } from "@preact/signals";
 import { useEffect } from "preact/hooks";
 import { DirectoryPickerDialog } from "../components/DirectoryPickerDialog";
+import { UpgradeDialog, type UpgradeProgress } from "../components/UpgradeDialog";
 import { t, locale, setLocale } from "../i18n";
 import type { Locale } from "../i18n";
 import {
   browseLocalDirectories,
+  checkUpgrade,
   clearCloudToken,
   getCloudAuthStatus,
   getSettings,
   saveCloudToken,
   saveSettings,
+  upgradeWithProgress,
 } from "../api/client";
 import type { AppSettings, CloudAuthStatus, LocalDirectoryBrowseResponse } from "../api/client";
 
@@ -40,6 +43,14 @@ const isBrowsingStorageDir = signal(false);
 const isStorageDirPickerOpen = signal(false);
 const storageDirBrowser = signal<LocalDirectoryBrowseResponse | null>(null);
 const storageDirBrowserError = signal("");
+const upgradeDialogOpen = signal(false);
+const upgradeProgress = signal<UpgradeProgress>({
+  status: "idle",
+  currentVersion: "",
+  hasUpdate: false,
+  percent: 0,
+  message: "",
+});
 
 function loadContextIndex(): number {
   try {
@@ -97,6 +108,10 @@ function applySettings(data: AppSettings) {
   modelDirectory.value = data.model_dir || "";
   datasetDirectory.value = data.dataset_dir || "";
   appVersion.value = data.version || "";
+  upgradeProgress.value = {
+    ...upgradeProgress.value,
+    currentVersion: data.version || upgradeProgress.value.currentVersion,
+  };
   autostartEnabled.value = data.autostart ?? false;
 }
 
@@ -119,6 +134,91 @@ function fetchCloudAuth() {
       cloudAuth.value = null;
       cloudAuthError.value = err?.message || "";
     });
+}
+
+async function fetchUpgradeInfo() {
+  try {
+    const upgrade = await checkUpgrade();
+    upgradeProgress.value = {
+      ...upgradeProgress.value,
+      currentVersion: upgrade.current_version || appVersion.value || "unknown",
+      latestVersion: upgrade.latest_version || undefined,
+      hasUpdate: !!upgrade.update_available,
+    };
+    if (upgrade.current_version) {
+      appVersion.value = upgrade.current_version;
+    }
+  } catch {
+    upgradeProgress.value = {
+      ...upgradeProgress.value,
+      currentVersion: appVersion.value || upgradeProgress.value.currentVersion,
+    };
+  }
+}
+
+function displayVersion(version: string): string {
+  if (!version) return "...";
+  return version.startsWith("v") ? version : `v${version}`;
+}
+
+function openUpgradeDialog() {
+  if (!upgradeProgress.value.hasUpdate) return;
+  upgradeProgress.value = { ...upgradeProgress.value, status: "confirming" };
+  upgradeDialogOpen.value = true;
+}
+
+function doUpgrade() {
+  upgradeProgress.value = {
+    ...upgradeProgress.value,
+    status: "upgrading",
+    percent: 0,
+    message: t("upgrade.starting"),
+    error: undefined,
+  };
+
+  upgradeWithProgress((data) => {
+    if (data.progress !== undefined) {
+      upgradeProgress.value = {
+        ...upgradeProgress.value,
+        percent: data.progress,
+        message: data.message || "",
+      };
+    }
+    if (data.status === "completed") {
+      upgradeProgress.value = {
+        ...upgradeProgress.value,
+        status: "success",
+        latestVersion: data.version || upgradeProgress.value.latestVersion,
+        percent: 100,
+        message: data.message || "",
+      };
+      return;
+    }
+    if (data.status === "error") {
+      upgradeProgress.value = {
+        ...upgradeProgress.value,
+        status: "error",
+        error: data.message || t("upgrade.failed"),
+      };
+      return;
+    }
+    if (["checking", "downloading", "extracting", "installing"].includes(data.status)) {
+      upgradeProgress.value = {
+        ...upgradeProgress.value,
+        status: "upgrading",
+        latestVersion: data.version || upgradeProgress.value.latestVersion,
+        message: data.message || upgradeProgress.value.message,
+      };
+    }
+  }).catch(() => {
+    if (upgradeProgress.value.status !== "success") {
+      upgradeProgress.value = {
+        ...upgradeProgress.value,
+        status: "error",
+        error: t("upgrade.connectionError"),
+      };
+    }
+  });
 }
 
 function openExternal(url?: string) {
@@ -192,6 +292,7 @@ export function Settings() {
   useEffect(() => {
     fetchSettings();
     fetchCloudAuth();
+    void fetchUpgradeInfo();
     contextIndex.value = loadContextIndex();
     parallelIndex.value = loadParallelIndex();
   }, []);
@@ -528,16 +629,36 @@ export function Settings() {
       </div>
 
       {/* Version information */}
-      <div class="flex items-center justify-between">
-        <div>
-          <div class="flex items-center gap-2 mb-1">
-            <svg class="w-5 h-5 text-gray-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
-            </svg>
-            <span class="font-semibold text-gray-900">{t("settings.versionInfo")}</span>
-          </div>
-          <p class="text-sm text-gray-500 ml-7">{appVersion.value || "..."}</p>
+      <div class="mb-10">
+        <div class="flex items-center gap-2 mb-1">
+          <svg class="w-5 h-5 text-gray-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+          </svg>
+          <span class="font-semibold text-gray-900">{t("settings.versionInfo")}</span>
         </div>
+        <div class="ml-7 mt-3 rounded-xl border border-gray-200 bg-white p-4">
+          <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <p class="text-sm font-semibold text-gray-900">{displayVersion(upgradeProgress.value.currentVersion || appVersion.value)}</p>
+              <p class="mt-1 text-sm text-gray-500">
+                {upgradeProgress.value.hasUpdate && upgradeProgress.value.latestVersion
+                  ? t("upgrade.available", displayVersion(upgradeProgress.value.latestVersion))
+                  : t("upgrade.upToDate")}
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={openUpgradeDialog}
+              disabled={!upgradeProgress.value.hasUpdate}
+              class="px-4 py-2 border border-indigo-200 rounded-lg text-sm text-indigo-700 hover:bg-indigo-50 disabled:border-gray-200 disabled:text-gray-400 disabled:opacity-70 disabled:cursor-not-allowed transition-colors"
+            >
+              {t("upgrade.upgrade")}
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div class="flex justify-end border-t border-gray-100 pt-6">
         <button
           onClick={resetDefaults}
           class="px-4 py-2 border border-gray-200 rounded-lg text-sm text-gray-700 hover:bg-gray-50 transition-colors"
@@ -554,6 +675,17 @@ export function Settings() {
         onClose={closeStorageDirPicker}
         onBrowse={(path) => void browseStorageDir(path)}
         onSelect={selectStorageDir}
+      />
+      <UpgradeDialog
+        open={upgradeDialogOpen.value}
+        progress={upgradeProgress.value}
+        onConfirm={doUpgrade}
+        onClose={() => {
+          upgradeDialogOpen.value = false;
+          if (upgradeProgress.value.status !== "upgrading") {
+            upgradeProgress.value = { ...upgradeProgress.value, status: "idle" };
+          }
+        }}
       />
     </div>
   );

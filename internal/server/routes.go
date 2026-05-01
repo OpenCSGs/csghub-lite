@@ -57,6 +57,10 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("GET /api/apps/shell/{id}/ws", s.handleAppShellWS)
 	mux.HandleFunc("POST /api/apps/shell/{id}/close", s.handleAppShellClose)
 
+	// Upgrade API
+	mux.HandleFunc("GET /api/upgrade/check", s.handleUpgradeCheck)
+	mux.HandleFunc("POST /api/upgrade", s.handleUpgrade)
+
 	// Static files: serve embedded web UI or dev fallback
 	if hasEmbeddedStatic() {
 		mux.Handle("GET /", staticHandler())
