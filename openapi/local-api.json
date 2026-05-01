@@ -2518,7 +2518,8 @@
         "required": [
           "id",
           "name",
-          "base_url"
+          "base_url",
+          "enabled"
         ],
         "properties": {
           "id": {
@@ -2534,6 +2535,9 @@
           "provider": {
             "type": "string",
             "description": "Provider type hint, currently OpenAI-compatible."
+          },
+          "enabled": {
+            "type": "boolean"
           }
         }
       },
@@ -2574,6 +2578,9 @@
           },
           "provider": {
             "type": "string"
+          },
+          "enabled": {
+            "type": "boolean"
           }
         }
       },
@@ -2601,6 +2608,9 @@
           },
           "provider": {
             "type": "string"
+          },
+          "enabled": {
+            "type": "boolean"
           }
         }
       },
@@ -2638,6 +2648,9 @@
           },
           "provider": {
             "type": "string"
+          },
+          "enabled": {
+            "type": "boolean"
           }
         }
       },

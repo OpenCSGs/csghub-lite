@@ -44,6 +44,9 @@ func getThirdPartyProvider(id string) (config.ThirdPartyProvider, bool) {
 func (s *Server) listThirdPartyProviderModels(ctx context.Context) []api.ModelInfo {
 	var out []api.ModelInfo
 	for _, provider := range config.GetProviders() {
+		if !provider.Enabled {
+			continue
+		}
 		models, err := listOpenAICompatibleProviderModels(ctx, provider)
 		if err != nil {
 			continue
@@ -130,6 +133,9 @@ func newThirdPartyProviderEngine(source, modelID string) (inference.Engine, erro
 	provider, ok := getThirdPartyProvider(providerID)
 	if !ok {
 		return nil, inference.NewHTTPStatusError(http.StatusNotFound, "third-party provider not found")
+	}
+	if !provider.Enabled {
+		return nil, inference.NewHTTPStatusError(http.StatusForbidden, "third-party provider is disabled")
 	}
 	baseURL := strings.TrimSpace(provider.BaseURL)
 	apiKey := strings.TrimSpace(provider.APIKey)

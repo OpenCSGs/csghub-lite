@@ -21,6 +21,7 @@ func (s *Server) handleProvidersList(w http.ResponseWriter, r *http.Request) {
 			Name:     p.Name,
 			BaseURL:  p.BaseURL,
 			Provider: p.Provider,
+			Enabled:  p.Enabled,
 			// APIKey is intentionally not returned for security
 		}
 	}
@@ -41,6 +42,7 @@ func (s *Server) handleProviderValidate(w http.ResponseWriter, r *http.Request) 
 		BaseURL:  strings.TrimSpace(req.BaseURL),
 		APIKey:   strings.TrimSpace(req.APIKey),
 		Provider: strings.TrimSpace(req.Provider),
+		Enabled:  req.Enabled,
 	}
 	if provider.APIKey == "" && provider.ID != "" {
 		if existing, ok := getThirdPartyProvider(provider.ID); ok {
@@ -92,6 +94,7 @@ func (s *Server) handleProviderCreate(w http.ResponseWriter, r *http.Request) {
 		BaseURL:  baseURL,
 		APIKey:   apiKey,
 		Provider: provider,
+		Enabled:  req.Enabled,
 	}
 	if _, err := validateThirdPartyProvider(r.Context(), newProvider); err != nil {
 		writeError(w, http.StatusBadRequest, "provider configuration is invalid: "+err.Error())
@@ -109,6 +112,7 @@ func (s *Server) handleProviderCreate(w http.ResponseWriter, r *http.Request) {
 		Name:     newProvider.Name,
 		BaseURL:  newProvider.BaseURL,
 		Provider: newProvider.Provider,
+		Enabled:  newProvider.Enabled,
 	})
 }
 
@@ -144,6 +148,9 @@ func (s *Server) handleProviderUpdate(w http.ResponseWriter, r *http.Request) {
 			if req.Provider != "" {
 				candidate.Provider = strings.TrimSpace(req.Provider)
 			}
+			if req.Enabled != nil {
+				candidate.Enabled = *req.Enabled
+			}
 			if _, err := validateThirdPartyProvider(r.Context(), candidate); err != nil {
 				writeError(w, http.StatusBadRequest, "provider configuration is invalid: "+err.Error())
 				return
@@ -171,6 +178,7 @@ func (s *Server) handleProviderUpdate(w http.ResponseWriter, r *http.Request) {
 				Name:     p.Name,
 				BaseURL:  p.BaseURL,
 				Provider: p.Provider,
+				Enabled:  p.Enabled,
 			})
 			return
 		}

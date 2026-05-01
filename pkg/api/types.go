@@ -425,6 +425,7 @@ type ThirdPartyProvider struct {
 	BaseURL  string `json:"base_url"`
 	APIKey   string `json:"api_key,omitempty"`
 	Provider string `json:"provider,omitempty"` // e.g., "openai", "anthropic", "deepseek"
+	Enabled  bool   `json:"enabled"`
 }
 
 type ThirdPartyProvidersResponse struct {
@@ -436,6 +437,7 @@ type ThirdPartyProviderCreateRequest struct {
 	BaseURL  string `json:"base_url"`
 	APIKey   string `json:"api_key"`
 	Provider string `json:"provider,omitempty"`
+	Enabled  bool   `json:"enabled"`
 }
 
 type ThirdPartyProviderValidateRequest struct {
@@ -444,6 +446,7 @@ type ThirdPartyProviderValidateRequest struct {
 	BaseURL  string `json:"base_url"`
 	APIKey   string `json:"api_key,omitempty"`
 	Provider string `json:"provider,omitempty"`
+	Enabled  bool   `json:"enabled"`
 }
 
 type ThirdPartyProviderValidateResponse struct {
@@ -456,4 +459,5 @@ type ThirdPartyProviderUpdateRequest struct {
 	BaseURL  string `json:"base_url,omitempty"`
 	APIKey   string `json:"api_key,omitempty"`
 	Provider string `json:"provider,omitempty"`
+	Enabled  *bool  `json:"enabled,omitempty"`
 }

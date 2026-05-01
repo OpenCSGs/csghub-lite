@@ -16,6 +16,7 @@ type ThirdPartyProvider struct {
 	BaseURL  string `json:"base_url"`
 	APIKey   string `json:"api_key"`
 	Provider string `json:"provider,omitempty"`
+	Enabled  bool   `json:"enabled"`
 }
 
 // ProvidersFile is the filename for storing third-party providers

@@ -1034,6 +1034,7 @@ export interface ThirdPartyProvider {
   base_url: string;
   api_key?: string;
   provider?: string;
+  enabled: boolean;
 }
 
 export interface ThirdPartyProvidersResponse {
@@ -1045,6 +1046,7 @@ export interface ThirdPartyProviderCreateRequest {
   base_url: string;
   api_key: string;
   provider?: string;
+  enabled: boolean;
 }
 
 export interface ThirdPartyProviderUpdateRequest {
@@ -1052,6 +1054,7 @@ export interface ThirdPartyProviderUpdateRequest {
   base_url?: string;
   api_key?: string;
   provider?: string;
+  enabled?: boolean;
 }
 
 export interface ThirdPartyProviderValidateRequest {
@@ -1060,6 +1063,7 @@ export interface ThirdPartyProviderValidateRequest {
   base_url: string;
   api_key?: string;
   provider?: string;
+  enabled: boolean;
 }
 
 export interface ThirdPartyProviderValidateResponse {

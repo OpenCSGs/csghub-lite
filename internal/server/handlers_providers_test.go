@@ -145,6 +145,7 @@ func TestHandleTagsIncludesThirdPartyProviderModels(t *testing.T) {
 		Name:    "OpenAI",
 		BaseURL: apiServer.URL + "/v1",
 		APIKey:  "secret",
+		Enabled: true,
 	}}); err != nil {
 		t.Fatalf("save providers: %v", err)
 	}
@@ -198,6 +199,7 @@ func TestThirdPartyProviderEngineTrimsV1BaseURL(t *testing.T) {
 		Name:    "OpenAI",
 		BaseURL: apiServer.URL + "/v1",
 		APIKey:  "secret",
+		Enabled: true,
 	}}); err != nil {
 		t.Fatalf("save providers: %v", err)
 	}
@@ -215,5 +217,62 @@ func TestThirdPartyProviderEngineTrimsV1BaseURL(t *testing.T) {
 	}
 	if chatPath != "/v1/chat/completions" {
 		t.Fatalf("chat path = %q", chatPath)
+	}
+}
+
+func TestDisabledProviderExcludedFromTagsAndEngine(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	config.ResetProviders()
+	t.Cleanup(config.ResetProviders)
+
+	apiServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/models" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"data": []map[string]string{{"id": "gpt-4o-mini"}},
+		})
+	}))
+	defer apiServer.Close()
+
+	s := newTestServer(t)
+	if err := config.SaveProviders([]config.ThirdPartyProvider{{
+		ID:      "provider1",
+		Name:    "OpenAI",
+		BaseURL: apiServer.URL + "/v1",
+		APIKey:  "secret",
+		Enabled: false,
+	}}); err != nil {
+		t.Fatalf("save providers: %v", err)
+	}
+
+	// Disabled provider should not appear in tags
+	req := httptest.NewRequest(http.MethodGet, "/api/tags", nil)
+	w := httptest.NewRecorder()
+	s.handleTags(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s", w.Code, w.Body.String())
+	}
+	var resp struct {
+		Models []struct {
+			Source string `json:"source"`
+		} `json:"models"`
+	}
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode tags: %v", err)
+	}
+	for _, m := range resp.Models {
+		if m.Source == "provider:provider1" {
+			t.Fatalf("disabled provider model should not appear in tags")
+		}
+	}
+
+	// Engine creation for disabled provider should fail
+	_, err := newThirdPartyProviderEngine("provider:provider1", "gpt-4o-mini")
+	if err == nil {
+		t.Fatalf("expected error for disabled provider engine")
 	}
 }

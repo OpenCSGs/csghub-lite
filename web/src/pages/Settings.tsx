@@ -65,6 +65,7 @@ const providerFormName = signal("");
 const providerFormBaseURL = signal("");
 const providerFormAPIKey = signal("");
 const providerFormType = signal("openai");
+const providerFormEnabled = signal(true);
 const providerFormError = signal("");
 const providerFormSaving = signal(false);
 
@@ -268,6 +269,7 @@ function openProviderDialog(provider?: ThirdPartyProvider) {
   providerFormBaseURL.value = provider?.base_url || "";
   providerFormAPIKey.value = "";
   providerFormType.value = provider?.provider || "openai";
+  providerFormEnabled.value = provider?.enabled ?? true;
   providerFormError.value = "";
   isProviderDialogOpen.value = true;
 }
@@ -284,6 +286,7 @@ async function saveProviderForm() {
   const baseURL = providerFormBaseURL.value.trim();
   const apiKey = providerFormAPIKey.value.trim();
   const providerType = providerFormType.value.trim() || "openai";
+  const enabled = providerFormEnabled.value;
 
   if (!name || !baseURL) {
     providerFormError.value = t("settings.providerNameURLRequired");
@@ -303,6 +306,7 @@ async function saveProviderForm() {
       base_url: baseURL,
       api_key: apiKey || undefined,
       provider: providerType,
+      enabled,
     });
     if (editingProvider.value) {
       await updateProvider(editingProvider.value.id, {
@@ -310,6 +314,7 @@ async function saveProviderForm() {
         base_url: baseURL,
         api_key: apiKey || undefined,
         provider: providerType,
+        enabled,
       });
     } else {
       await createProvider({
@@ -317,6 +322,7 @@ async function saveProviderForm() {
         base_url: baseURL,
         api_key: apiKey,
         provider: providerType,
+        enabled,
       });
     }
     await fetchProviders();
@@ -326,6 +332,18 @@ async function saveProviderForm() {
     providerFormError.value = err?.message || t("settings.providerSaveFailed");
   } finally {
     providerFormSaving.value = false;
+  }
+}
+
+async function toggleProviderEnabled(provider: ThirdPartyProvider) {
+  providersError.value = "";
+  try {
+    await updateProvider(provider.id, { enabled: !provider.enabled });
+    providers.value = providers.value.map((p) =>
+      p.id === provider.id ? { ...p, enabled: !p.enabled } : p
+    );
+  } catch (err: any) {
+    providersError.value = err?.message || t("settings.providerSaveFailed");
   }
 }
 
@@ -780,7 +798,16 @@ export function Settings() {
                     <p class="text-xs text-gray-500 truncate">{provider.base_url}</p>
                     <p class="mt-1 text-[11px] uppercase tracking-wide text-gray-400">{provider.provider || "openai"}</p>
                   </div>
-                  <div class="flex gap-2">
+                  <div class="flex items-center gap-2">
+                    <label class="relative inline-flex items-center cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={provider.enabled}
+                        onChange={() => void toggleProviderEnabled(provider)}
+                        class="sr-only peer"
+                      />
+                      <div class="w-9 h-5 bg-gray-200 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-indigo-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-indigo-600"></div>
+                    </label>
                     <button
                       type="button"
                       onClick={() => openProviderDialog(provider)}
@@ -858,6 +885,7 @@ export function Settings() {
         baseURL={providerFormBaseURL.value}
         apiKey={providerFormAPIKey.value}
         providerType={providerFormType.value}
+        enabled={providerFormEnabled.value}
         error={providerFormError.value}
         saving={providerFormSaving.value}
         onClose={closeProviderDialog}
@@ -872,6 +900,7 @@ export function Settings() {
             providerFormBaseURL.value = option.baseURL;
           }
         }}
+        onChangeEnabled={(value) => (providerFormEnabled.value = value)}
       />
       <UpgradeDialog
         open={upgradeDialogOpen.value}
@@ -911,6 +940,7 @@ function ProviderDialog({
   baseURL,
   apiKey,
   providerType,
+  enabled,
   error,
   saving,
   onClose,
@@ -919,6 +949,7 @@ function ProviderDialog({
   onChangeBaseURL,
   onChangeAPIKey,
   onChangeProviderType,
+  onChangeEnabled,
 }: {
   open: boolean;
   editing: boolean;
@@ -926,6 +957,7 @@ function ProviderDialog({
   baseURL: string;
   apiKey: string;
   providerType: string;
+  enabled: boolean;
   error: string;
   saving: boolean;
   onClose: () => void;
@@ -934,6 +966,7 @@ function ProviderDialog({
   onChangeBaseURL: (value: string) => void;
   onChangeAPIKey: (value: string) => void;
   onChangeProviderType: (value: string) => void;
+  onChangeEnabled: (value: boolean) => void;
 }) {
   if (!open) return null;
   return (
@@ -985,6 +1018,18 @@ function ProviderDialog({
               onInput={(e) => onChangeAPIKey((e.target as HTMLInputElement).value)}
               placeholder={editing ? t("settings.providerAPIKeyUnchanged") : "sk-..."}
             />
+          </div>
+          <div class="flex items-center gap-3">
+            <label class="relative inline-flex items-center cursor-pointer">
+              <input
+                type="checkbox"
+                checked={enabled}
+                onChange={(e) => onChangeEnabled((e.target as HTMLInputElement).checked)}
+                class="sr-only peer"
+              />
+              <div class="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-indigo-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-600"></div>
+            </label>
+            <span class="text-sm text-gray-700">{enabled ? t("settings.providerEnabled") : t("settings.providerDisabled")}</span>
           </div>
           {error && <p class="text-sm text-red-600">{error}</p>}
         </div>
