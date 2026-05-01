@@ -296,6 +296,10 @@ func copyWithProgress(ctx context.Context, dst io.Writer, src io.Reader, startOf
 		}
 		if readErr != nil {
 			if readErr == io.EOF {
+				// 报告最终进度：确保完成时显示 100%
+				if progress != nil && total > 0 {
+					progress(total, total)
+				}
 				break
 			}
 			return fmt.Errorf("reading: %w", readErr)

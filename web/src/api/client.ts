@@ -431,6 +431,7 @@ export function pullModel(
             const p: PullProgress = JSON.parse(line.slice(6));
             if (p.status === "success" || p.status.startsWith("error")) {
               clearTimeout(flushTimer);
+              pending = null;
               onProgress(p);
               return;
             }
@@ -770,6 +771,7 @@ export function pullDataset(
             const p: PullProgress = JSON.parse(line.slice(6));
             if (p.status === "success" || p.status.startsWith("error")) {
               clearTimeout(flushTimer);
+              pending = null;
               onProgress(p);
               return;
             }

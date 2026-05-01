@@ -51,7 +51,9 @@ function modelKey(model: Pick<ModelInfo, "model" | "name" | "source">): string {
 function modelLabel(model: ModelInfo): string {
   const label = model.display_name || model.name;
   const tags: string[] = [];
-  if (model.source === "cloud") tags.push(t("chat.cloud"));
+  const source = model.source || "local";
+  if (source === "cloud") tags.push(t("chat.cloud"));
+  else tags.push(t("chat.local"));
   if (model.pipeline_tag === "image-text-to-text") tags.push("VL");
   return tags.length > 0 ? `${label} [${tags.join("] [")}]` : label;
 }
