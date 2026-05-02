@@ -764,12 +764,34 @@ func (u *Updater) copyFile(src, dst string) error {
 
 // Restart restarts the application with the new binary
 func Restart() error {
+	return RestartAfter(0)
+}
+
+// RestartAfter starts a replacement process and exits the current process after
+// delay. On Unix, a small shell helper waits for this process to exit before
+// starting the new binary so the server port can be rebound cleanly.
+func RestartAfter(delay time.Duration) error {
 	execPath, err := os.Executable()
 	if err != nil {
 		return err
 	}
 
-	cmd := exec.Command(execPath, os.Args[1:]...)
+	var cmd *exec.Cmd
+	if runtime.GOOS == "windows" {
+		cmd = exec.Command(execPath, os.Args[1:]...)
+	} else {
+		shell, err := exec.LookPath("sh")
+		if err != nil {
+			return fmt.Errorf("finding shell for restart helper: %w", err)
+		}
+		args := append([]string{
+			"-c",
+			`while kill -0 "$CSGHUB_LITE_RESTART_PARENT" 2>/dev/null; do sleep 1; done; exec "$0" "$@"`,
+			execPath,
+		}, os.Args[1:]...)
+		cmd = exec.Command(shell, args...)
+		cmd.Env = append(os.Environ(), fmt.Sprintf("CSGHUB_LITE_RESTART_PARENT=%d", os.Getpid()))
+	}
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
@@ -778,7 +800,13 @@ func Restart() error {
 		return err
 	}
 
-	os.Exit(0)
+	if delay <= 0 {
+		os.Exit(0)
+	}
+	go func() {
+		time.Sleep(delay)
+		os.Exit(0)
+	}()
 	return nil
 }
 

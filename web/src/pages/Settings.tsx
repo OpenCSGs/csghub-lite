@@ -27,6 +27,7 @@ const contextStorageKey = "csghub.chat.num_ctx";
 const parallelSteps = [1, 2, 4, 8];
 const parallelLabels = ["1", "2", "4", "8"];
 const parallelStorageKey = "csghub.chat.num_parallel";
+const upgradeReloadTimeoutMs = 45_000;
 
 const storageLocation = signal("");
 const modelDirectory = signal("");
@@ -56,6 +57,7 @@ const upgradeProgress = signal<UpgradeProgress>({
   percent: 0,
   message: "",
 });
+let upgradeReloadTimer: number | undefined;
 const providers = signal<ThirdPartyProvider[]>([]);
 const providersLoading = signal(false);
 const providersError = signal("");
@@ -197,6 +199,37 @@ function displayVersion(version: string): string {
   return version.startsWith("v") ? version : `v${version}`;
 }
 
+function normalizeVersion(version?: string): string {
+  return (version || "").trim().replace(/^v/i, "");
+}
+
+function reloadWhenUpgraded(expectedVersion?: string) {
+  const expected = normalizeVersion(expectedVersion);
+  const deadline = Date.now() + upgradeReloadTimeoutMs;
+
+  if (upgradeReloadTimer !== undefined) {
+    window.clearTimeout(upgradeReloadTimer);
+  }
+
+  const poll = async () => {
+    try {
+      const settings = await getSettings();
+      if (!expected || normalizeVersion(settings.version) === expected) {
+        window.location.reload();
+        return;
+      }
+    } catch {
+      // The server is expected to be briefly unavailable while it restarts.
+    }
+
+    if (Date.now() < deadline) {
+      upgradeReloadTimer = window.setTimeout(poll, 1000);
+    }
+  };
+
+  upgradeReloadTimer = window.setTimeout(poll, 2500);
+}
+
 function openUpgradeDialog() {
   if (!upgradeProgress.value.hasUpdate) return;
   upgradeProgress.value = { ...upgradeProgress.value, status: "confirming" };
@@ -228,6 +261,7 @@ function doUpgrade() {
         percent: 100,
         message: data.message || "",
       };
+      reloadWhenUpgraded(data.version || upgradeProgress.value.latestVersion);
       return;
     }
     if (data.status === "error") {

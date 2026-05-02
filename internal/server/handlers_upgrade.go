@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"runtime"
 	"strings"
+	"time"
 
 	"github.com/opencsgs/csghub-lite/internal/upgrade"
 	"github.com/opencsgs/csghub-lite/pkg/api"
@@ -86,9 +87,13 @@ func (s *Server) handleUpgrade(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	message := fmt.Sprintf("Successfully upgraded to %s. Please restart the application.", latestVersion)
+	message := fmt.Sprintf("Successfully upgraded to %s. Restarting the application...", latestVersion)
 	if runtime.GOOS == "windows" {
 		message = fmt.Sprintf("Successfully downloaded %s. Applying update and restarting automatically.", latestVersion)
+	} else if err := upgrade.RestartAfter(1500 * time.Millisecond); err != nil {
+		log.Printf("upgrade: failed to schedule restart: %v", err)
+		sendError("Upgrade installed, but failed to restart automatically: " + err.Error())
+		return
 	}
 	sendProgress("completed", message, 100, latestVersion)
 }

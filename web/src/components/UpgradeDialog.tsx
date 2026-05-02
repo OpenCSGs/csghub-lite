@@ -90,7 +90,7 @@ export function UpgradeDialog({ open, progress, onConfirm, onClose }: UpgradeDia
           {/* Success message */}
           {isSuccess && (
             <div class="rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-700">
-              {t("upgrade.successMessage")}
+              {progress.message || t("upgrade.successMessage")}
             </div>
           )}
         </div>
