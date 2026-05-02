@@ -486,7 +486,7 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 
 	var messages []inference.Message
 	for _, m := range req.Messages {
-		messages = append(messages, inference.Message{Role: m.Role, Content: m.Content})
+		messages = append(messages, inference.Message{Role: m.Role, Content: m.Content, ReasoningContent: m.ReasoningContent})
 	}
 
 	stream := req.Stream == nil || *req.Stream

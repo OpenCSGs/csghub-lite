@@ -27,8 +27,9 @@ func DefaultOptions() Options {
 // Content can be a string for text-only, or an array of content parts
 // for multimodal (e.g., image + text) messages.
 type Message struct {
-	Role    string      `json:"role"`
-	Content interface{} `json:"content"`
+	Role             string      `json:"role"`
+	Content          interface{} `json:"content"`
+	ReasoningContent string      `json:"reasoning_content,omitempty"`
 }
 
 // ContentPart represents one part of a multimodal message.

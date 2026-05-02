@@ -41,7 +41,11 @@ func (e *openAIEngine) ChatCompletion(ctx context.Context, reqBody map[string]in
 		return nil, fmt.Errorf("creating request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Accept", "application/json")
+	if stream, _ := reqBody["stream"].(bool); stream {
+		req.Header.Set("Accept", "text/event-stream")
+	} else {
+		req.Header.Set("Accept", "application/json")
+	}
 	if e.token != "" {
 		req.Header.Set("Authorization", "Bearer "+e.token)
 	}
@@ -367,10 +371,15 @@ func normalizeKimiToolCallMessageMap(msg map[string]interface{}) (map[string]int
 func messagesToOpenAI(messages []Message) []map[string]interface{} {
 	out := make([]map[string]interface{}, 0, len(messages))
 	for _, msg := range messages {
-		out = append(out, map[string]interface{}{
+		next := map[string]interface{}{
 			"role":    msg.Role,
 			"content": msg.Content,
-		})
+		}
+		// Preserve reasoning_content for thinking models (e.g., deepseek-v4-pro)
+		if msg.ReasoningContent != "" {
+			next["reasoning_content"] = msg.ReasoningContent
+		}
+		out = append(out, next)
 	}
 	return out
 }

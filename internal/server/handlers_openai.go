@@ -3,6 +3,7 @@ package server
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 	"time"
@@ -81,10 +82,14 @@ func (s *Server) handleOpenAIChatCompletions(w http.ResponseWriter, r *http.Requ
 		s.handleOpenAIChatCompletionsWithTools(w, r, req, eng, opts, stream)
 		return
 	}
+	if proxy, ok := eng.(inference.ChatCompletionProxier); ok {
+		s.handleOpenAIChatCompletionsProxy(w, r, req, proxy, opts, stream)
+		return
+	}
 
 	var messages []inference.Message
 	for _, m := range req.Messages {
-		messages = append(messages, inference.Message{Role: m.Role, Content: m.Content})
+		messages = append(messages, inference.Message{Role: m.Role, Content: m.Content, ReasoningContent: m.ReasoningContent})
 	}
 
 	id := fmt.Sprintf("chatcmpl-%d", time.Now().UnixNano())
@@ -150,6 +155,45 @@ func (s *Server) handleOpenAIChatCompletions(w http.ResponseWriter, r *http.Requ
 				FinishReason: &stop,
 			}},
 		})
+	}
+}
+
+func (s *Server) handleOpenAIChatCompletionsProxy(
+	w http.ResponseWriter,
+	r *http.Request,
+	req api.OpenAIChatRequest,
+	proxy inference.ChatCompletionProxier,
+	opts inference.Options,
+	stream bool,
+) {
+	reqBody, err := openAIChatRequestToProxyBody(req, opts, stream)
+	if err != nil {
+		writeOpenAIError(w, http.StatusBadRequest, "invalid_request_error", err.Error())
+		return
+	}
+
+	resp, err := proxy.ChatCompletion(r.Context(), reqBody)
+	if err != nil {
+		writeOpenAIInferenceError(w, err)
+		return
+	}
+	defer resp.Body.Close()
+
+	if contentType := strings.TrimSpace(resp.Header.Get("Content-Type")); contentType != "" {
+		w.Header().Set("Content-Type", contentType)
+	} else if stream {
+		w.Header().Set("Content-Type", "text/event-stream")
+	} else {
+		w.Header().Set("Content-Type", "application/json")
+	}
+	if stream {
+		w.Header().Set("Cache-Control", "no-cache")
+		w.Header().Set("Connection", "keep-alive")
+	}
+	w.WriteHeader(http.StatusOK)
+	_, _ = io.Copy(w, resp.Body)
+	if f, ok := w.(http.Flusher); ok {
+		f.Flush()
 	}
 }
 

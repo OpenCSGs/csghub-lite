@@ -62,6 +62,10 @@ func (s *Server) handleOpenAIResponses(w http.ResponseWriter, r *http.Request) {
 		s.handleOpenAIResponsesWithTools(w, r, req, eng, opts)
 		return
 	}
+	if proxy, ok := eng.(inference.ChatCompletionProxier); ok {
+		s.handleOpenAIResponsesProxy(w, r, req, proxy, opts)
+		return
+	}
 
 	messages := responsesRequestMessages(req)
 	inputTokens := countResponsesTokens(req)
@@ -176,6 +180,55 @@ func (s *Server) handleOpenAIResponses(w http.ResponseWriter, r *http.Request) {
 	text = normalizeResponsesVisibleText(text)
 
 	writeJSON(w, http.StatusOK, buildResponsesResponse(id, itemID, req.Model, text, created, "completed", inputTokens))
+}
+
+func (s *Server) handleOpenAIResponsesProxy(
+	w http.ResponseWriter,
+	r *http.Request,
+	req openAIResponsesRequest,
+	proxy inference.ChatCompletionProxier,
+	opts inference.Options,
+) {
+	chatReq, err := responsesRequestToOpenAIChatRequest(req)
+	if err != nil {
+		writeOpenAIError(w, http.StatusBadRequest, "invalid_request_error", err.Error())
+		return
+	}
+	reqBody, err := openAIChatRequestToProxyBody(chatReq, opts, false)
+	if err != nil {
+		writeOpenAIError(w, http.StatusBadRequest, "invalid_request_error", err.Error())
+		return
+	}
+
+	resp, err := proxy.ChatCompletion(r.Context(), reqBody)
+	if err != nil {
+		writeOpenAIInferenceError(w, err)
+		return
+	}
+	defer resp.Body.Close()
+
+	var openAIResp api.OpenAIChatResponse
+	if err := json.NewDecoder(resp.Body).Decode(&openAIResp); err != nil {
+		writeOpenAIError(w, http.StatusInternalServerError, "server_error", "decoding response: "+err.Error())
+		return
+	}
+
+	id := fmt.Sprintf("resp_%d", time.Now().UnixNano())
+	created := time.Now().Unix()
+	inputTokens := countResponsesTokens(req)
+	if req.Stream {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.Header().Set("Cache-Control", "no-cache")
+		w.Header().Set("Connection", "keep-alive")
+		writeResponsesChatStream(w, id, req.Model, created, openAIResp, inputTokens)
+		fmt.Fprintf(w, "event: done\ndata: [DONE]\n\n")
+		if f, ok := w.(http.Flusher); ok {
+			f.Flush()
+		}
+		return
+	}
+
+	writeJSON(w, http.StatusOK, buildResponsesToolResponse(id, req.Model, created, openAIResp, inputTokens, "completed"))
 }
 
 // GET /v1/responses -- return a clear error instead of the web UI index for websocket probes.
@@ -312,15 +365,23 @@ func responsesInputToOpenAIMessages(input interface{}) ([]api.Message, error) {
 	case []interface{}:
 		messages := make([]api.Message, 0, len(value))
 		pendingToolCalls := make([]api.ToolCall, 0)
+		pendingReasoning := ""
 		flushPending := func() {
 			if len(pendingToolCalls) == 0 {
 				return
 			}
-			messages = append(messages, api.Message{
+			assistant := api.Message{
 				Role:      "assistant",
 				Content:   nil,
 				ToolCalls: append([]api.ToolCall{}, pendingToolCalls...),
-			})
+			}
+			// Thinking models (e.g. DeepSeek) require reasoning_content on the same
+			// assistant turn as tool_calls when Codex replays a preceding reasoning item.
+			if strings.TrimSpace(pendingReasoning) != "" {
+				assistant.ReasoningContent = pendingReasoning
+				pendingReasoning = ""
+			}
+			messages = append(messages, assistant)
 			pendingToolCalls = pendingToolCalls[:0]
 		}
 		for idx, item := range value {
@@ -332,12 +393,25 @@ func responsesInputToOpenAIMessages(input interface{}) ([]api.Message, error) {
 				pendingToolCalls = append(pendingToolCalls, toolCall)
 				continue
 			}
+			if kind == "reasoning" {
+				if msg != nil && strings.TrimSpace(msg.ReasoningContent) != "" {
+					pendingReasoning = joinNonEmpty(pendingReasoning, msg.ReasoningContent, "\n")
+				}
+				continue
+			}
 			flushPending()
 			if msg != nil {
+				if pendingReasoning != "" && msg.Role == "assistant" && msg.ReasoningContent == "" {
+					msg.ReasoningContent = pendingReasoning
+					pendingReasoning = ""
+				}
 				messages = append(messages, *msg)
 			}
 		}
 		flushPending()
+		if pendingReasoning != "" {
+			messages = append(messages, api.Message{Role: "assistant", Content: "", ReasoningContent: pendingReasoning})
+		}
 		return messages, nil
 	case map[string]interface{}:
 		msg, toolCall, kind, err := responsesInputItemToOpenAIMessage(value, 0)
@@ -388,6 +462,12 @@ func responsesInputItemToOpenAIMessage(item interface{}, index int) (*api.Messag
 				Role:    role,
 				Content: responsesContentText(value["content"]),
 			}, api.ToolCall{}, kind, nil
+		case "reasoning":
+			return &api.Message{
+				Role:             "assistant",
+				Content:          "",
+				ReasoningContent: responsesReasoningItemText(value),
+			}, api.ToolCall{}, kind, nil
 		case "input_text", "output_text", "text":
 			return &api.Message{
 				Role:    "user",
@@ -423,6 +503,16 @@ func responsesFunctionCallToOpenAIToolCall(value map[string]interface{}, index i
 			Arguments: toolArgumentsJSONString(value["arguments"]),
 		},
 	}
+}
+
+func joinNonEmpty(a, b, sep string) string {
+	if a == "" {
+		return b
+	}
+	if b == "" {
+		return a
+	}
+	return a + sep + b
 }
 
 func responsesToolsToOpenAITools(rawTools []map[string]interface{}) []api.Tool {
@@ -556,8 +646,23 @@ func responsesInputToMessages(input interface{}) []inference.Message {
 		return []inference.Message{{Role: "user", Content: value}}
 	case []interface{}:
 		var messages []inference.Message
+		pendingReasoning := ""
 		for _, item := range value {
-			messages = append(messages, responsesInputToMessages(item)...)
+			next := responsesInputToMessages(item)
+			for _, msg := range next {
+				if msg.Role == "assistant" && msg.Content == "" && msg.ReasoningContent != "" {
+					pendingReasoning = joinNonEmpty(pendingReasoning, msg.ReasoningContent, "\n")
+					continue
+				}
+				if pendingReasoning != "" && msg.Role == "assistant" && msg.ReasoningContent == "" {
+					msg.ReasoningContent = pendingReasoning
+					pendingReasoning = ""
+				}
+				messages = append(messages, msg)
+			}
+		}
+		if pendingReasoning != "" {
+			messages = append(messages, inference.Message{Role: "assistant", Content: "", ReasoningContent: pendingReasoning})
 		}
 		return messages
 	case map[string]interface{}:
@@ -573,6 +678,12 @@ func responsesInputToMessages(input interface{}) []inference.Message {
 			return []inference.Message{{
 				Role:    "user",
 				Content: responsesContentText(value["content"]),
+			}}
+		case kind == "reasoning":
+			return []inference.Message{{
+				Role:             "assistant",
+				Content:          "",
+				ReasoningContent: responsesReasoningItemText(value),
 			}}
 		case kind == "input_text" || kind == "output_text" || kind == "text":
 			return []inference.Message{{
@@ -598,6 +709,14 @@ func responsesContentText(content interface{}) string {
 	case string:
 		return value
 	case []interface{}:
+		var parts []string
+		for _, item := range value {
+			if text := responsesContentText(item); text != "" {
+				parts = append(parts, text)
+			}
+		}
+		return strings.Join(parts, "\n")
+	case []map[string]interface{}:
 		var parts []string
 		for _, item := range value {
 			if text := responsesContentText(item); text != "" {
@@ -644,8 +763,11 @@ func responsesOutputFromOpenAIChatResponse(resp api.OpenAIChatResponse) ([]inter
 	}
 
 	msg := resp.Choices[0].Message
-	output := make([]interface{}, 0, 1+len(msg.ToolCalls))
+	output := make([]interface{}, 0, 2+len(msg.ToolCalls))
 	outputText := strings.TrimSpace(normalizeResponsesVisibleText(contentAsString(msg.Content)))
+	if reasoning := strings.TrimSpace(msg.ReasoningContent); reasoning != "" {
+		output = append(output, buildResponsesReasoningItem(fmt.Sprintf("rs_%d", time.Now().UnixNano()), reasoning, "completed"))
+	}
 	if outputText != "" || len(msg.ToolCalls) == 0 {
 		output = append(output, buildResponsesOutputItem(fmt.Sprintf("msg_%d", time.Now().UnixNano()), outputText, "completed"))
 	}
@@ -653,6 +775,16 @@ func responsesOutputFromOpenAIChatResponse(resp api.OpenAIChatResponse) ([]inter
 		output = append(output, buildResponsesFunctionCallItem(call, i, "completed"))
 	}
 	return output, outputText
+}
+
+func responsesReasoningItemText(item map[string]interface{}) string {
+	if text := responsesContentText(item["content"]); text != "" {
+		return text
+	}
+	if text := responsesContentText(item["summary"]); text != "" {
+		return text
+	}
+	return stringValue(item["encrypted_content"])
 }
 
 func buildResponsesFunctionCallItem(call api.ToolCall, index int, status string) map[string]interface{} {
@@ -729,6 +861,39 @@ func writeResponsesToolStream(w http.ResponseWriter, id, modelID string, created
 			continue
 		}
 		switch stringValue(item["type"]) {
+		case "reasoning":
+			itemID := stringValue(item["id"])
+			text := responsesReasoningItemText(item)
+			writeResponsesSSE(w, "response.output_item.added", map[string]interface{}{
+				"type":            "response.output_item.added",
+				"sequence_number": nextSequence(),
+				"output_index":    index,
+				"item":            buildResponsesReasoningItem(itemID, "", "in_progress"),
+			})
+			if text != "" {
+				writeResponsesSSE(w, "response.reasoning_text.delta", map[string]interface{}{
+					"type":            "response.reasoning_text.delta",
+					"sequence_number": nextSequence(),
+					"item_id":         itemID,
+					"output_index":    index,
+					"content_index":   0,
+					"delta":           text,
+				})
+			}
+			writeResponsesSSE(w, "response.reasoning_text.done", map[string]interface{}{
+				"type":            "response.reasoning_text.done",
+				"sequence_number": nextSequence(),
+				"item_id":         itemID,
+				"output_index":    index,
+				"content_index":   0,
+				"text":            text,
+			})
+			writeResponsesSSE(w, "response.output_item.done", map[string]interface{}{
+				"type":            "response.output_item.done",
+				"sequence_number": nextSequence(),
+				"output_index":    index,
+				"item":            item,
+			})
 		case "function_call":
 			itemID := stringValue(item["id"])
 			name := stringValue(item["name"])
@@ -852,6 +1017,10 @@ func writeResponsesToolStream(w http.ResponseWriter, id, modelID string, created
 			"usage":               usage,
 		},
 	})
+}
+
+func writeResponsesChatStream(w http.ResponseWriter, id, modelID string, created int64, resp api.OpenAIChatResponse, inputTokens int) {
+	writeResponsesToolStream(w, id, modelID, created, resp, inputTokens)
 }
 
 const (
@@ -979,6 +1148,19 @@ func buildResponsesOutputItem(itemID, text, status string) map[string]interface{
 			"type":        "output_text",
 			"text":        text,
 			"annotations": []interface{}{},
+		}},
+	}
+}
+
+func buildResponsesReasoningItem(itemID, text, status string) map[string]interface{} {
+	return map[string]interface{}{
+		"id":      itemID,
+		"type":    "reasoning",
+		"status":  status,
+		"summary": []interface{}{},
+		"content": []map[string]interface{}{{
+			"type": "reasoning_text",
+			"text": text,
 		}},
 	}
 }

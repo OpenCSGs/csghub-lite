@@ -213,6 +213,10 @@ func ollamaMessagesToOpenAI(messages []api.Message) ([]map[string]interface{}, e
 			} else {
 				m["content"] = msg.Content
 			}
+			// Preserve reasoning_content for thinking models (e.g., deepseek-v4-pro)
+			if msg.ReasoningContent != "" {
+				m["reasoning_content"] = msg.ReasoningContent
+			}
 			out = append(out, m)
 		case "tool":
 			toolCallID, nextPending := matchPendingToolCall(pending, msg.ToolName)

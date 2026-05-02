@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -546,6 +547,55 @@ func TestHandleAnthropicMessagesSupportsCloudModels(t *testing.T) {
 	}
 	if len(resp.Content) != 1 || resp.Content[0].Text != "cloud reply" {
 		t.Fatalf("unexpected content: %#v", resp.Content)
+	}
+}
+
+func TestHandleOpenAIChatCompletionsCloudStreamPreservesReasoningContent(t *testing.T) {
+	cfg := &config.Config{ModelDir: t.TempDir(), Token: "test-token"}
+	apiServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/v1/models":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"object":"list","data":[{"id":"deepseek-v4-pro","object":"model","created":456,"owned_by":"opencsg"}]}`))
+		case "/v1/chat/completions":
+			if got := r.Header.Get("Accept"); got != "text/event-stream" {
+				t.Fatalf("Accept = %q, want text/event-stream", got)
+			}
+			var body map[string]interface{}
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				t.Fatalf("decode upstream request: %v", err)
+			}
+			if body["stream"] != true {
+				t.Fatalf("stream = %#v, want true", body["stream"])
+			}
+			w.Header().Set("Content-Type", "text/event-stream")
+			fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"role\":\"assistant\",\"reasoning_content\":\"think\"}}]}\n\n")
+			fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"content\":\"answer\"}}]}\n\n")
+			fmt.Fprint(w, "data: [DONE]\n\n")
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer apiServer.Close()
+
+	s := New(cfg, "test")
+	s.cloud = cloud.NewService(apiServer.URL)
+
+	body := `{"model":"deepseek-v4-pro","messages":[{"role":"user","content":"hi"}],"stream":true}`
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(body))
+	w := httptest.NewRecorder()
+
+	s.handleOpenAIChatCompletions(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d body=%s", w.Code, http.StatusOK, w.Body.String())
+	}
+	respBody := w.Body.String()
+	if !strings.Contains(respBody, `"reasoning_content":"think"`) {
+		t.Fatalf("stream body missing reasoning_content: %s", respBody)
+	}
+	if strings.Contains(respBody, "<think>") {
+		t.Fatalf("stream body converted reasoning to think tags: %s", respBody)
 	}
 }
 
