@@ -6,6 +6,7 @@ export interface ModelInfo {
   size: number;
   format: string;
   modified_at: string;
+  label?: string;
   display_name?: string;
   source?: string;
   pipeline_tag?: string;

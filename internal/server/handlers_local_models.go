@@ -119,6 +119,7 @@ func (s *Server) localModelInfo(item *model.LocalModel) api.ModelInfo {
 		Size:          item.Size,
 		Format:        string(item.Format),
 		ModifiedAt:    item.DownloadedAt,
+		Label:         modelID,
 		DisplayName:   modelID,
 		Source:        "local",
 		PipelineTag:   pipelineTag,

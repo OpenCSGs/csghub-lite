@@ -119,6 +119,9 @@ func TestListOpenAICompatibleProviderModels(t *testing.T) {
 	if models[0].DisplayName != "gpt-4o-mini [OpenAI]" {
 		t.Fatalf("display name = %q, want provider label", models[0].DisplayName)
 	}
+	if models[0].Label != "gpt-4o-mini [OpenAI]" {
+		t.Fatalf("label = %q, want provider label", models[0].Label)
+	}
 }
 
 func TestHandleTagsIncludesThirdPartyProviderModels(t *testing.T) {
@@ -161,6 +164,7 @@ func TestHandleTagsIncludesThirdPartyProviderModels(t *testing.T) {
 		Models []struct {
 			Model       string `json:"model"`
 			Source      string `json:"source"`
+			Label       string `json:"label"`
 			DisplayName string `json:"display_name"`
 		} `json:"models"`
 	}
@@ -172,6 +176,9 @@ func TestHandleTagsIncludesThirdPartyProviderModels(t *testing.T) {
 	}
 	if resp.Models[0].DisplayName != "gpt-4o-mini [OpenAI]" {
 		t.Fatalf("display name = %q, want provider label", resp.Models[0].DisplayName)
+	}
+	if resp.Models[0].Label != "gpt-4o-mini [OpenAI]" {
+		t.Fatalf("label = %q, want provider label in tags response", resp.Models[0].Label)
 	}
 }
 

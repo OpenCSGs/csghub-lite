@@ -50,7 +50,7 @@ function modelKey(model: Pick<ModelInfo, "model" | "name" | "source">): string {
 }
 
 function modelLabel(model: ModelInfo): string {
-  const label = model.display_name || model.name;
+  const label = model.label || model.display_name || model.name;
   const source = model.source || "local";
   if (source === "cloud") {
     return `${label} [${t("chat.cloud")}]`;

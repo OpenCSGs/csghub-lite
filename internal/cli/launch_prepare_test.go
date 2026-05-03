@@ -61,6 +61,74 @@ func TestResolveLaunchModelMissingCloudTokenShowsSettingsHint(t *testing.T) {
 	}
 }
 
+func TestNormalizeLaunchModelChoicesUsesLabelField(t *testing.T) {
+	models := []api.ModelInfo{
+		{Model: "Qwen/Qwen3-0.6B", Label: "Qwen/Qwen3-0.6B", Source: "local"},
+		{Model: "deepseek-v3.2", Label: "deepseek-v3.2(infini-ai)", Source: "cloud"},
+		{Model: "kimi-k2.6", Label: "kimi-k2.6 [kimi]", Source: "provider:abc123"},
+	}
+	choices := normalizeLaunchModelChoices(models)
+	if len(choices) != 3 {
+		t.Fatalf("choices count = %d, want 3", len(choices))
+	}
+
+	tests := []struct {
+		id    string
+		label string
+	}{
+		{"Qwen/Qwen3-0.6B", "Qwen/Qwen3-0.6B (local)"},
+		{"deepseek-v3.2", "deepseek-v3.2(infini-ai) (cloud)"},
+		{"kimi-k2.6", "kimi-k2.6 [kimi]"},
+	}
+	for i, tt := range tests {
+		if choices[i].ID != tt.id {
+			t.Fatalf("choices[%d].ID = %q, want %q", i, choices[i].ID, tt.id)
+		}
+		if choices[i].Label != tt.label {
+			t.Fatalf("choices[%d].Label = %q, want %q", i, choices[i].Label, tt.label)
+		}
+	}
+}
+
+func TestNormalizeLaunchModelChoicesFallsBackToDisplayName(t *testing.T) {
+	models := []api.ModelInfo{
+		{Model: "some-model", DisplayName: "Some Model", Source: "cloud"},
+	}
+	choices := normalizeLaunchModelChoices(models)
+	if len(choices) != 1 {
+		t.Fatalf("choices count = %d, want 1", len(choices))
+	}
+	if choices[0].Label != "Some Model (cloud)" {
+		t.Fatalf("Label = %q, want DisplayName fallback with cloud tag", choices[0].Label)
+	}
+}
+
+func TestNormalizeLaunchModelChoicesFallsBackToModelID(t *testing.T) {
+	models := []api.ModelInfo{
+		{Model: "bare-model", Source: "local"},
+	}
+	choices := normalizeLaunchModelChoices(models)
+	if len(choices) != 1 {
+		t.Fatalf("choices count = %d, want 1", len(choices))
+	}
+	if choices[0].Label != "bare-model (local)" {
+		t.Fatalf("Label = %q, want model ID fallback with local tag", choices[0].Label)
+	}
+}
+
+func TestNormalizeLaunchModelChoicesProviderNoSourceSuffix(t *testing.T) {
+	models := []api.ModelInfo{
+		{Model: "gpt-4o", Label: "gpt-4o [OpenAI]", Source: "provider:abc"},
+	}
+	choices := normalizeLaunchModelChoices(models)
+	if len(choices) != 1 {
+		t.Fatalf("choices count = %d, want 1", len(choices))
+	}
+	if choices[0].Label != "gpt-4o [OpenAI]" {
+		t.Fatalf("Label = %q, want no source suffix for provider models", choices[0].Label)
+	}
+}
+
 func TestPrependArgsIfMissing(t *testing.T) {
 	args := prependArgsIfMissing([]string{"run", "hello"}, []string{"--model", "demo"}, "--model", "-m")
 	if len(args) != 4 || args[0] != "--model" || args[1] != "demo" {

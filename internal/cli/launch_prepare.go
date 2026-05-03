@@ -137,15 +137,20 @@ func normalizeLaunchModelChoices(models []api.ModelInfo) []launchModelChoice {
 		}
 		seen[modelID] = struct{}{}
 
-		label := modelID
-		displayName := strings.TrimSpace(item.DisplayName)
-		if displayName != "" && displayName != modelID {
-			label = displayName + " [" + modelID + "]"
+		label := strings.TrimSpace(item.Label)
+		if label == "" {
+			label = strings.TrimSpace(item.DisplayName)
+			if label == "" {
+				label = modelID
+			}
 		}
 		source := strings.TrimSpace(item.Source)
-		if source != "" {
-			label += " (" + source + ")"
+		if source == "local" || source == "" {
+			label += " (local)"
+		} else if source == "cloud" {
+			label += " (cloud)"
 		}
+
 		choices = append(choices, launchModelChoice{
 			ID:    modelID,
 			Label: label,

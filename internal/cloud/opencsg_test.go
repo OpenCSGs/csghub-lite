@@ -27,8 +27,38 @@ func TestModelInfoFromRemote_TextModel(t *testing.T) {
 	if info.DisplayName != "Qwen3-0.6B" {
 		t.Fatalf("DisplayName = %q, want Qwen3-0.6B", info.DisplayName)
 	}
+	if info.Label != "Qwen3-0.6B" {
+		t.Fatalf("Label = %q, want Qwen3-0.6B", info.Label)
+	}
 	if info.PipelineTag != "text-generation" {
 		t.Fatalf("PipelineTag = %q, want text-generation", info.PipelineTag)
+	}
+}
+
+func TestModelInfoFromRemote_LabelFallsBackToID(t *testing.T) {
+	info, ok := modelInfoFromRemote(remoteModel{
+		ID:   "deepseek-v3.2",
+		Task: "text-generation",
+	})
+	if !ok {
+		t.Fatal("expected model to be included")
+	}
+	if info.Label != "deepseek-v3.2" {
+		t.Fatalf("Label = %q, want model ID fallback", info.Label)
+	}
+}
+
+func TestModelInfoFromRemote_LabelPreservesProviderSuffix(t *testing.T) {
+	info, ok := modelInfoFromRemote(remoteModel{
+		ID:          "deepseek-v3.2",
+		Task:        "text-generation",
+		DisplayName: "deepseek-v3.2(infini-ai)",
+	})
+	if !ok {
+		t.Fatal("expected model to be included")
+	}
+	if info.Label != "deepseek-v3.2(infini-ai)" {
+		t.Fatalf("Label = %q, want display name with provider", info.Label)
 	}
 }
 

@@ -192,6 +192,7 @@ func modelInfoFromRemote(item remoteModel) (api.ModelInfo, bool) {
 		Model:         item.ID,
 		Format:        "cloud",
 		ModifiedAt:    modifiedAt,
+		Label:         displayName,
 		DisplayName:   displayName,
 		Source:        "cloud",
 		PipelineTag:   pipelineTag,

@@ -164,6 +164,7 @@ type ModelInfo struct {
 	Size          int64     `json:"size"`
 	Format        string    `json:"format"`
 	ModifiedAt    time.Time `json:"modified_at"`
+	Label         string    `json:"label,omitempty"`
 	DisplayName   string    `json:"display_name,omitempty"`
 	Source        string    `json:"source,omitempty"`
 	PipelineTag   string    `json:"pipeline_tag,omitempty"`

@@ -132,10 +132,12 @@ func listOpenAICompatibleProviderModels(ctx context.Context, provider config.Thi
 		if modelID == "" {
 			continue
 		}
+		label := fmt.Sprintf("%s [%s]", modelID, provider.Name)
 		models = append(models, api.ModelInfo{
 			Name:        modelID,
 			Model:       modelID,
-			DisplayName: fmt.Sprintf("%s [%s]", modelID, provider.Name),
+			Label:       label,
+			DisplayName: label,
 			Format:      "api",
 			Source:      providerSource(provider.ID),
 			PipelineTag: "text-generation",
