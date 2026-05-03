@@ -534,11 +534,14 @@ func (s *Server) resolveAIAppShellLaunchModels(ctx context.Context, appID, reque
 		if err == nil {
 			return modelID, modelIDs, nil
 		}
-		if strings.Contains(err.Error(), "is not available for AI Apps") {
-			s.clearPreferredAIAppModel(appID)
-		} else {
+		// Don't clear preference on lookup failure - the model might be from
+		// a third-party provider whose API is temporarily unavailable.
+		// The preference will be used when the provider API is available again.
+		// Only report error if it's not a "not available" issue.
+		if !strings.Contains(err.Error(), "is not available for AI Apps") {
 			return "", nil, err
 		}
+		// Fall through to default model selection
 	}
 
 	return s.resolveAIAppLaunchModels(ctx, "")
@@ -614,6 +617,18 @@ func (s *Server) resolveAIAppLaunchModels(ctx context.Context, requestedModel st
 		}
 	}
 
+	// Include third-party provider models in the available list.
+	for _, item := range s.listThirdPartyProviderModels(ctx) {
+		modelID := strings.TrimSpace(item.Model)
+		if modelID == "" {
+			continue
+		}
+		modelIDs = appendUniqueModelID(modelIDs, seen, modelID)
+		if defaultModel == "" {
+			defaultModel = modelID
+		}
+	}
+
 	if defaultModel == "" {
 		if !hasLocalModels {
 			if strings.TrimSpace(s.cfg.Token) == "" {
@@ -632,6 +647,19 @@ func (s *Server) resolveAIAppLaunchModels(ctx context.Context, requestedModel st
 					for _, item := range cloudModels {
 						modelIDs = appendUniqueModelID(modelIDs, seen, item.Model)
 					}
+				}
+			}
+		}
+		if _, ok := seen[requestedModel]; !ok {
+			// Re-query third-party provider models in case the requested model is from a provider.
+			for _, item := range s.listThirdPartyProviderModels(ctx) {
+				modelID := strings.TrimSpace(item.Model)
+				if modelID == "" {
+					continue
+				}
+				if _, alreadySeen := seen[modelID]; !alreadySeen {
+					seen[modelID] = struct{}{}
+					modelIDs = append(modelIDs, modelID)
 				}
 			}
 		}

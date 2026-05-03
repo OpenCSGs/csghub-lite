@@ -158,7 +158,9 @@ func (s *Server) enrichAIApp(ctx context.Context, info *api.AIAppInfo) {
 		preferred := s.preferredAIAppModel(info.ID)
 		modelID, _, err = s.resolveAIAppLaunchModels(ctx, preferred)
 		if err != nil && preferred != "" {
-			s.clearPreferredAIAppModel(info.ID)
+			// Don't clear preference on lookup failure - the model might be from
+			// a third-party provider whose API is temporarily unavailable.
+			// Fall back to default model without clearing the preference.
 			modelID, _, err = s.resolveAIAppLaunchModels(ctx, "")
 		}
 	default:

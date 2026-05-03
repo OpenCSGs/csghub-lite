@@ -561,10 +561,19 @@ function LiveLogsDrawer({
     let disposed = false;
     setModelsLoading(true);
 
-    getTags({ refresh: true })
+    // Only refresh on first load, subsequent opens use cached data
+    getTags({ refresh: false })
       .then((items) => {
         if (disposed) return;
-        setModels(normalizeAIAppModels(items));
+        // If we got models, use them. If empty, try with refresh.
+        if (items.length > 0) {
+          setModels(normalizeAIAppModels(items));
+          return;
+        }
+        return getTags({ refresh: true }).then((refreshed) => {
+          if (disposed) return;
+          setModels(normalizeAIAppModels(refreshed));
+        });
       })
       .catch(() => {
         if (disposed) return;

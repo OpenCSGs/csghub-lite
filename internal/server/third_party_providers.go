@@ -5,8 +5,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/opencsgs/csghub-lite/internal/config"
@@ -42,17 +44,53 @@ func getThirdPartyProvider(id string) (config.ThirdPartyProvider, bool) {
 }
 
 func (s *Server) listThirdPartyProviderModels(ctx context.Context) []api.ModelInfo {
-	var out []api.ModelInfo
-	for _, provider := range config.GetProviders() {
+	providers := config.GetProviders()
+	if len(providers) == 0 {
+		return nil
+	}
+
+	// Use cached data if available and fresh (within 30 seconds).
+	// This avoids repeated API calls to third-party providers.
+		s.thirdPartyModelsCacheMu.Lock()
+	if s.thirdPartyModelsCache != nil && time.Since(s.thirdPartyModelsCacheAt) < 30*time.Second {
+		cache := s.thirdPartyModelsCache
+		s.thirdPartyModelsCacheMu.Unlock()
+		return cache
+	}
+		s.thirdPartyModelsCacheMu.Unlock()
+
+	// Query all providers in parallel to reduce latency.
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+	out := make([]api.ModelInfo, 0, len(providers)*4)
+
+	for _, provider := range providers {
 		if !provider.Enabled {
 			continue
 		}
-		models, err := listOpenAICompatibleProviderModels(ctx, provider)
-		if err != nil {
-			continue
-		}
-		out = append(out, models...)
+		wg.Add(1)
+		go func(p config.ThirdPartyProvider) {
+			defer wg.Done()
+			models, err := listOpenAICompatibleProviderModels(ctx, p)
+			if err != nil {
+				log.Printf("listThirdPartyProviderModels: provider %s (%s) error: %v", p.ID, p.Name, err)
+				return
+			}
+			mu.Lock()
+			out = append(out, models...)
+			mu.Unlock()
+		}(provider)
 	}
+	wg.Wait()
+
+	// Cache the result.
+	if len(out) > 0 {
+		s.thirdPartyModelsCacheMu.Lock()
+		s.thirdPartyModelsCache = out
+		s.thirdPartyModelsCacheAt = time.Now()
+		s.thirdPartyModelsCacheMu.Unlock()
+	}
+
 	return out
 }
 
@@ -68,7 +106,7 @@ func listOpenAICompatibleProviderModels(ctx context.Context, provider config.Thi
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("Authorization", "Bearer "+strings.TrimSpace(provider.APIKey))
 
-	client := &http.Client{Timeout: 15 * time.Second}
+	client := &http.Client{Timeout: 5 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
 		return nil, err

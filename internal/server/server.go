@@ -18,6 +18,7 @@ import (
 	"github.com/opencsgs/csghub-lite/internal/config"
 	"github.com/opencsgs/csghub-lite/internal/convert"
 	"github.com/opencsgs/csghub-lite/internal/dataset"
+	"github.com/opencsgs/csghub-lite/pkg/api"
 	"github.com/opencsgs/csghub-lite/internal/inference"
 	"github.com/opencsgs/csghub-lite/internal/model"
 )
@@ -77,6 +78,11 @@ type Server struct {
 	cloudRefreshMu   sync.Mutex
 	cloudRefreshAt   time.Time
 	cloudRefreshWait chan struct{}
+
+	// Cache for third-party provider models to avoid repeated API calls.
+	thirdPartyModelsCache    []api.ModelInfo
+	thirdPartyModelsCacheAt  time.Time
+	thirdPartyModelsCacheMu  sync.Mutex
 }
 
 func New(cfg *config.Config, version string) *Server {
