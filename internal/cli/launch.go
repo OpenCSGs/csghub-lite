@@ -30,6 +30,7 @@ type launchTarget struct {
 type launchOptions struct {
 	SkipConfirm bool
 	Model       string
+	Gateway     string
 }
 
 const launchSupportedApps = "claude-code, open-code, codex, pi, openclaw, csgclaw, dify, anythingllm"
@@ -54,7 +55,9 @@ Use ` + "`--`" + ` to pass through arguments to the launched app binary.`,
   csghub-lite launch pi
   csghub-lite launch csgclaw
   csghub-lite launch open-code -- --help
-  csghub-lite launch anythingllm`,
+  csghub-lite launch anythingllm
+  csghub-lite launch claude-code --gateway http://192.168.1.18:11435
+  csghub-lite launch pi --gateway 192.168.1.18:11435 --model Qwen/Qwen3-8B`,
 		Args: func(cmd *cobra.Command, args []string) error {
 			if len(args) == 0 {
 				return fmt.Errorf("APP is required\n\nRun 'csghub-lite launch --help' for supported apps and examples.")
@@ -68,6 +71,7 @@ Use ` + "`--`" + ` to pass through arguments to the launched app binary.`,
 
 	cmd.Flags().BoolVarP(&opts.SkipConfirm, "yes", "y", false, "Install without confirmation if the app is missing")
 	cmd.Flags().StringVar(&opts.Model, "model", "", "Use a specific local model when launching the app")
+	cmd.Flags().StringVar(&opts.Gateway, "gateway", "", "Use a remote csghub-lite gateway URL (e.g. http://192.168.1.18:11435)")
 	return cmd
 }
 
@@ -82,9 +86,25 @@ func runLaunch(cmd *cobra.Command, args []string, opts launchOptions) error {
 		return fmt.Errorf("loading config: %w", err)
 	}
 
-	serverURL, err := ensureAIAppsServer(cfg)
-	if err != nil {
-		return fmt.Errorf("starting server: %w", err)
+	var serverURL string
+	if opts.Gateway != "" {
+		// Use remote gateway if specified
+		serverURL = strings.TrimRight(strings.TrimSpace(opts.Gateway), "/")
+		if !strings.HasPrefix(serverURL, "http://") && !strings.HasPrefix(serverURL, "https://") {
+			serverURL = "http://" + serverURL
+		}
+		fmt.Fprintf(os.Stderr, "Using remote gateway: %s\n", serverURL)
+
+		// Verify the gateway is reachable
+		if _, err := getAIApps(serverURL); err != nil {
+			return fmt.Errorf("connecting to gateway %s: %w", serverURL, err)
+		}
+	} else {
+		// Use local server
+		serverURL, err = ensureAIAppsServer(cfg)
+		if err != nil {
+			return fmt.Errorf("starting server: %w", err)
+		}
 	}
 
 	app, err := getAIAppInfo(serverURL, target.AppID)
