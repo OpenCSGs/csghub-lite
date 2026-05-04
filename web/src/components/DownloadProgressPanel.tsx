@@ -1,5 +1,5 @@
 import { locale, t } from "../i18n";
-import { clearDownloadTask, startDownload } from "../downloads";
+import { clearDownloadTask, pauseDownload, startDownload } from "../downloads";
 import type { DownloadTask } from "../downloads";
 
 export function DownloadInlineStatus({ task }: { task: DownloadTask }) {
@@ -26,6 +26,7 @@ export function DownloadTableCell({ task, onComplete }: { task?: DownloadTask; o
   }
   const isComplete = isDownloadComplete(task);
   const canResume = task.status === "paused" || task.status === "error";
+  const isDownloading = task.status === "downloading";
   return (
     <div class="min-w-[180px] max-w-[260px]">
       <div class="flex items-center justify-between gap-2 mb-1">
@@ -44,7 +45,15 @@ export function DownloadTableCell({ task, onComplete }: { task?: DownloadTask; o
             {t("downloads.resume")}
           </button>
         )}
-        {!isComplete && task.status !== "downloading" && (
+        {!isComplete && isDownloading && (
+          <button
+            onClick={() => pauseDownload(task.kind, task.name)}
+            class="text-xs text-indigo-600 hover:text-indigo-700 font-medium"
+          >
+            {t("downloads.pause")}
+          </button>
+        )}
+        {!isComplete && !isDownloading && (
           <button
             onClick={() => clearDownloadTask(task)}
             class="text-xs text-gray-400 hover:text-gray-600"

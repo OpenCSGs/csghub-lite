@@ -148,8 +148,30 @@ export function getDownloadTasks(kind?: DownloadKind): DownloadTask[] {
 }
 
 export function clearDownloadTask(task: DownloadTask) {
-  if (task.status === "downloading") return;
+  if (task.status === "downloading") {
+    // 先暂停再清除
+    pauseDownload(task.kind, task.name);
+  }
   removeTask(task.key);
+}
+
+export function pauseDownload(kind: DownloadKind, name: string) {
+  const key = taskKey(kind, name);
+  const controller = activeControllers.get(key);
+  if (controller) {
+    controller.abort();
+    activeControllers.delete(key);
+  }
+
+  const current = downloadTasks.value[key];
+  if (current && current.status === "downloading") {
+    setTask({
+      ...current,
+      status: "paused",
+      statusText: "paused",
+      updatedAt: nowISO(),
+    });
+  }
 }
 
 export function startDownload(kind: DownloadKind, name: string, onComplete?: () => void): boolean {

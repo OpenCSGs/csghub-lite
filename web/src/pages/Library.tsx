@@ -4,7 +4,7 @@ import { deleteModel, getPs, loadModel, searchLocalModels } from "../api/client"
 import type { LoadModelOptions, ModelInfo, RunningModel } from "../api/client";
 import { locale, t } from "../i18n";
 import { DownloadTableCell } from "../components/DownloadProgressPanel";
-import { getDownloadTask, getDownloadTasks, hasActiveDownload, clearDownloadTask } from "../downloads";
+import { getDownloadTask, getDownloadTasks, hasActiveDownload, clearDownloadTask, pauseDownload, startDownload } from "../downloads";
 import type { DownloadTask } from "../downloads";
 
 type FormatFilter = "all" | "gguf" | "safetensors";
@@ -415,10 +415,34 @@ export function Library() {
                   </td>
                   <td class="px-4 py-3">
                     <div class="flex items-center justify-end gap-3 flex-wrap">
-                      <button disabled={downloading || downloadOnly} onClick={() => handleDelete(m.name)} class="text-gray-500 hover:text-red-600 text-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
+                      <button
+                        disabled={task?.status === "downloading"}
+                        onClick={() => {
+                          if (task && task.status !== "downloading") {
+                            clearDownloadTask(task);
+                          }
+                          handleDelete(m.name);
+                        }}
+                        class="text-gray-500 hover:text-red-600 text-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
                         {t("lib.delete")}
                       </button>
-                      {downloadOnly ? (
+                      {task?.status === "downloading" ? (
+                        <button
+                          onClick={() => pauseDownload(task.kind, task.name)}
+                          class="inline-flex items-center justify-center w-16 px-3 py-1 text-xs rounded bg-indigo-600 text-white hover:bg-indigo-700 transition-colors font-medium"
+                        >
+                          {t("downloads.pause")}
+                        </button>
+                      ) : task?.status === "paused" || task?.status === "error" ? (
+                        <button
+                          onClick={() => startDownload(task.kind, task.name, () => void loadModels())}
+                          disabled={hasActiveDownload.value && getDownloadTask("model", task.name)?.status !== "paused"}
+                          class="inline-flex items-center justify-center w-16 px-3 py-1 text-xs rounded bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-50 transition-colors font-medium"
+                        >
+                          {t("downloads.resume")}
+                        </button>
+                      ) : downloadOnly ? (
                         <span class="inline-flex items-center justify-center w-16 px-3 py-1 text-xs rounded bg-gray-50 text-gray-400 font-medium">
                           —
                         </span>
@@ -436,7 +460,7 @@ export function Library() {
                       ) : (
                         <button
                           onClick={() => openRunDialog(m)}
-                          disabled={!!loadingRun.value || downloading}
+                          disabled={!!loadingRun.value || hasActiveDownload.value}
                           class="inline-flex items-center justify-center w-16 px-3 py-1 text-xs rounded bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-50 transition-colors font-medium"
                         >
                           {t("lib.run")}

@@ -111,6 +111,7 @@ const en: Record<string, string> = {
   "downloads.failed": "Failed",
   "downloads.done": "Done",
   "downloads.resume": "Continue",
+  "downloads.pause": "Pause",
   "downloads.clear": "Clear",
 
   // AI Apps
@@ -568,6 +569,7 @@ const zh: Record<string, string> = {
   "downloads.failed": "失败",
   "downloads.done": "完成",
   "downloads.resume": "继续下载",
+  "downloads.pause": "暂停",
   "downloads.clear": "清除",
 
   // AI Apps
