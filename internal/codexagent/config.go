@@ -27,58 +27,67 @@ func SyncConfig(serverURL, apiKey, selectedModelID string, models []api.ModelInf
 	}
 
 	// Read existing config to preserve user settings like trust_level
-	existing := make(map[string]string)
-	existingSections := make(map[string]map[string]string)
+	existing := make(map[string]tomlValue)
 	if data, err := os.ReadFile(configPath); err == nil {
-		parseTomlFile(string(data), existing, existingSections)
+		parseTomlFile(string(data), existing)
 	}
 
 	// Update provider settings
 	baseURL := strings.TrimRight(serverURL, "/") + "/v1"
-	existing["model_provider"] = ProviderID
-	existing["model"] = strings.TrimSpace(selectedModelID)
-
-	// Write model_providers section
-	if existingSections["model_providers"] == nil {
-		existingSections["model_providers"] = make(map[string]string)
-	}
-	providerPrefix := fmt.Sprintf("model_providers.%s.", ProviderID)
-	existingSections["model_providers"][providerPrefix+"name"] = "OpenCSG"
-	existingSections["model_providers"][providerPrefix+"base_url"] = baseURL
-	existingSections["model_providers"][providerPrefix+"api_key"] = strings.TrimSpace(apiKey)
-	existingSections["model_providers"][providerPrefix+"supports_websockets"] = "false"
+	existing["model_provider"] = stringVal(ProviderID)
+	existing["model"] = stringVal(strings.TrimSpace(selectedModelID))
+	existing["model_providers."+ProviderID+".name"] = stringVal("OpenCSG")
+	existing["model_providers."+ProviderID+".base_url"] = stringVal(baseURL)
+	existing["model_providers."+ProviderID+".api_key"] = stringVal(strings.TrimSpace(apiKey))
+	existing["model_providers."+ProviderID+".supports_websockets"] = boolVal(false)
 
 	// Write model catalog
 	modelCatalogPath, err := writeModelCatalog(models)
 	if err != nil {
 		return err
 	}
-	existing["model_catalog_json"] = modelCatalogPath
+	existing["model_catalog_json"] = stringVal(modelCatalogPath)
 
-	// Build TOML content
+	// Build TOML content, grouping dotted keys into sections
 	var buf strings.Builder
+	topLevel := make(map[string]tomlValue)
+	sections := make(map[string]map[string]tomlValue)
+
 	for key, value := range existing {
-		buf.WriteString(fmt.Sprintf("%s = %q\n", key, value))
-	}
-	// Write model_providers section keys
-	for sectionName, section := range existingSections {
-		if sectionName == "model_providers" {
-			for key, value := range section {
-				buf.WriteString(fmt.Sprintf("%s = %q\n", key, value))
+		// Check if this is a dotted key like "model_providers.csghub_lite.name"
+		parts := strings.Split(key, ".")
+		if len(parts) >= 2 && (parts[0] == "model_providers" || parts[0] == "projects") {
+			sectionName := parts[0]
+			if len(parts) >= 2 {
+				// For model_providers.X.name, section is [model_providers.X]
+				sectionName = parts[0] + "." + parts[1]
 			}
+			if sections[sectionName] == nil {
+				sections[sectionName] = make(map[string]tomlValue)
+			}
+			// Key within section is the remaining parts
+			sectionKey := strings.Join(parts[2:], ".")
+			if len(parts) == 2 {
+				// For model_providers.X, the key is just parts[1], but this shouldn't happen
+				// Actually for model_provider (single key), it's top-level
+				sectionKey = parts[1]
+			}
+			sections[sectionName][sectionKey] = value
+		} else {
+			topLevel[key] = value
 		}
 	}
-	// Preserve project sections
-	for sectionName, section := range existingSections {
-		if strings.HasPrefix(sectionName, "projects.") {
-			buf.WriteString(fmt.Sprintf("[%s]\n", sectionName))
-			for key, value := range section {
-				if !strings.HasPrefix(key, sectionName+".") {
-					continue
-				}
-				shortKey := strings.TrimPrefix(key, sectionName+".")
-				buf.WriteString(fmt.Sprintf("%s = %q\n", shortKey, value))
-			}
+
+	// Write top-level keys
+	for key, value := range topLevel {
+		buf.WriteString(formatTomlKV(key, value))
+	}
+
+	// Write sections
+	for sectionName, section := range sections {
+		buf.WriteString(fmt.Sprintf("[%s]\n", sectionName))
+		for key, value := range section {
+			buf.WriteString(formatTomlKV(key, value))
 		}
 	}
 
@@ -87,6 +96,27 @@ func SyncConfig(serverURL, apiKey, selectedModelID string, models []api.ModelInf
 		return err
 	}
 	return os.WriteFile(configPath, data, 0o644)
+}
+
+type tomlValue struct {
+	isBool   bool
+	boolVal  bool
+	strVal   string
+}
+
+func stringVal(s string) tomlValue {
+	return tomlValue{strVal: s}
+}
+
+func boolVal(b bool) tomlValue {
+	return tomlValue{isBool: true, boolVal: b}
+}
+
+func formatTomlKV(key string, value tomlValue) string {
+	if value.isBool {
+		return fmt.Sprintf("%s = %v\n", key, value.boolVal)
+	}
+	return fmt.Sprintf("%s = %q\n", key, value.strVal)
 }
 
 // ConfigPath returns the path to Codex config.toml.
@@ -188,8 +218,9 @@ type truncationPolicy struct {
 	Limit int64  `json:"limit"`
 }
 
-// parseTomlFile is a simple TOML parser that extracts key=value pairs and section headers.
-func parseTomlFile(content string, kv map[string]string, sections map[string]map[string]string) {
+// parseTomlFile is a simple TOML parser that extracts key=value pairs.
+// Dotted keys like model_providers.X.name are stored with their full path.
+func parseTomlFile(content string, kv map[string]tomlValue) {
 	var currentSection string
 	for _, line := range strings.Split(content, "\n") {
 		line = strings.TrimSpace(line)
@@ -198,27 +229,34 @@ func parseTomlFile(content string, kv map[string]string, sections map[string]map
 		}
 		if strings.HasPrefix(line, "[") && strings.HasSuffix(line, "]") {
 			currentSection = strings.Trim(line, "[]")
-			if sections[currentSection] == nil {
-				sections[currentSection] = make(map[string]string)
-			}
 			continue
 		}
 		if idx := strings.Index(line, "="); idx > 0 {
 			key := strings.TrimSpace(line[:idx])
 			value := strings.TrimSpace(line[idx+1:])
-			// Remove quotes from value
-			if strings.HasPrefix(value, "\"") && strings.HasSuffix(value, "\"") {
-				value = strings.Trim(value, "\"")
-			}
-			if currentSection != "" {
-				// For sections like [projects."/path"], store as section.key
-				fullKey := currentSection + "." + key
-				if sections[currentSection] == nil {
-					sections[currentSection] = make(map[string]string)
+			// Parse the value
+			if value == "true" {
+				if currentSection != "" {
+					kv[currentSection+"."+key] = boolVal(true)
+				} else {
+					kv[key] = boolVal(true)
 				}
-				sections[currentSection][fullKey] = value
+			} else if value == "false" {
+				if currentSection != "" {
+					kv[currentSection+"."+key] = boolVal(false)
+				} else {
+					kv[key] = boolVal(false)
+				}
 			} else {
-				kv[key] = value
+				// Remove quotes from string value
+				if strings.HasPrefix(value, "\"") && strings.HasSuffix(value, "\"") {
+					value = strings.Trim(value, "\"")
+				}
+				if currentSection != "" {
+					kv[currentSection+"."+key] = stringVal(value)
+				} else {
+					kv[key] = stringVal(value)
+				}
 			}
 		}
 	}
