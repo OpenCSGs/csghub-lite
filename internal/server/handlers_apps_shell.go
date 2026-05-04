@@ -23,7 +23,9 @@ import (
 	"github.com/gorilla/websocket"
 
 	"github.com/opencsgs/csghub-lite/internal/claudeagent"
+	"github.com/opencsgs/csghub-lite/internal/codexagent"
 	"github.com/opencsgs/csghub-lite/internal/config"
+	"github.com/opencsgs/csghub-lite/internal/opencodeagent"
 	"github.com/opencsgs/csghub-lite/internal/piagent"
 	"github.com/opencsgs/csghub-lite/pkg/api"
 )
@@ -779,25 +781,29 @@ func (s *Server) prepareAIAppShellLaunch(target aiAppOpenTarget, modelID string,
 			Dir: workingDir,
 		}, nil
 	case "open-code":
-		configPath, err := writeOpenCodeWebLaunchConfig(serverURL, modelID, modelIDs)
-		if err != nil {
-			return aiAppPreparedLaunch{}, err
+		models := make([]api.ModelInfo, 0, len(modelIDs))
+		for _, modelID := range modelIDs {
+			models = append(models, api.ModelInfo{Model: modelID})
+		}
+		if err := opencodeagent.SyncConfig(serverURL, openClawProviderAPIKey(s.cfg.Token), modelID, models); err != nil {
+			log.Printf("AI APP open-code: syncing config failed: %v", err)
 		}
 		return aiAppPreparedLaunch{
 			Binary: binary,
-			Env: envWithOverridesAndUnset(aiAppShellEnvOverrides(map[string]string{
-				"OPENCODE_CONFIG": configPath,
-			}), "NO_COLOR"),
-			Dir: workingDir,
+			Env:    envWithOverridesAndUnset(aiAppShellEnvOverrides(nil), "NO_COLOR"),
+			Dir:    workingDir,
 		}, nil
 	case "codex":
-		configArgs, err := s.codexShellConfigArgs(serverURL, modelIDs)
-		if err != nil {
-			return aiAppPreparedLaunch{}, err
+		models := make([]api.ModelInfo, 0, len(modelIDs))
+		for _, modelID := range modelIDs {
+			models = append(models, api.ModelInfo{Model: modelID})
+		}
+		if err := codexagent.SyncConfig(serverURL, openClawProviderAPIKey(s.cfg.Token), modelID, models); err != nil {
+			log.Printf("AI APP codex: syncing config failed: %v", err)
 		}
 		return aiAppPreparedLaunch{
 			Binary: binary,
-			Args:   append(configArgs, "--no-alt-screen", "--model", modelID),
+			Args:   []string{"--no-alt-screen", "--model", modelID},
 			Env:    envWithOverridesAndUnset(aiAppShellEnvOverrides(nil), "NO_COLOR"),
 			Dir:    workingDir,
 		}, nil
