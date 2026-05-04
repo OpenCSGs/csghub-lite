@@ -869,6 +869,7 @@ func TestPrepareAIAppShellLaunchSetsTerminalEnvForClaudeCode(t *testing.T) {
 	}
 	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
 	t.Setenv("NO_COLOR", "1")
+	t.Setenv("ANTHROPIC_AUTH_TOKEN", "old-token")
 
 	s := New(&config.Config{ListenAddr: ":11435"}, "test")
 	workDir := t.TempDir()
@@ -896,12 +897,16 @@ func TestPrepareAIAppShellLaunchSetsTerminalEnvForClaudeCode(t *testing.T) {
 	if envHasKey(prepared.Env, "NO_COLOR") {
 		t.Fatalf("NO_COLOR should be removed from web shell environment: %#v", prepared.Env)
 	}
+	if envHasKey(prepared.Env, "ANTHROPIC_AUTH_TOKEN") {
+		t.Fatalf("ANTHROPIC_AUTH_TOKEN should be removed from web shell environment: %#v", prepared.Env)
+	}
 
 	settingsJSON := argValue(prepared.Args, "--settings")
 	if settingsJSON == "" {
 		t.Fatalf("expected --settings in args: %#v", prepared.Args)
 	}
 	var payload struct {
+		Env         map[string]string `json:"env"`
 		Permissions struct {
 			DefaultMode string `json:"defaultMode"`
 		} `json:"permissions"`
@@ -911,6 +916,9 @@ func TestPrepareAIAppShellLaunchSetsTerminalEnvForClaudeCode(t *testing.T) {
 	}
 	if payload.Permissions.DefaultMode != "acceptEdits" {
 		t.Fatalf("permissions.defaultMode = %q, want acceptEdits", payload.Permissions.DefaultMode)
+	}
+	if _, ok := payload.Env["ANTHROPIC_AUTH_TOKEN"]; ok {
+		t.Fatalf("ANTHROPIC_AUTH_TOKEN should not be included in settings json")
 	}
 }
 

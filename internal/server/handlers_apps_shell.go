@@ -22,8 +22,8 @@ import (
 	"github.com/charmbracelet/x/xpty"
 	"github.com/gorilla/websocket"
 
-	"github.com/opencsgs/csghub-lite/internal/config"
 	"github.com/opencsgs/csghub-lite/internal/claudeagent"
+	"github.com/opencsgs/csghub-lite/internal/config"
 	"github.com/opencsgs/csghub-lite/internal/piagent"
 	"github.com/opencsgs/csghub-lite/pkg/api"
 )
@@ -761,7 +761,7 @@ func (s *Server) prepareAIAppShellLaunch(target aiAppOpenTarget, modelID string,
 
 	switch target.AppID {
 	case "claude-code":
-		if err := claudeagent.SyncConfig(serverURL, "csghub-lite"); err != nil {
+		if err := claudeagent.SyncConfig(serverURL, "csghub-lite", modelID); err != nil {
 			log.Printf("AI APP claude-code: syncing config failed: %v", err)
 		}
 		return aiAppPreparedLaunch{
@@ -771,12 +771,11 @@ func (s *Server) prepareAIAppShellLaunch(target aiAppOpenTarget, modelID string,
 				"--settings", claudeLaunchSettingsJSON(serverURL),
 			},
 			Env: envWithOverridesAndUnset(aiAppShellEnvOverrides(map[string]string{
-				"ANTHROPIC_BASE_URL":   serverURL,
-				"ANTHROPIC_AUTH_TOKEN": "csghub-lite",
-				"ANTHROPIC_API_KEY":    "csghub-lite",
-				"CLAUDE_API_BASE_URL":  serverURL,
-				"CLAUDE_API_KEY":       "csghub-lite",
-			}), "NO_COLOR"),
+				"ANTHROPIC_BASE_URL":  serverURL,
+				"ANTHROPIC_API_KEY":   "csghub-lite",
+				"CLAUDE_API_BASE_URL": serverURL,
+				"CLAUDE_API_KEY":      "csghub-lite",
+			}), "NO_COLOR", "ANTHROPIC_AUTH_TOKEN"),
 			Dir: workingDir,
 		}, nil
 	case "open-code":
@@ -864,11 +863,10 @@ func normalizeAIAppWorkDir(requested string) (string, error) {
 func claudeLaunchSettingsJSON(serverURL string) string {
 	payload := map[string]interface{}{
 		"env": map[string]string{
-			"ANTHROPIC_BASE_URL":   serverURL,
-			"ANTHROPIC_AUTH_TOKEN": "csghub-lite",
-			"ANTHROPIC_API_KEY":    "csghub-lite",
-			"CLAUDE_API_BASE_URL":  serverURL,
-			"CLAUDE_API_KEY":       "csghub-lite",
+			"ANTHROPIC_BASE_URL":  serverURL,
+			"ANTHROPIC_API_KEY":   "csghub-lite",
+			"CLAUDE_API_BASE_URL": serverURL,
+			"CLAUDE_API_KEY":      "csghub-lite",
 		},
 		"permissions": map[string]string{
 			"defaultMode": "acceptEdits",

@@ -14,17 +14,20 @@ const (
 // SyncConfig persists Claude Code settings to ~/.claude/settings.json
 // so that subsequent launches without csghub-lite will still use the
 // configured API endpoint.
-func SyncConfig(serverURL, apiKey string) error {
+func SyncConfig(serverURL, apiKey, modelID string) error {
 	settingsPath, err := SettingsPath()
 	if err != nil {
 		return err
 	}
 
 	return syncJSONFile(settingsPath, func(doc map[string]interface{}) {
+		if modelID = strings.TrimSpace(modelID); modelID != "" {
+			doc["model"] = modelID
+		}
 		env := ensureObject(doc, "env")
 		env["ANTHROPIC_BASE_URL"] = strings.TrimRight(serverURL, "/")
 		env["ANTHROPIC_API_KEY"] = strings.TrimSpace(apiKey)
-		env["ANTHROPIC_AUTH_TOKEN"] = strings.TrimSpace(apiKey)
+		delete(env, "ANTHROPIC_AUTH_TOKEN")
 		env["CLAUDE_API_BASE_URL"] = strings.TrimRight(serverURL, "/")
 		env["CLAUDE_API_KEY"] = strings.TrimSpace(apiKey)
 	})

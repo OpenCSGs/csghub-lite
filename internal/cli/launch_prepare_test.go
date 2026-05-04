@@ -576,8 +576,61 @@ func TestClaudeLaunchSettingsJSONIncludesAcceptEditsMode(t *testing.T) {
 	if payload.Env["ANTHROPIC_BASE_URL"] != "http://127.0.0.1:11435" {
 		t.Fatalf("ANTHROPIC_BASE_URL = %q, want test server URL", payload.Env["ANTHROPIC_BASE_URL"])
 	}
+	if _, ok := payload.Env["ANTHROPIC_AUTH_TOKEN"]; ok {
+		t.Fatalf("ANTHROPIC_AUTH_TOKEN should not be included with ANTHROPIC_API_KEY")
+	}
 	if payload.Permissions.DefaultMode != "acceptEdits" {
 		t.Fatalf("permissions.defaultMode = %q, want acceptEdits", payload.Permissions.DefaultMode)
+	}
+}
+
+func TestPrepareClaudeLaunchPersistsSettingsEnv(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	binDir := t.TempDir()
+	commandPath := filepath.Join(binDir, "claude")
+	content := "#!/bin/sh\nexit 0\n"
+	if runtime.GOOS == "windows" {
+		commandPath = filepath.Join(binDir, "claude.cmd")
+		content = "@echo off\r\nexit /b 0\r\n"
+	}
+	if err := os.WriteFile(commandPath, []byte(content), 0o755); err != nil {
+		t.Fatalf("write fake claude: %v", err)
+	}
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	_, err := prepareClaudeLaunch(launchTarget{
+		AppID:       "claude-code",
+		DisplayName: "Claude Code",
+		Binaries:    []string{"claude"},
+	}, "http://127.0.0.1:11435", "glm-5(infini-ai)", nil)
+	if err != nil {
+		t.Fatalf("prepareClaudeLaunch returned error: %v", err)
+	}
+
+	data, err := os.ReadFile(filepath.Join(home, ".claude", "settings.json"))
+	if err != nil {
+		t.Fatalf("read settings: %v", err)
+	}
+	var settings struct {
+		Model string            `json:"model"`
+		Env   map[string]string `json:"env"`
+	}
+	if err := json.Unmarshal(data, &settings); err != nil {
+		t.Fatalf("decode settings: %v", err)
+	}
+	if settings.Env["ANTHROPIC_BASE_URL"] != "http://127.0.0.1:11435" {
+		t.Fatalf("ANTHROPIC_BASE_URL = %q, want local server URL", settings.Env["ANTHROPIC_BASE_URL"])
+	}
+	if settings.Model != "glm-5(infini-ai)" {
+		t.Fatalf("model = %q, want glm-5(infini-ai)", settings.Model)
+	}
+	if settings.Env["ANTHROPIC_API_KEY"] != "csghub-lite" {
+		t.Fatalf("ANTHROPIC_API_KEY = %q, want csghub-lite", settings.Env["ANTHROPIC_API_KEY"])
+	}
+	if _, ok := settings.Env["ANTHROPIC_AUTH_TOKEN"]; ok {
+		t.Fatalf("ANTHROPIC_AUTH_TOKEN should not be persisted")
 	}
 }
 

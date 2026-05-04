@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/opencsgs/csghub-lite/internal/claudeagent"
 	"github.com/opencsgs/csghub-lite/internal/config"
 	"github.com/opencsgs/csghub-lite/internal/piagent"
 	"github.com/opencsgs/csghub-lite/pkg/api"
@@ -228,17 +229,19 @@ func prepareClaudeLaunch(target launchTarget, serverURL, modelID string, userArg
 	if err != nil {
 		return preparedLaunch{}, fmt.Errorf("%s is installed, but the launch command was not found on PATH", target.DisplayName)
 	}
+	if err := claudeagent.SyncConfig(serverURL, "csghub-lite", modelID); err != nil {
+		return preparedLaunch{}, fmt.Errorf("syncing Claude Code settings: %w", err)
+	}
 
 	args := append([]string{}, userArgs...)
 	args = prependArgsIfMissing(args, []string{"--model", modelID}, "--model", "-m")
 	args = prependArgsIfMissing(args, []string{"--settings", claudeLaunchSettingsJSON(serverURL)}, "--settings")
-	env := envWithOverrides(map[string]string{
-		"ANTHROPIC_BASE_URL":   serverURL,
-		"ANTHROPIC_AUTH_TOKEN": "csghub-lite",
-		"ANTHROPIC_API_KEY":    "csghub-lite",
-		"CLAUDE_API_BASE_URL":  serverURL,
-		"CLAUDE_API_KEY":       "csghub-lite",
-	})
+	env := envWithOverridesAndUnset(map[string]string{
+		"ANTHROPIC_BASE_URL":  serverURL,
+		"ANTHROPIC_API_KEY":   "csghub-lite",
+		"CLAUDE_API_BASE_URL": serverURL,
+		"CLAUDE_API_KEY":      "csghub-lite",
+	}, "ANTHROPIC_AUTH_TOKEN")
 	return preparedLaunch{Binary: binary, Args: args, Env: env}, nil
 }
 
@@ -430,7 +433,32 @@ func prependCodexModelCatalogConfig(args []string, models []api.ModelInfo) ([]st
 }
 
 func envWithOverrides(overrides map[string]string) []string {
-	env := append([]string{}, os.Environ()...)
+	return envWithOverridesAndUnset(overrides)
+}
+
+func envWithOverridesAndUnset(overrides map[string]string, unsetKeys ...string) []string {
+	skip := make(map[string]struct{}, len(unsetKeys))
+	for _, key := range unsetKeys {
+		key = strings.TrimSpace(key)
+		if key == "" {
+			continue
+		}
+		skip[key] = struct{}{}
+	}
+
+	base := os.Environ()
+	env := make([]string, 0, len(base)+len(overrides))
+	for _, item := range base {
+		name := item
+		if idx := strings.IndexByte(item, '='); idx >= 0 {
+			name = item[:idx]
+		}
+		if _, ok := skip[name]; ok {
+			continue
+		}
+		env = append(env, item)
+	}
+
 	for key, value := range overrides {
 		prefix := key + "="
 		replaced := false
@@ -451,11 +479,10 @@ func envWithOverrides(overrides map[string]string) []string {
 func claudeLaunchSettingsJSON(serverURL string) string {
 	payload := map[string]interface{}{
 		"env": map[string]string{
-			"ANTHROPIC_BASE_URL":   serverURL,
-			"ANTHROPIC_AUTH_TOKEN": "csghub-lite",
-			"ANTHROPIC_API_KEY":    "csghub-lite",
-			"CLAUDE_API_BASE_URL":  serverURL,
-			"CLAUDE_API_KEY":       "csghub-lite",
+			"ANTHROPIC_BASE_URL":  serverURL,
+			"ANTHROPIC_API_KEY":   "csghub-lite",
+			"CLAUDE_API_BASE_URL": serverURL,
+			"CLAUDE_API_KEY":      "csghub-lite",
 		},
 		"permissions": map[string]string{
 			"defaultMode": "acceptEdits",
