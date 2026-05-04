@@ -23,6 +23,7 @@ import (
 	"github.com/gorilla/websocket"
 
 	"github.com/opencsgs/csghub-lite/internal/config"
+	"github.com/opencsgs/csghub-lite/internal/claudeagent"
 	"github.com/opencsgs/csghub-lite/internal/piagent"
 	"github.com/opencsgs/csghub-lite/pkg/api"
 )
@@ -760,6 +761,9 @@ func (s *Server) prepareAIAppShellLaunch(target aiAppOpenTarget, modelID string,
 
 	switch target.AppID {
 	case "claude-code":
+		if err := claudeagent.SyncConfig(serverURL, "csghub-lite"); err != nil {
+			log.Printf("AI APP claude-code: syncing config failed: %v", err)
+		}
 		return aiAppPreparedLaunch{
 			Binary: binary,
 			Args: []string{
