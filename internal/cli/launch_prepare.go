@@ -14,7 +14,9 @@ import (
 	"time"
 
 	"github.com/opencsgs/csghub-lite/internal/claudeagent"
+	"github.com/opencsgs/csghub-lite/internal/codexagent"
 	"github.com/opencsgs/csghub-lite/internal/config"
+	"github.com/opencsgs/csghub-lite/internal/opencodeagent"
 	"github.com/opencsgs/csghub-lite/internal/piagent"
 	"github.com/opencsgs/csghub-lite/pkg/api"
 )
@@ -251,15 +253,15 @@ func prepareOpenCodeLaunch(target launchTarget, serverURL, modelID string, userA
 		return preparedLaunch{}, fmt.Errorf("%s is installed, but the launch command was not found on PATH", target.DisplayName)
 	}
 
-	configPath, err := writeOpenCodeLaunchConfig(serverURL, modelID)
+	models, err := getLaunchModels(serverURL)
 	if err != nil {
 		return preparedLaunch{}, err
 	}
+	if err := opencodeagent.SyncConfig(serverURL, openClawProviderAPIKey(config.Get().Token), modelID, models); err != nil {
+		return preparedLaunch{}, err
+	}
 
-	env := envWithOverrides(map[string]string{
-		"OPENCODE_CONFIG": configPath,
-	})
-	return preparedLaunch{Binary: binary, Args: append([]string{}, userArgs...), Env: env}, nil
+	return preparedLaunch{Binary: binary, Args: append([]string{}, userArgs...), Env: envWithOverrides(nil)}, nil
 }
 
 func prepareCodexLaunch(target launchTarget, serverURL, modelID string, userArgs []string) (preparedLaunch, error) {
@@ -272,13 +274,12 @@ func prepareCodexLaunch(target launchTarget, serverURL, modelID string, userArgs
 		return preparedLaunch{}, err
 	}
 
-	args := append([]string{}, userArgs...)
-	args = prependArgsIfMissing(args, []string{"--model", modelID}, "--model", "-m")
-	args = prependDefaultCodexProviderConfig(args, serverURL)
-	args, err = prependCodexModelCatalogConfig(args, models)
-	if err != nil {
+	if err := codexagent.SyncConfig(serverURL, openClawProviderAPIKey(config.Get().Token), modelID, models); err != nil {
 		return preparedLaunch{}, err
 	}
+
+	args := append([]string{}, userArgs...)
+	args = prependArgsIfMissing(args, []string{"--model", modelID}, "--model", "-m")
 
 	env := envWithOverrides(nil)
 	return preparedLaunch{Binary: binary, Args: args, Env: env}, nil
