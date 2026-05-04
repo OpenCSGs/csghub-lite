@@ -13,10 +13,13 @@ internal sites.
 
 ## Git Push Workflow
 
-When pushing to both remotes:
+This repo has two remotes: `gitlab` (internal) and `origin` (GitHub). When the
+user asks to push or says "commit and push", push to **both** remotes:
 
 1. Push to GitLab first, no proxy needed: `git push gitlab main`.
 2. Push to GitHub second, with proxy: `source ~/.myshrc && git push origin main`.
+
+Do not push to only one remote unless the user explicitly requests it.
 
 ## Download And Upload Workflow
 
