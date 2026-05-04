@@ -1,0 +1,30 @@
+{
+  "attribution": {
+    "commit": "Generated with AI\n\nCo-Authored-By: csghub-lite <xzhgan@gmail.com>",
+    "pr": ""
+  },
+  "permissions": {
+    "allow": [
+      "Bash(go build *)",
+      "Bash(go test *)",
+      "Bash(git add *)",
+      "Bash(git commit -m ' *)",
+      "Bash(make build *)",
+      "Bash(pkill -f \"csghub-lite serve\")",
+      "Bash(curl -s http://127.0.0.1:11435/v1/models)",
+      "Bash(git commit *)",
+      "Bash(git tag *)",
+      "Bash(git push *)",
+      "Bash(make release *)",
+      "Bash(git config *)",
+      "Bash(git reset *)",
+      "Bash(npm run *)",
+      "Bash(curl -s http://127.0.0.1:11435/api/health)",
+      "Bash(./scripts/push.sh *)",
+      "Bash(codex *)",
+      "Bash(opencode *)",
+      "Bash(./bin/* serve *)",
+      "Bash(git check-ignore *)"
+    ]
+  }
+}
