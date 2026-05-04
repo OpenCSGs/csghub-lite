@@ -38,7 +38,7 @@ Copilot, and Aider.
 
 - `docs/agent-guidelines/api-swagger-sync.md`
 - `docs/agent-guidelines/app-installs.md`
-- `docs/agent-guidelines/claude-oss-mirror.md`
+- `docs/agent-guidelines/ai-app-oss-mirror.md`
 - `docs/agent-guidelines/cross-platform.md`
 - `docs/agent-guidelines/frontend-i18n.md`
 - `docs/agent-guidelines/go-conventions.md`

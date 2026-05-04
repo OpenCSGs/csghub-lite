@@ -1,0 +1,11 @@
+---
+description: Mirror AI app releases to StarHub OSS with versioned artifacts
+alwaysApply: true
+---
+
+# AI App OSS Mirror
+
+Canonical rule: `docs/agent-guidelines/ai-app-oss-mirror.md`.
+
+Follow that file. Do not add duplicated rule text here; update the canonical
+guideline instead.

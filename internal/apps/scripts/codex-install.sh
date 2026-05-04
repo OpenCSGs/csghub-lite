@@ -266,15 +266,7 @@ install_via_mirrored_archive() {
     fi
   fi
 
-  if [[ "$os" == "linux" ]]; then
-    if [[ -f /lib/libc.musl-x86_64.so.1 || -f /lib/libc.musl-aarch64.so.1 ]] || ldd /bin/ls 2>&1 | grep -q musl; then
-      platform="linux-${arch}-musl"
-    else
-      platform="linux-${arch}"
-    fi
-  else
-    platform="${os}-${arch}"
-  fi
+  platform="${os}-${arch}"
 
   WORKDIR="$(mktemp -d "${TMPDIR:-/tmp}/codex-install.XXXXXX")"
   dist_base_url="$(trim_trailing_slash "$DIST_BASE_URL")"

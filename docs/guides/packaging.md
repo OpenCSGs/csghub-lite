@@ -65,61 +65,73 @@ make package
 - GitLab 上传会自动从 `local/secrets.env` 读取 `GITLAB_TOKEN`（如果环境变量未设置）。
 - 如果你希望仓库中的 `Formula/csghub-lite.rb` 始终指向“最新正式版”，请在发布完成后提交该文件的更新。
 
-## Claude Code OSS 镜像
+## AI App OSS 镜像
 
-`csghub-lite` 内置的 Claude Code 安装脚本现在默认读取 StarHub OSS 上的版本化镜像，而不是优先依赖本机 Node/npm。镜像同步脚本位于 `scripts/sync-claude-code-oss.sh`，会自动读取 `local/secrets.env` 中的 `STARHUB_OSS_*` 和 `STARHUB_CLAUDE_*` 配置。
+`csghub-lite` 内置的 AI 应用安装脚本默认读取 StarHub OSS 上的版本化镜像。镜像同步脚本位于 `scripts/sync-ai-app-oss.sh`，会自动读取 `local/secrets.env` 中的 `STARHUB_OSS_*` 配置。
 
-当前镜像中的平台二进制同时就是可直接安装的 Claude Code runtime。安装时会校验 checksum，然后直接写入本地版本目录并配置 `claude` 启动命令，不再额外调用上游 `claude install`，因此只要能访问 OSS 镜像，就不需要再访问外网下载官方安装链路。
+支持的应用：
 
-同步最新版本：
+| 应用 | 来源 | 同步命令 |
+|------|------|--------|
+| claude-code | Anthropic GCS | `./scripts/sync-ai-app-oss.sh --app claude-code` |
+| open-code | GitHub: anomalyco/opencode | `./scripts/sync-ai-app-oss.sh --app open-code` |
+| codex | GitHub: openai/codex | `./scripts/sync-ai-app-oss.sh --app codex` |
+| csgclaw | GitHub: OpenCSGs/csgclaw | `./scripts/sync-ai-app-oss.sh --app csgclaw` |
 
-```bash
-./scripts/sync-claude-code-oss.sh
+### 同步工作流
+
+1. **先检查版本是否需要更新**：对比上游版本与镜像版本，避免重复下载。
+
+   ```bash
+   # Claude Code
+   curl -fsSL https://storage.googleapis.com/claude-code-dist-86c565f3-f756-42ad-8dfa-d59b1c096819/claude-code-releases/latest
+   curl -fsSL https://opencsg-public-resource.oss-cn-beijing.aliyuncs.com/claude-code-releases/latest
+   
+   # GitHub releases (open-code, codex, csgclaw)
+   gh release view --repo anomalyco/opencode --json tagName --jq '.tagName'
+   gh release view --repo openai/codex --json tagName --jq '.tagName'
+   gh release view --repo OpenCSGs/csgclaw --json tagName --jq '.tagName'
+   ```
+
+2. **逐个同步应用**：每个应用下载需要几分钟，建议单独同步以避免超时。
+
+   ```bash
+   source ~/.myshrc  # 加载代理用于外网下载
+   
+   ./scripts/sync-ai-app-oss.sh --app claude-code
+   ./scripts/sync-ai-app-oss.sh --app open-code
+   ./scripts/sync-ai-app-oss.sh --app codex
+   ./scripts/sync-ai-app-oss.sh --app csgclaw
+   ```
+
+3. **版本一致则跳过**：如果镜像的 `latest` 与上游版本一致，无需重新同步。
+
+### 镜像结构
+
+每个应用遵循统一的版本化布局：
+
+```text
+<app>-releases/latest
+<app>-releases/<version>/manifest.json
+<app>-releases/<version>/<platform>/<binary>
 ```
+
+### 同步指定版本
 
 同步指定版本但不改写 `latest`：
 
 ```bash
-./scripts/sync-claude-code-oss.sh --version 2.1.90 --no-update-latest
+./scripts/sync-ai-app-oss.sh --app claude-code --version 2.1.90 --no-update-latest
 ```
 
-同步完成后，OSS 中会生成如下结构：
+### 切换测试镜像
 
-```text
-claude-code-releases/latest
-claude-code-releases/<version>/manifest.json
-claude-code-releases/<version>/<platform>/<binary>
-```
+如需临时切换测试镜像，可在安装前设置环境变量：
 
-如果需要临时切换测试镜像，可在安装 Claude Code 前设置 `CSGHUB_LITE_CLAUDE_DIST_BASE_URL`。
-
-## OpenCode / Codex OSS 镜像
-
-对于同样提供三平台发布资产的 CLI（当前包括 `open-code` 和 `codex`），可以使用统一脚本 `scripts/sync-ai-app-oss.sh` 同步到 OSS。脚本会读取 GitHub Release 资产、校验上游 SHA256 digest，然后写入各自的版本化前缀。
-
-同步最新版本：
-
-```bash
-./scripts/sync-ai-app-oss.sh --app open-code --app codex
-```
-
-同步指定应用的指定版本：
-
-```bash
-./scripts/sync-ai-app-oss.sh --app codex --version 0.118.0
-```
-
-默认前缀如下，可通过 `local/secrets.env` 覆盖：
-
-```text
-open-code-releases/<version>/<platform>/<asset>
-codex-releases/<version>/<platform>/<asset>
-```
-
-安装脚本默认也会读取这些 OSS 镜像，并在本地解压后配置 `opencode` / `codex` 启动命令，不再依赖本机 Node/npm。仅在需要测试其他镜像时，才需要额外设置：
-
+- `CSGHUB_LITE_CLAUDE_DIST_BASE_URL`
 - `CSGHUB_LITE_OPEN_CODE_DIST_BASE_URL`
 - `CSGHUB_LITE_CODEX_DIST_BASE_URL`
+- `CSGHUB_LITE_CSGCLAW_DIST_BASE_URL`
 
 ## GitLab 补发
 
