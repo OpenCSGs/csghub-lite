@@ -45,6 +45,51 @@ func TestSyncConfigWritesEnvSettings(t *testing.T) {
 	if _, ok := settings.Env["ANTHROPIC_AUTH_TOKEN"]; ok {
 		t.Fatalf("ANTHROPIC_AUTH_TOKEN should not be written with ANTHROPIC_API_KEY")
 	}
+
+	claudeJSON := filepath.Join(home, ".claude.json")
+	raw, err := os.ReadFile(claudeJSON)
+	if err != nil {
+		t.Fatalf("read %s: %v", claudeJSON, err)
+	}
+	var state map[string]interface{}
+	if err := json.Unmarshal(raw, &state); err != nil {
+		t.Fatalf("decode claude.json: %v", err)
+	}
+	if v, ok := state["hasCompletedOnboarding"].(bool); !ok || !v {
+		t.Fatalf("hasCompletedOnboarding = %#v, want true", state["hasCompletedOnboarding"])
+	}
+}
+
+func TestSyncConfigPreservesClaudeDotJSONFields(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	existing := `{"installMethod": "native", "autoUpdates": false}`
+	if err := os.WriteFile(filepath.Join(home, ".claude.json"), []byte(existing), 0o644); err != nil {
+		t.Fatalf("write claude.json: %v", err)
+	}
+
+	if err := SyncConfig("http://127.0.0.1:11435", "test-token", "x"); err != nil {
+		t.Fatalf("SyncConfig: %v", err)
+	}
+
+	raw, err := os.ReadFile(filepath.Join(home, ".claude.json"))
+	if err != nil {
+		t.Fatalf("read claude.json: %v", err)
+	}
+	var state map[string]interface{}
+	if err := json.Unmarshal(raw, &state); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if state["installMethod"] != "native" {
+		t.Fatalf("installMethod = %#v, want native", state["installMethod"])
+	}
+	if v, ok := state["autoUpdates"].(bool); !ok || v {
+		t.Fatalf("autoUpdates = %#v, want false", state["autoUpdates"])
+	}
+	if v, ok := state["hasCompletedOnboarding"].(bool); !ok || !v {
+		t.Fatalf("hasCompletedOnboarding = %#v, want true", state["hasCompletedOnboarding"])
+	}
 }
 
 func TestSyncConfigPreservesExistingSettings(t *testing.T) {

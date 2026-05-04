@@ -20,7 +20,7 @@ func SyncConfig(serverURL, apiKey, modelID string) error {
 		return err
 	}
 
-	return syncJSONFile(settingsPath, func(doc map[string]interface{}) {
+	if err := syncJSONFile(settingsPath, func(doc map[string]interface{}) {
 		if modelID = strings.TrimSpace(modelID); modelID != "" {
 			doc["model"] = modelID
 		}
@@ -30,7 +30,15 @@ func SyncConfig(serverURL, apiKey, modelID string) error {
 		delete(env, "ANTHROPIC_AUTH_TOKEN")
 		env["CLAUDE_API_BASE_URL"] = strings.TrimRight(serverURL, "/")
 		env["CLAUDE_API_KEY"] = strings.TrimSpace(apiKey)
-	})
+	}); err != nil {
+		return err
+	}
+
+	// Claude Code 2.0.65+ can ignore ANTHROPIC_BASE_URL from settings until
+	// onboarding completes, and instead calls api.anthropic.com (breaking
+	// gateway-only setups). Mark onboarding complete in ~/.claude.json.
+	// See anthropics/claude-code#13827 and #26935.
+	return syncClaudeDotJSONOnboardingComplete()
 }
 
 // SettingsPath returns the path to Claude Code's settings.json.
@@ -72,4 +80,35 @@ func ensureObject(parent map[string]interface{}, key string) map[string]interfac
 	child := map[string]interface{}{}
 	parent[key] = child
 	return child
+}
+
+func syncClaudeDotJSONOnboardingComplete() error {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return err
+	}
+	path := filepath.Join(home, ".claude.json")
+
+	data, readErr := os.ReadFile(path)
+	doc := map[string]interface{}{}
+	if readErr == nil && len(data) > 0 {
+		if err := json.Unmarshal(data, &doc); err != nil {
+			// Avoid overwriting a malformed file; settings + launch env still apply.
+			return nil
+		}
+	} else if readErr != nil && !os.IsNotExist(readErr) {
+		return readErr
+	}
+
+	if v, ok := doc["hasCompletedOnboarding"].(bool); ok && v {
+		return nil
+	}
+	doc["hasCompletedOnboarding"] = true
+
+	out, err := json.MarshalIndent(doc, "", "  ")
+	if err != nil {
+		return err
+	}
+	out = append(out, '\n')
+	return os.WriteFile(path, out, 0o644)
 }

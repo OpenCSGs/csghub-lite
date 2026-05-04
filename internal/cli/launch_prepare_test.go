@@ -632,6 +632,19 @@ func TestPrepareClaudeLaunchPersistsSettingsEnv(t *testing.T) {
 	if _, ok := settings.Env["ANTHROPIC_AUTH_TOKEN"]; ok {
 		t.Fatalf("ANTHROPIC_AUTH_TOKEN should not be persisted")
 	}
+
+	claudeJSON := filepath.Join(home, ".claude.json")
+	raw, err := os.ReadFile(claudeJSON)
+	if err != nil {
+		t.Fatalf("read claude.json: %v", err)
+	}
+	var state map[string]interface{}
+	if err := json.Unmarshal(raw, &state); err != nil {
+		t.Fatalf("decode claude.json: %v", err)
+	}
+	if v, ok := state["hasCompletedOnboarding"].(bool); !ok || !v {
+		t.Fatalf("hasCompletedOnboarding = %#v, want true", state["hasCompletedOnboarding"])
+	}
 }
 
 func launchModelTestServer(models []api.ModelInfo) *httptest.Server {
