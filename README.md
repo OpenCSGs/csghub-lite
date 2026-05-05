@@ -16,27 +16,6 @@ Inspired by [Ollama](https://ollama.com), csghub-lite provides model download, l
 - **Cross-platform** — macOS, Linux, Windows
 - **Resume downloads** — interrupted downloads resume where they left off
 
-## Supported Platforms
-
-### Operating Systems
-
-| OS | Support |
-|---|---|
-| Ubuntu | Supported |
-| Debian | Supported |
-| CentOS | Supported |
-| macOS | Supported |
-| Windows | Supported |
-
-### Accelerators and Compute Boxes
-
-| Hardware | Support |
-|---|---|
-| Mac mini | Supported |
-| AMD Instinct MI50 | Supported |
-| AMD Instinct MI200 / MI250 | Supported |
-| NVIDIA GPU series | Supported |
-
 ## Installation
 
 ### Quick install (Linux / macOS)
@@ -84,6 +63,57 @@ csghub-lite login
 ```
 
 > **Note:** The install script automatically installs [llama-server](https://github.com/ggml-org/llama.cpp) (required for inference). If you installed from source, install it separately: `brew install llama.cpp` (macOS) or download from [llama.cpp releases](https://github.com/ggml-org/llama.cpp/releases).
+
+## Integrations
+
+### Third-Party Model Providers
+
+csghub-lite supports integrating third-party OpenAI-compatible API providers. Configure providers in Settings, and their models appear alongside local and OpenCSG models in Chat.
+
+Supported providers include:
+- **GLM** (智谱AI) — `https://open.bigmodel.cn/api/paas/v4`
+- **Kimi** (Moonshot) — `https://api.moonshot.cn/v1`
+- **MiniMax** — `https://api.minimax.chat/v1`
+- **DeepSeek** — `https://api.deepseek.com`
+- **Any OpenAI-compatible API** — custom base URL
+
+### Coding Agents
+
+One-click configuration for popular coding agents. Models from local, OpenCSG, or third-party providers work seamlessly:
+
+| Agent | Config Location | One-Click Setup |
+|---|---|---|
+| **Claude Code** | `~/.claude/settings.json` | `csghub-lite launch claude-code --model <model>` |
+| **Codex** | `~/.codex/config.toml` | `csghub-lite launch codex --model <model>` |
+| **Pi** | `~/.pi/agent/settings.json` | `csghub-lite launch pi --model <model>` |
+| **OpenCode** | `~/.opencode.json` | `csghub-lite launch open-code --model <model>` |
+
+After the first launch via csghub-lite, subsequent runs use the configured settings automatically — no manual API key or base URL setup needed.
+
+Example:
+```bash
+# Configure Claude Code with GLM model
+csghub-lite launch claude-code --model "glm-4-flash"
+
+# Configure Codex with local Qwen model
+csghub-lite launch codex --model "Qwen/Qwen2.5-Coder-7B"
+
+# Configure Pi with Kimi model
+csghub-lite launch pi --model "moonshot-v1-8k"
+```
+
+### AI Applications
+
+One-click setup for AI assistant applications:
+
+| App | Description | Setup |
+|---|---|---|
+| **OpenClaw** | Open-source AI assistant with web UI | `csghub-lite launch openclaw` or Web UI → AI Apps |
+| **CSGClaw** | Enterprise AI assistant with advanced features | `csghub-lite launch csgclaw` or Web UI → AI Apps |
+| **Dify** | LLM app development platform | Web UI → AI Apps → Install |
+| **AnythingLLM** | Private document chat | Web UI → AI Apps → Install |
+
+All apps auto-configure to use csghub-lite's OpenAI-compatible API endpoint with your selected models.
 
 ## CLI Commands
 
@@ -141,6 +171,27 @@ Once in a chat session (`run` or `chat`):
 | `/help` | Show help |
 
 End a line with `\` for multiline input. Press Ctrl+D to exit.
+
+## Supported Platforms
+
+### Operating Systems
+
+| OS | Support |
+|---|---|
+| Ubuntu | Supported |
+| Debian | Supported |
+| CentOS | Supported |
+| macOS | Supported |
+| Windows | Supported |
+
+### Accelerators and Compute Boxes
+
+| Hardware | Support |
+|---|---|
+| Mac mini | Supported |
+| AMD Instinct MI50 | Supported |
+| AMD Instinct MI200 / MI250 | Supported |
+| NVIDIA GPU series | Supported |
 
 ## REST API
 
