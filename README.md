@@ -1,10 +1,6 @@
 # csghub-lite
 
 <p align="center">
-  <img src="docs/images/models.png" alt="Model Library" width="80%">
-</p>
-
-<p align="center">
   <img src="docs/images/apps.png" alt="AI Apps" width="80%">
 </p>
 
