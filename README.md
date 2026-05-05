@@ -200,15 +200,15 @@ End a line with `\` for multiline input. Press Ctrl+D to exit.
 
 ## Supported Platforms
 
-### Operating Systems
+### Operating Systems & Architectures
 
-| OS | Support |
+| Platform | Support |
 |---|---|
-| Ubuntu | Supported |
-| Debian | Supported |
-| CentOS | Supported |
-| macOS | Supported |
-| Windows | Supported |
+| Ubuntu (x86_64, ARM64) | Supported |
+| Debian (x86_64, ARM64) | Supported |
+| CentOS (x86_64, ARM64) | Supported |
+| macOS (x86_64, Apple Silicon) | Supported |
+| Windows (x86_64) | Supported |
 
 ### Accelerators and Compute Boxes
 
