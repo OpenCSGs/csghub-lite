@@ -1,5 +1,10 @@
 # csghub-lite
 
+<p align="center">
+  <img src="docs/images/models.png" alt="Model Library" width="45%">
+  <img src="docs/images/apps.png" alt="AI Apps" width="45%">
+</p>
+
 A lightweight tool for running large language models locally, powered by models from the [CSGHub](https://opencsg.com) platform.
 
 Inspired by [Ollama](https://ollama.com), csghub-lite provides model download, local inference, interactive chat, and an OpenAI-compatible REST API — all from a single binary.
