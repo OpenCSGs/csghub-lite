@@ -1,8 +1,11 @@
 # csghub-lite
 
 <p align="center">
-  <img src="docs/images/models.png" alt="Model Library" width="45%">
-  <img src="docs/images/apps.png" alt="AI Apps" width="45%">
+  <img src="docs/images/models.png" alt="Model Library" width="80%">
+</p>
+
+<p align="center">
+  <img src="docs/images/apps.png" alt="AI Apps" width="80%">
 </p>
 
 A lightweight tool for running large language models locally, powered by models from the [CSGHub](https://opencsg.com) platform.
@@ -10,6 +13,8 @@ A lightweight tool for running large language models locally, powered by models 
 Inspired by [Ollama](https://ollama.com), csghub-lite provides model download, local inference, interactive chat, and an OpenAI-compatible REST API — all from a single binary.
 
 ## Features
+
+### Core
 
 - **One command to start** — `csghub-lite run` downloads, loads, and chats
 - **Model keep-alive** — models stay loaded after exit (default 5 min), instant reconnect
@@ -20,6 +25,26 @@ Inspired by [Ollama](https://ollama.com), csghub-lite provides model download, l
 - **REST API** compatible with Ollama's API format
 - **Cross-platform** — macOS, Linux, Windows
 - **Resume downloads** — interrupted downloads resume where they left off
+- **Pause/Resume** — pause ongoing downloads and resume later
+
+### Web UI
+
+- **Model Library** — manage local models with download progress, pause/resume, and one-click run
+- **Marketplace** — browse and download models/datasets from CSGHub
+- **Chat Interface** — interactive chat with local and cloud models
+- **AI Apps** — install and launch AI applications with one-click configuration
+- **Settings** — configure storage, third-party providers, and access tokens
+
+### Integrations
+
+- **Third-Party Providers** — integrate GLM, Kimi, MiniMax, DeepSeek, and any OpenAI-compatible API
+- **Coding Agents** — one-click config for Claude Code, Codex, Pi, OpenCode
+- **AI Applications** — one-click setup for OpenClaw, CSGClaw, Dify, AnythingLLM
+
+### Dataset Support
+
+- **Dataset download** from CSGHub platform
+- **Dataset management** — list, show details, and delete local datasets
 
 ## Installation
 

@@ -24,7 +24,10 @@
       "Bash(codex *)",
       "Bash(opencode *)",
       "Bash(./bin/* serve *)",
-      "Bash(git check-ignore *)"
+      "Bash(git check-ignore *)",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "WebFetch(domain:github.com)",
+      "WebSearch"
     ]
   }
 }
