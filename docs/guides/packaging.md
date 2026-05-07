@@ -76,7 +76,6 @@ make package
 | claude-code | Anthropic GCS | `./scripts/sync-ai-app-oss.sh --app claude-code` |
 | open-code | GitHub: anomalyco/opencode | `./scripts/sync-ai-app-oss.sh --app open-code` |
 | codex | GitHub: openai/codex | `./scripts/sync-ai-app-oss.sh --app codex` |
-| csgclaw | GitHub: OpenCSGs/csgclaw | `./scripts/sync-ai-app-oss.sh --app csgclaw` |
 
 ### 同步工作流
 
@@ -87,10 +86,9 @@ make package
    curl -fsSL https://storage.googleapis.com/claude-code-dist-86c565f3-f756-42ad-8dfa-d59b1c096819/claude-code-releases/latest
    curl -fsSL https://opencsg-public-resource.oss-cn-beijing.aliyuncs.com/claude-code-releases/latest
    
-   # GitHub releases (open-code, codex, csgclaw)
+   # GitHub releases (open-code, codex)
    gh release view --repo anomalyco/opencode --json tagName --jq '.tagName'
    gh release view --repo openai/codex --json tagName --jq '.tagName'
-   gh release view --repo OpenCSGs/csgclaw --json tagName --jq '.tagName'
    ```
 
 2. **逐个同步应用**：每个应用下载需要几分钟，建议单独同步以避免超时。
@@ -101,7 +99,6 @@ make package
    ./scripts/sync-ai-app-oss.sh --app claude-code
    ./scripts/sync-ai-app-oss.sh --app open-code
    ./scripts/sync-ai-app-oss.sh --app codex
-   ./scripts/sync-ai-app-oss.sh --app csgclaw
    ```
 
 3. **版本一致则跳过**：如果镜像的 `latest` 与上游版本一致，无需重新同步。
@@ -131,7 +128,6 @@ make package
 - `CSGHUB_LITE_CLAUDE_DIST_BASE_URL`
 - `CSGHUB_LITE_OPEN_CODE_DIST_BASE_URL`
 - `CSGHUB_LITE_CODEX_DIST_BASE_URL`
-- `CSGHUB_LITE_CSGCLAW_DIST_BASE_URL`
 
 ## GitLab 补发
 

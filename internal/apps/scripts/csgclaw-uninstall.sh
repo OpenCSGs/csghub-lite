@@ -9,7 +9,8 @@ log() {
   printf '%s\n' "$*"
 }
 
-RUNTIME_ROOT="${HOME}/.local/share/csgclaw"
+RUNTIME_ROOT="${HOME}/.local/lib/csgclaw"
+LEGACY_RUNTIME_ROOT="${HOME}/.local/share/csgclaw"
 CONFIG_ROOT="${HOME}/.csgclaw"
 launchers=(
   "${HOME}/.local/bin/csgclaw"
@@ -56,6 +57,7 @@ for launcher in "${launchers[@]}"; do
   rm -f "${launcher}"
 done
 rm -rf "${RUNTIME_ROOT}"
+rm -rf "${LEGACY_RUNTIME_ROOT}"
 rm -rf "${CONFIG_ROOT}"
 hash -r 2>/dev/null || true
 

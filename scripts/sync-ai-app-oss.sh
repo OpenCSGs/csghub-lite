@@ -29,7 +29,6 @@ Supported apps:
   - claude-code
   - open-code
   - codex
-  - csgclaw
 
 Options:
   --app APP             App to sync (repeatable). Defaults to all mirror-backed apps
@@ -50,15 +49,12 @@ Optional environment variables:
   STARHUB_OPEN_CODE_DIST_BASE_URL Public URL override for generated manifest
   STARHUB_CODEX_DIST_PREFIX       Default: codex-releases
   STARHUB_CODEX_DIST_BASE_URL     Public URL override for generated manifest
-  STARHUB_CSGCLAW_DIST_PREFIX     Default: csgclaw-releases
-  STARHUB_CSGCLAW_DIST_BASE_URL   Public URL override for generated manifest
 
 Examples:
   ./scripts/sync-ai-app-oss.sh
-  ./scripts/sync-ai-app-oss.sh --app claude-code --app open-code --app codex --app csgclaw
+  ./scripts/sync-ai-app-oss.sh --app claude-code --app open-code --app codex
   ./scripts/sync-ai-app-oss.sh --app codex --version 0.118.0
   ./scripts/sync-ai-app-oss.sh --app claude-code
-  ./scripts/sync-ai-app-oss.sh --app csgclaw
 EOF
 }
 
@@ -93,12 +89,19 @@ while [[ $# -gt 0 ]]; do
 done
 
 if [[ "${#APP_IDS[@]}" -eq 0 ]]; then
-  APP_IDS=(claude-code open-code codex csgclaw)
+  APP_IDS=(claude-code open-code codex)
 fi
 
 if [[ "$REQUESTED_VERSION" != "latest" && "${#APP_IDS[@]}" -ne 1 ]]; then
   die "--version can only be used when syncing a single app"
 fi
+
+for app_id in "${APP_IDS[@]}"; do
+  case "${app_id}" in
+    claude-code|open-code|codex) ;;
+    *) die "unsupported app: ${app_id}" ;;
+  esac
+done
 
 trim_trailing_slash() {
   local value="$1"
@@ -259,7 +262,6 @@ app_repo() {
   case "$1" in
     open-code) printf '%s\n' "anomalyco/opencode" ;;
     codex) printf '%s\n' "openai/codex" ;;
-    csgclaw) printf '%s\n' "OpenCSGs/csgclaw" ;;
     *)
       die "unsupported release-backed app: $1"
       ;;
@@ -270,7 +272,6 @@ app_prefix() {
   case "$1" in
     open-code) trim_trailing_slash "${STARHUB_OPEN_CODE_DIST_PREFIX:-open-code-releases}" ;;
     codex) trim_trailing_slash "${STARHUB_CODEX_DIST_PREFIX:-codex-releases}" ;;
-    csgclaw) trim_trailing_slash "${STARHUB_CSGCLAW_DIST_PREFIX:-csgclaw-releases}" ;;
     *)
       die "unsupported release-backed app: $1"
       ;;
@@ -281,7 +282,6 @@ app_public_base_url() {
   case "$1" in
     open-code) resolve_public_base_url "$(app_prefix "$1")" "${STARHUB_OPEN_CODE_DIST_BASE_URL:-}" ;;
     codex) resolve_public_base_url "$(app_prefix "$1")" "${STARHUB_CODEX_DIST_BASE_URL:-}" ;;
-    csgclaw) resolve_public_base_url "$(app_prefix "$1")" "${STARHUB_CSGCLAW_DIST_BASE_URL:-}" ;;
     *)
       die "unsupported release-backed app: $1"
       ;;
@@ -292,7 +292,7 @@ normalize_app_version() {
   local app_id="$1"
   local value="$2"
   case "$app_id" in
-    open-code|csgclaw)
+    open-code)
       printf '%s\n' "${value#v}"
       ;;
     codex)
@@ -311,7 +311,7 @@ release_tag_for_version() {
   local normalized=""
   normalized="$(normalize_app_version "$app_id" "$value")"
   case "$app_id" in
-    open-code|csgclaw) printf 'v%s\n' "${normalized}" ;;
+    open-code) printf 'v%s\n' "${normalized}" ;;
     codex) printf 'rust-v%s\n' "${normalized}" ;;
     *)
       die "unsupported app for release tag resolution: $app_id"
@@ -424,10 +424,6 @@ config = {
         ("linux-x64", "codex-x86_64-unknown-linux-musl.tar.gz", "tar.gz", "codex"),
         ("win32-arm64", "codex-aarch64-pc-windows-msvc.exe.zip", "zip", "codex.exe"),
         ("win32-x64", "codex-x86_64-pc-windows-msvc.exe.zip", "zip", "codex.exe"),
-    ],
-    "csgclaw": [
-        ("darwin-arm64", f"csgclaw_{tag}_darwin_arm64.tar.gz", "tar.gz", "csgclaw"),
-        ("linux-x64", f"csgclaw_{tag}_linux_amd64.tar.gz", "tar.gz", "csgclaw"),
     ],
 }
 
@@ -568,7 +564,7 @@ for app_id in "${APP_IDS[@]}"; do
     claude-code)
       sync_claude_via_wrapper
       ;;
-    open-code|codex|csgclaw)
+    open-code|codex)
       sync_release_app "${app_id}"
       ;;
     *)

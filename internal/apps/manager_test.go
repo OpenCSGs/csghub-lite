@@ -225,6 +225,32 @@ func TestEnrichLatestVersionIgnoresMatchingMirrorVersion(t *testing.T) {
 	}
 }
 
+func TestFetchLatestVersionParsesGitHubReleaseTag(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/repos/OpenCSGs/csgclaw/releases/latest" {
+			t.Fatalf("latest path = %q, want /repos/OpenCSGs/csgclaw/releases/latest", r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"tag_name":"v0.2.8"}`))
+	}))
+	defer server.Close()
+
+	mgr := NewManager(nil)
+	latest, err := mgr.fetchLatestVersion(context.Background(), appSpec{
+		id: "csgclaw",
+		latest: &latestVersionSource{
+			baseURL: server.URL + "/repos/OpenCSGs/csgclaw/releases/latest",
+			format:  "github-release",
+		},
+	})
+	if err != nil {
+		t.Fatalf("fetchLatestVersion returned error: %v", err)
+	}
+	if latest != "v0.2.8" {
+		t.Fatalf("latest = %q, want v0.2.8", latest)
+	}
+}
+
 func TestNewManagerBackfillsLegacyManagedClaudeInstall(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("legacy Claude launcher backfill is covered on Unix-style installs")

@@ -1,11 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-TARGET="${1:-latest}"
-DEFAULT_DIST_BASE_URL="https://opencsg-public-resource.oss-cn-beijing.aliyuncs.com/csgclaw-releases"
-DIST_BASE_URL="${CSGHUB_LITE_CSGCLAW_DIST_BASE_URL:-$DEFAULT_DIST_BASE_URL}"
-WORKDIR=""
-DOWNLOADER=""
+APP="${APP:-csgclaw}"
+REPO="${REPO:-OpenCSGs/csgclaw}"
+VERSION="${VERSION:-${1:-latest}}"
+INSTALL_DIR="${INSTALL_DIR:-$HOME/.local/bin}"
+LIB_DIR="${LIB_DIR:-$HOME/.local/lib/${APP}}"
+BASE_URL="${BASE_URL:-https://csgclaw.opencsg.com/releases}"
+TMPDIR_INSTALL=""
 
 emit_progress() {
   printf 'CSGHUB_PROGRESS|%s|%s\n' "$1" "$2"
@@ -16,82 +18,62 @@ log() {
 }
 
 cleanup() {
-  if [[ -n "${WORKDIR}" && -d "${WORKDIR}" ]]; then
-    rm -rf "${WORKDIR}"
+  if [[ -n "${TMPDIR_INSTALL:-}" && -d "${TMPDIR_INSTALL:-}" ]]; then
+    rm -rf "${TMPDIR_INSTALL}"
   fi
 }
 
 trap cleanup EXIT
 
-trim_trailing_slash() {
-  local value="$1"
-  while [[ "$value" == */ ]]; do
-    value="${value%/}"
-  done
-  printf '%s\n' "$value"
+need_cmd() {
+  command -v "$1" >/dev/null 2>&1 || {
+    log "ERROR: missing required command: $1"
+    exit 1
+  }
 }
 
-resolve_requested_version() {
-  local requested="${TARGET:-latest}"
-  requested="${requested#v}"
-  if [[ -z "$requested" || "$requested" == "latest" ]]; then
-    download_text "$(trim_trailing_slash "$DIST_BASE_URL")/latest" | tr -d '[:space:]'
-    return 0
-  fi
-  printf '%s\n' "$requested"
+detect_os() {
+  case "$(uname -s)" in
+    Darwin) echo "darwin" ;;
+    Linux) echo "linux" ;;
+    *)
+      log "ERROR: unsupported OS: $(uname -s)"
+      exit 1
+      ;;
+  esac
 }
 
-select_downloader() {
-  if command -v curl >/dev/null 2>&1; then
-    DOWNLOADER="curl"
-    return 0
-  fi
-  if command -v wget >/dev/null 2>&1; then
-    DOWNLOADER="wget"
-    return 0
-  fi
-  log "ERROR: either curl or wget is required"
-  exit 1
+detect_arch() {
+  case "$(uname -m)" in
+    x86_64|amd64) echo "amd64" ;;
+    arm64|aarch64) echo "arm64" ;;
+    *)
+      log "ERROR: unsupported architecture: $(uname -m)"
+      exit 1
+      ;;
+  esac
 }
 
-download_text() {
-  local url="$1"
-  if [[ "$DOWNLOADER" == "curl" ]]; then
-    curl --connect-timeout 15 --max-time 60 --retry 3 --retry-delay 2 -fsSL "$url"
-  else
-    wget --tries=3 --timeout=20 -q -O - "$url"
-  fi
+ensure_supported_platform() {
+  case "$1/$2" in
+    darwin/arm64|linux/amd64|linux/arm64) ;;
+    *)
+      log "ERROR: unsupported platform: $1/$2"
+      log "ERROR: prebuilt csgclaw binaries currently support macOS arm64, Linux amd64, and Linux arm64 only"
+      exit 1
+      ;;
+  esac
 }
 
-download_file() {
-  local url="$1"
-  local output="$2"
-  if [[ "$DOWNLOADER" == "curl" ]]; then
-    curl --connect-timeout 15 --max-time 1800 --retry 3 --retry-delay 2 -fsSL -o "$output" "$url"
-  else
-    wget --tries=3 --timeout=30 -O "$output" "$url"
+resolve_latest_version() {
+  local api_url tag
+  api_url="https://api.github.com/repos/${REPO}/releases/latest"
+  tag="$(curl -fsSL "$api_url" | sed -n 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -n 1)"
+  if [[ -z "$tag" ]]; then
+    log "ERROR: failed to resolve latest release from ${api_url}"
+    exit 1
   fi
-}
-
-get_platform_entry_from_manifest() {
-  local json="$1"
-  local platform="$2"
-  json="$(printf '%s' "$json" | tr -d '\n\r\t' | sed 's/ \+/ /g')"
-  if [[ $json =~ \"$platform\"[[:space:]]*:[[:space:]]*\{([^}]*)\} ]]; then
-    printf '%s\n' "${BASH_REMATCH[1]}"
-    return 0
-  fi
-  return 1
-}
-
-get_platform_string_field() {
-  local entry="$1"
-  local field="$2"
-  if [[ $entry =~ \"$field\"[[:space:]]*:[[:space:]]*\"([^\"]+)\" ]]; then
-    printf '%s\n' "${BASH_REMATCH[1]}"
-    return 0
-  fi
-  return 1
+  echo "$tag"
 }
 
 shell_profile_file() {
@@ -107,11 +89,10 @@ shell_profile_file() {
 }
 
 ensure_local_bin_on_path() {
-  local bin_dir="${HOME}/.local/bin"
   local profile=""
   local line='case ":$PATH:" in *":$HOME/.local/bin:"*) ;; *) export PATH="$HOME/.local/bin:$PATH" ;; esac'
 
-  export PATH="${bin_dir}:${PATH}"
+  export PATH="${INSTALL_DIR}:${PATH}"
 
   profile="$(shell_profile_file || true)"
   if [[ -z "$profile" ]]; then
@@ -124,158 +105,104 @@ ensure_local_bin_on_path() {
   fi
 }
 
-sha256_file() {
-  local path="$1"
-  if command -v sha256sum >/dev/null 2>&1; then
-    sha256sum "$path" | awk '{print $1}'
-    return 0
-  fi
-  if command -v shasum >/dev/null 2>&1; then
-    shasum -a 256 "$path" | awk '{print $1}'
-    return 0
-  fi
-  log "ERROR: sha256sum or shasum is required"
-  exit 1
-}
-
-extract_archive() {
-  local archive_path="$1"
-  local dest_dir="$2"
-
-  rm -rf "$dest_dir"
-  mkdir -p "$dest_dir"
-  tar -xzf "$archive_path" -C "$dest_dir"
-}
-
-install_extracted_runtime() {
-  local version="$1"
-  local binary_name="$2"
-  local extract_dir="$3"
-  local runtime_root="${HOME}/.local/share/csgclaw"
-  local versions_dir="${runtime_root}/versions"
-  local version_dir="${versions_dir}/${version}"
-  local launcher_dir="${HOME}/.local/bin"
-  local launcher_path="${launcher_dir}/csgclaw"
-  local binary_path="${version_dir}/${binary_name}"
-  local candidate=""
-
-  mkdir -p "$versions_dir" "$launcher_dir"
-  rm -rf "$version_dir"
-  mv "$extract_dir" "$version_dir"
-
-  for candidate in \
-    "${version_dir}/${binary_name}" \
-    "${version_dir}/bin/${binary_name}" \
-    "${version_dir}/${binary_name}/bin/${binary_name}"
-  do
-    if [[ -f "$candidate" ]]; then
-      binary_path="$candidate"
-      break
-    fi
+trim_trailing_slash() {
+  local value="$1"
+  while [[ "$value" == */ ]]; do
+    value="${value%/}"
   done
-
-  [[ -f "$binary_path" ]] || {
-    log "ERROR: extracted binary not found at ${binary_path}"
-    exit 1
-  }
-  chmod +x "$binary_path"
-  ln -sfn "$binary_path" "$launcher_path"
-  ensure_local_bin_on_path
-  log "INFO: installed CSGClaw runtime ${version} to ${version_dir}"
-  log "INFO: updated launcher ${launcher_path}"
+  printf '%s\n' "$value"
 }
 
-install_via_mirrored_archive() {
+check_path_hint() {
+  case ":$PATH:" in
+    *":$INSTALL_DIR:"*) ;;
+    *)
+      log ""
+      log "${INSTALL_DIR} is not on your PATH."
+      log "Add this line to your shell profile:"
+      log "  export PATH=\"${INSTALL_DIR}:\$PATH\""
+      ;;
+  esac
+}
+
+main() {
   local os=""
   local arch=""
-  local platform=""
   local version=""
-  local dist_base_url=""
-  local manifest_json=""
-  local platform_entry=""
-  local checksum=""
-  local binary_name=""
-  local asset_name=""
-  local archive_format=""
+  local base_url=""
+  local archive_name=""
+  local download_url=""
   local archive_path=""
-  local extract_dir=""
-  local actual=""
+  local bundle_path=""
+  local bundle_bin_path=""
+  local install_root=""
+  local extracted_path=""
 
-  select_downloader
+  need_cmd curl
+  need_cmd tar
+  need_cmd mktemp
+  need_cmd install
 
   emit_progress 10 detecting_platform
-  case "$(uname -s)" in
-    Darwin) os="darwin" ;;
-    Linux) os="linux" ;;
-    *)
-      log "ERROR: unsupported operating system $(uname -s). CSGClaw supports macOS and Linux only."
-      exit 1
-      ;;
-  esac
+  os="$(detect_os)"
+  arch="$(detect_arch)"
+  ensure_supported_platform "$os" "$arch"
 
-  case "$(uname -m)" in
-    x86_64|amd64) arch="x64" ;;
-    arm64|aarch64) arch="arm64" ;;
-    *)
-      log "ERROR: unsupported architecture $(uname -m)"
-      exit 1
-      ;;
-  esac
-
-  if [[ "$os" == "darwin" && "$arch" == "x64" ]]; then
-    if [[ "$(sysctl -n sysctl.proc_translated 2>/dev/null || true)" == "1" ]]; then
-      arch="arm64"
-    fi
+  version="$VERSION"
+  if [[ -z "$version" || "$version" == "latest" ]]; then
+    emit_progress 25 resolving_latest
+    version="$(resolve_latest_version)"
   fi
 
-  platform="${os}-${arch}"
-
-  WORKDIR="$(mktemp -d "${TMPDIR:-/tmp}/csgclaw-install.XXXXXX")"
-  dist_base_url="$(trim_trailing_slash "$DIST_BASE_URL")"
-
-  emit_progress 25 resolving_latest
-  version="$(resolve_requested_version)"
   version="$(printf '%s' "$version" | tr -d '[:space:]')"
   if [[ -z "$version" ]]; then
     log "ERROR: failed to resolve CSGClaw version"
     exit 1
   fi
 
-  manifest_json="$(download_text "$dist_base_url/$version/manifest.json")"
-  platform_entry="$(get_platform_entry_from_manifest "$manifest_json" "$platform" || true)"
-  checksum="$(get_platform_string_field "$platform_entry" "checksum" || true)"
-  binary_name="$(get_platform_string_field "$platform_entry" "binary" || true)"
-  asset_name="$(get_platform_string_field "$platform_entry" "asset" || true)"
-  archive_format="$(get_platform_string_field "$platform_entry" "archive_format" || true)"
-  if [[ -z "$checksum" || -z "$binary_name" || -z "$asset_name" || -z "$archive_format" ]]; then
-    log "ERROR: platform ${platform} not found in manifest"
-    exit 1
-  fi
-
-  archive_path="${WORKDIR}/${asset_name}"
-  extract_dir="${WORKDIR}/extract"
+  base_url="$(trim_trailing_slash "$BASE_URL")"
+  archive_name="${APP}_${version}_${os}_${arch}.tar.gz"
+  download_url="${base_url}/${version}/${archive_name}"
 
   emit_progress 55 downloading_archive
-  log "INFO: downloading CSGClaw ${version} for ${platform} from ${dist_base_url}"
-  download_file "$dist_base_url/$version/$platform/$asset_name" "$archive_path"
+  TMPDIR_INSTALL="$(mktemp -d)"
+  archive_path="${TMPDIR_INSTALL}/${archive_name}"
+  log "INFO: downloading ${download_url}"
+  curl --connect-timeout 15 --max-time 1800 --retry 3 --retry-delay 2 -fsSL "$download_url" -o "$archive_path"
 
-  emit_progress 75 verifying_checksum
-  actual="$(sha256_file "$archive_path")"
-  if [[ "$actual" != "$checksum" ]]; then
-    log "ERROR: checksum verification failed"
-    exit 1
-  fi
+  emit_progress 75 extracting_archive
+  tar -xzf "$archive_path" -C "$TMPDIR_INSTALL"
+  bundle_path="${TMPDIR_INSTALL}/${APP}"
+  bundle_bin_path="${bundle_path}/bin/${APP}"
 
   emit_progress 90 installing_runtime
-  extract_archive "$archive_path" "$extract_dir"
-  install_extracted_runtime "$version" "$binary_name" "$extract_dir"
+  mkdir -p "$INSTALL_DIR" "$LIB_DIR"
+  if [[ -f "$bundle_bin_path" ]]; then
+    install_root="${LIB_DIR}/${version}"
+    rm -rf "$install_root"
+    mkdir -p "$install_root"
+    cp -R "$bundle_path" "$install_root/"
+    ln -sfn "${install_root}/${APP}/bin/${APP}" "${INSTALL_DIR}/${APP}"
+    extracted_path="${install_root}/${APP}/bin/${APP}"
+  else
+    extracted_path="${TMPDIR_INSTALL}/${APP}"
+    if [[ ! -f "$extracted_path" ]]; then
+      log "ERROR: archive did not contain ${APP}"
+      exit 1
+    fi
+    install -m 0755 "$extracted_path" "${INSTALL_DIR}/${APP}"
+    extracted_path="${INSTALL_DIR}/${APP}"
+  fi
+  ensure_local_bin_on_path
 
   emit_progress 100 complete
-  if command -v csgclaw >/dev/null 2>&1; then
-    csgclaw --version || true
+  log "INFO: installed ${APP} ${version} to ${extracted_path}"
+  if command -v "$APP" >/dev/null 2>&1; then
+    "$APP" --version || true
   fi
-  log "INFO: next steps: csgclaw onboard; csgclaw serve"
+  log "INFO: next steps: ${APP} serve"
   log "INFO: CSGClaw installation complete"
+  check_path_hint
 }
 
-install_via_mirrored_archive
+main "$@"

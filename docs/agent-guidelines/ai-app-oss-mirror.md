@@ -9,7 +9,6 @@ This document covers mirroring AI app releases to the StarHub OSS bucket.
 | claude-code | Anthropic GCS | `scripts/sync-claude-code-oss.sh` |
 | open-code | GitHub: anomalyco/opencode | `scripts/sync-ai-app-oss.sh --app open-code` |
 | codex | GitHub: openai/codex | `scripts/sync-ai-app-oss.sh --app codex` |
-| csgclaw | GitHub: OpenCSGs/csgclaw | `scripts/sync-ai-app-oss.sh --app csgclaw` |
 
 ## Sync Workflow
 
@@ -23,10 +22,9 @@ This document covers mirroring AI app releases to the StarHub OSS bucket.
    # Check mirrored version
    curl -fsSL https://opencsg-public-resource.oss-cn-beijing.aliyuncs.com/claude-code-releases/latest
    
-   # Check GitHub release version (for open-code, codex, csgclaw)
+   # Check GitHub release version (for open-code, codex)
    gh release view --repo anomalyco/opencode --json tagName --jq '.tagName'
    gh release view --repo openai/codex --json tagName --jq '.tagName'
-   gh release view --repo OpenCSGs/csgclaw --json tagName --jq '.tagName'
    ```
 
 2. **Sync apps individually**: Sync one app at a time to avoid timeout issues.
@@ -39,7 +37,6 @@ This document covers mirroring AI app releases to the StarHub OSS bucket.
    ./scripts/sync-ai-app-oss.sh --app claude-code
    ./scripts/sync-ai-app-oss.sh --app open-code
    ./scripts/sync-ai-app-oss.sh --app codex
-   ./scripts/sync-ai-app-oss.sh --app csgclaw
    ```
 
 3. **Skip if already synced**: If the mirrored `latest` matches the upstream
@@ -72,7 +69,6 @@ Each app follows this versioned layout:
   linux-x64, linux-x64-musl, win32-arm64, win32-x64
 - **codex**: darwin-arm64, darwin-x64, linux-arm64, linux-x64, win32-arm64,
   win32-x64 (uses musl builds for Linux)
-- **csgclaw**: darwin-arm64, linux-x64
 
 ## Safety Rules
 

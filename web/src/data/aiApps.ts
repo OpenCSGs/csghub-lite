@@ -296,23 +296,23 @@ export const aiAppsCatalog: AIAppCatalogEntry[] = [
     installMode: "script",
     progressMode: "percent",
     installHint: {
-      en: "Install the mirrored CSGClaw release for macOS (arm64) and Linux (amd64). Windows is not currently supported.",
-      zh: "通过镜像的 CSGClaw 发布包完成安装，支持 macOS (arm64) 和 Linux (amd64)。暂不支持 Windows。",
+      en: "Install the official CSGClaw release for macOS (arm64) and Linux (amd64/arm64). Windows is not currently supported.",
+      zh: "通过官方 CSGClaw 发布包完成安装，支持 macOS (arm64) 和 Linux (amd64/arm64)。暂不支持 Windows。",
     },
     cnInstallHint: {
-      en: "By default the installer reads a versioned CSGClaw mirror; launch config uses the OpenCSG PicoClaw manager image, so there is no separate PicoClaw app sync step.",
-      zh: "默认从版本化的 CSGClaw 镜像读取发布包；启动配置会使用 OpenCSG 的 PicoClaw manager 镜像，不再需要单独同步 PicoClaw 应用。",
+      en: "By default the installer reads official CSGClaw releases; launch config uses the OpenCSG PicoClaw manager image, so there is no separate PicoClaw app sync step.",
+      zh: "默认从官方 CSGClaw 发布源读取发布包；启动配置会使用 OpenCSG 的 PicoClaw manager 镜像，不再需要单独同步 PicoClaw 应用。",
     },
-    commandPreview: "curl -fsSL https://git-devops.opencsg.com/opensource/apps/-/raw/main/csgclaw/install.sh | bash",
+    commandPreview: "curl -fsSL https://csgclaw.opencsg.com/install.sh | bash",
     liveLogsReady: true,
     plannedSteps: [
       {
-        en: "Resolve the requested CSGClaw version from the mirrored manifest.",
-        zh: "从镜像 manifest 中解析目标 CSGClaw 版本。",
+        en: "Resolve the requested CSGClaw version from the official release feed.",
+        zh: "从官方发布源解析目标 CSGClaw 版本。",
       },
       {
-        en: "Download the mirrored archive for the current platform, verify its checksum, and extract the binary.",
-        zh: "下载当前平台对应的镜像归档，校验 checksum，并解压二进制文件。",
+        en: "Download the official archive for the current platform and install the bundled runtime.",
+        zh: "下载当前平台对应的官方归档，并安装随包 runtime。",
       },
       {
         en: "Run CSGClaw onboarding with the csghub-lite provider, then start the WebUI through csgclaw serve daemon mode.",

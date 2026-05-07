@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"embed"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -53,6 +54,7 @@ type scriptSource struct {
 type latestVersionSource struct {
 	baseURL string
 	envVar  string
+	format  string
 }
 
 type appSpec struct {
@@ -235,11 +237,12 @@ func appSpecs() []appSpec {
 			disabledReason: csgclawDisabledReason(),
 			versionArgs:    []string{"--version"},
 			latest: &latestVersionSource{
-				baseURL: "https://opencsg-public-resource.oss-cn-beijing.aliyuncs.com/csgclaw-releases",
-				envVar:  "CSGHUB_LITE_CSGCLAW_DIST_BASE_URL",
+				baseURL: "https://api.github.com/repos/OpenCSGs/csgclaw/releases/latest",
+				envVar:  "CSGHUB_LITE_CSGCLAW_LATEST_URL",
+				format:  "github-release",
 			},
 			unix: &scriptSource{
-				mirrorURL:    mirrorBaseURL + "/csgclaw/install.sh",
+				mirrorURL:    "https://csgclaw.opencsg.com/install.sh",
 				embeddedPath: "scripts/csgclaw-install.sh",
 			},
 			uninstallUnix: &scriptSource{
@@ -510,6 +513,9 @@ func (m *Manager) fetchLatestVersion(ctx context.Context, spec appSpec) (string,
 	reqCtx, cancel := context.WithTimeout(ctx, latestVersionTimeout)
 	defer cancel()
 	req, err := http.NewRequestWithContext(reqCtx, http.MethodGet, baseURL+"/latest", nil)
+	if spec.latest.format == "github-release" {
+		req, err = http.NewRequestWithContext(reqCtx, http.MethodGet, baseURL, nil)
+	}
 	if err != nil {
 		return "", err
 	}
@@ -524,6 +530,15 @@ func (m *Manager) fetchLatestVersion(ctx context.Context, spec appSpec) (string,
 	data, err := io.ReadAll(io.LimitReader(resp.Body, 1024))
 	if err != nil {
 		return "", err
+	}
+	if spec.latest.format == "github-release" {
+		var payload struct {
+			TagName string `json:"tag_name"`
+		}
+		if err := json.Unmarshal(data, &payload); err != nil {
+			return "", err
+		}
+		return strings.TrimSpace(payload.TagName), nil
 	}
 	return strings.TrimSpace(string(data)), nil
 }
