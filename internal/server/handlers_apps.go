@@ -118,7 +118,7 @@ func (s *Server) handleAppOpen(w http.ResponseWriter, r *http.Request) {
 	}
 
 	log.Printf("AI APP %s: open requested model=%q source=%q work_dir=%q", req.AppID, req.ModelID, req.Source, req.WorkDir)
-	url, err := s.openAIAppURL(r.Context(), req.AppID, req.ModelID, req.Source, req.WorkDir)
+	url, err := s.openAIAppURL(r.Context(), req.AppID, req.ModelID, req.Source, req.WorkDir, aiAppPublicBaseURL(r))
 	if err != nil {
 		log.Printf("AI APP %s: open failed: %v", req.AppID, err)
 		if strings.Contains(err.Error(), "unknown app") {
@@ -131,6 +131,34 @@ func (s *Server) handleAppOpen(w http.ResponseWriter, r *http.Request) {
 
 	log.Printf("AI APP %s: open ready url=%s", req.AppID, redactURLToken(url))
 	writeJSON(w, http.StatusOK, api.AIAppOpenResponse{URL: url})
+}
+
+func aiAppPublicBaseURL(r *http.Request) string {
+	if r == nil {
+		return ""
+	}
+	scheme := strings.TrimSpace(r.Header.Get("X-Forwarded-Proto"))
+	if scheme == "" {
+		if r.TLS != nil {
+			scheme = "https"
+		} else {
+			scheme = "http"
+		}
+	}
+	if idx := strings.Index(scheme, ","); idx >= 0 {
+		scheme = strings.TrimSpace(scheme[:idx])
+	}
+	host := strings.TrimSpace(r.Header.Get("X-Forwarded-Host"))
+	if host == "" {
+		host = strings.TrimSpace(r.Host)
+	}
+	if idx := strings.Index(host, ","); idx >= 0 {
+		host = strings.TrimSpace(host[:idx])
+	}
+	if host == "" {
+		return ""
+	}
+	return scheme + "://" + host
 }
 
 func (s *Server) enrichAIApps(ctx context.Context, apps []api.AIAppInfo) {

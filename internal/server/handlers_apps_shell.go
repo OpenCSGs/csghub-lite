@@ -483,7 +483,7 @@ func (s *aiAppShellSession) stopIdleTimeoutLocked() {
 	}
 }
 
-func (s *Server) openAIAppShellURL(ctx context.Context, appID, requestedModel, requestedSource, requestedWorkDir string) (string, error) {
+func (s *Server) openAIAppShellURL(ctx context.Context, appID, requestedModel, requestedSource, requestedWorkDir string, publicBaseURL ...string) (string, error) {
 	if s.appShells == nil {
 		s.appShells = newAIAppShellManager()
 	}
@@ -512,7 +512,11 @@ func (s *Server) openAIAppShellURL(ctx context.Context, appID, requestedModel, r
 		s.savePreferredAIAppModel(appID, defaultModel)
 	}
 
-	u, err := neturl.Parse(s.localBaseURL())
+	baseURL := s.localBaseURL()
+	if len(publicBaseURL) > 0 && strings.TrimSpace(publicBaseURL[0]) != "" {
+		baseURL = strings.TrimSpace(publicBaseURL[0])
+	}
+	u, err := neturl.Parse(baseURL)
 	if err != nil {
 		return "", err
 	}

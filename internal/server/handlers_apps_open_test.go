@@ -54,6 +54,32 @@ func TestOpenClawDirectChatURL(t *testing.T) {
 	}
 }
 
+func TestRewriteLoopbackURLHostUsesPublicHost(t *testing.T) {
+	got := rewriteLoopbackURLHost(
+		"http://127.0.0.1:18789/chat?session=main#token=abc123",
+		"http://192.168.10.110:11435",
+	)
+	want := "http://192.168.10.110:18789/chat?session=main#token=abc123"
+	if got != want {
+		t.Fatalf("rewriteLoopbackURLHost = %q, want %q", got, want)
+	}
+}
+
+func TestRewriteLoopbackURLHostKeepsNonLoopbackHost(t *testing.T) {
+	rawURL := "http://192.168.10.88:18789/chat?session=main#token=abc123"
+	if got := rewriteLoopbackURLHost(rawURL, "http://192.168.10.110:11435"); got != rawURL {
+		t.Fatalf("rewriteLoopbackURLHost = %q, want unchanged %q", got, rawURL)
+	}
+}
+
+func TestAIAppPublicBaseURLUsesRequestHost(t *testing.T) {
+	req := httptest.NewRequest(http.MethodPost, "http://192.168.10.110:11435/api/apps/open", nil)
+
+	if got := aiAppPublicBaseURL(req); got != "http://192.168.10.110:11435" {
+		t.Fatalf("aiAppPublicBaseURL = %q, want http://192.168.10.110:11435", got)
+	}
+}
+
 func TestOpenClawURLWithGatewayToken(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
@@ -559,6 +585,48 @@ func TestOpenAIAppShellURLReturnsShellPage(t *testing.T) {
 	}
 	if !s.appShells.Close(sessionID) {
 		t.Fatalf("expected session %q to exist", sessionID)
+	}
+}
+
+func TestOpenAIAppShellURLUsesPublicBaseURL(t *testing.T) {
+	cfg := &config.Config{ModelDir: t.TempDir(), ListenAddr: ":11435"}
+	if err := model.SaveManifest(cfg.ModelDir, &model.LocalModel{
+		Namespace:    "Qwen",
+		Name:         "Qwen3.5-2B",
+		Format:       model.FormatGGUF,
+		Size:         4_000_000_000,
+		Files:        []string{"model.gguf"},
+		DownloadedAt: time.Unix(123, 0),
+	}); err != nil {
+		t.Fatalf("save model manifest: %v", err)
+	}
+
+	binDir := t.TempDir()
+	commandPath := filepath.Join(binDir, "claude")
+	content := "#!/bin/sh\nexit 0\n"
+	if runtime.GOOS == "windows" {
+		commandPath = filepath.Join(binDir, "claude.cmd")
+		content = "@echo off\r\nexit /b 0\r\n"
+	}
+	if err := os.WriteFile(commandPath, []byte(content), 0o755); err != nil {
+		t.Fatalf("write fake binary: %v", err)
+	}
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	s := New(cfg, "test")
+	url, err := s.openAIAppShellURL(context.Background(), "claude-code", "", "", "", "http://192.168.10.110:11435")
+	if err != nil {
+		t.Fatalf("openAIAppShellURL returned error: %v", err)
+	}
+	parsed, err := neturl.Parse(url)
+	if err != nil {
+		t.Fatalf("parse url: %v", err)
+	}
+	if parsed.Host != "192.168.10.110:11435" {
+		t.Fatalf("host = %q, want 192.168.10.110:11435", parsed.Host)
+	}
+	if sessionID := parsed.Query().Get("session_id"); sessionID != "" {
+		_ = s.appShells.Close(sessionID)
 	}
 }
 

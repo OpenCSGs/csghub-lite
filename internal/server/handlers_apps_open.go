@@ -32,7 +32,7 @@ const (
 	openClawDefaultRegistry = "https://registry.npmmirror.com"
 )
 
-func (s *Server) openAIAppURL(ctx context.Context, appID, modelID, modelSource, workDir string) (string, error) {
+func (s *Server) openAIAppURL(ctx context.Context, appID, modelID, modelSource, workDir, publicBaseURL string) (string, error) {
 	info, err := s.appManager.Get(ctx, appID)
 	if err != nil {
 		return "", err
@@ -46,11 +46,19 @@ func (s *Server) openAIAppURL(ctx context.Context, appID, modelID, modelSource, 
 
 	switch appID {
 	case "openclaw":
-		return s.openClawChatURL(ctx, modelID, modelSource)
+		url, err := s.openClawChatURL(ctx, modelID, modelSource)
+		if err != nil {
+			return "", err
+		}
+		return rewriteLoopbackURLHost(url, publicBaseURL), nil
 	case "csgclaw":
-		return s.openCSGClawURL(ctx, modelID, modelSource)
+		url, err := s.openCSGClawURL(ctx, modelID, modelSource)
+		if err != nil {
+			return "", err
+		}
+		return rewriteLoopbackURLHost(url, publicBaseURL), nil
 	case "claude-code", "open-code", "codex", "pi":
-		return s.openAIAppShellURL(ctx, appID, modelID, modelSource, workDir)
+		return s.openAIAppShellURL(ctx, appID, modelID, modelSource, workDir, publicBaseURL)
 	default:
 		return "", fmt.Errorf("%s does not provide a direct chat entry yet", appID)
 	}
@@ -260,6 +268,38 @@ func openClawDirectChatURL(rawURL, session string) (string, error) {
 	query.Set("session", session)
 	parsed.RawQuery = query.Encode()
 	return parsed.String(), nil
+}
+
+func rewriteLoopbackURLHost(rawURL, publicBaseURL string) string {
+	parsed, err := neturl.Parse(rawURL)
+	if err != nil {
+		return rawURL
+	}
+	if !isLoopbackHost(parsed.Hostname()) {
+		return rawURL
+	}
+	publicParsed, err := neturl.Parse(strings.TrimSpace(publicBaseURL))
+	if err != nil || publicParsed.Hostname() == "" || isLoopbackHost(publicParsed.Hostname()) {
+		return rawURL
+	}
+	host := publicParsed.Hostname()
+	if port := parsed.Port(); port != "" {
+		host = net.JoinHostPort(host, port)
+	}
+	parsed.Host = host
+	return parsed.String()
+}
+
+func isLoopbackHost(host string) bool {
+	host = strings.Trim(strings.ToLower(strings.TrimSpace(host)), "[]")
+	if host == "" {
+		return false
+	}
+	if host == "localhost" {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
 }
 
 func openClawURLWithGatewayToken(rawURL string) (string, error) {
