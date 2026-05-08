@@ -801,13 +801,24 @@ func RestartAfter(delay time.Duration) error {
 	}
 
 	if delay <= 0 {
-		os.Exit(0)
+		requestGracefulExit()
+		return nil
 	}
 	go func() {
 		time.Sleep(delay)
-		os.Exit(0)
+		requestGracefulExit()
 	}()
 	return nil
+}
+
+func requestGracefulExit() {
+	if runtime.GOOS != "windows" {
+		if proc, err := os.FindProcess(os.Getpid()); err == nil {
+			_ = proc.Signal(os.Interrupt)
+			time.Sleep(10 * time.Second)
+		}
+	}
+	os.Exit(0)
 }
 
 // GetLatestVersion fetches the latest version string

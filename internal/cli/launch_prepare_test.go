@@ -141,6 +141,57 @@ func TestPrependArgsIfMissing(t *testing.T) {
 	}
 }
 
+func TestLaunchUserArgsPassesUserRequestedClaudeDangerouslySkipPermissions(t *testing.T) {
+	args, err := launchUserArgs(launchTarget{AppID: "claude-code"}, nil, true)
+	if err != nil {
+		t.Fatalf("launchUserArgs returned error: %v", err)
+	}
+	if !hasAnyFlag(args, "--dangerously-skip-permissions") {
+		t.Fatalf("launchUserArgs missing Claude Code permissions flag: %#v", args)
+	}
+}
+
+func TestLaunchUserArgsDoesNotAddClaudeDangerouslySkipPermissionsByDefault(t *testing.T) {
+	args, err := launchUserArgs(launchTarget{AppID: "claude-code"}, nil, false)
+	if err != nil {
+		t.Fatalf("launchUserArgs returned error: %v", err)
+	}
+	if hasAnyFlag(args, "--dangerously-skip-permissions") {
+		t.Fatalf("launchUserArgs added Claude Code permissions flag by default: %#v", args)
+	}
+}
+
+func TestLaunchCommandAcceptsClaudeDangerouslySkipPermissionsFlag(t *testing.T) {
+	cmd := newLaunchCmd()
+	if err := cmd.ParseFlags([]string{"claude", "--model", "glm-5(infini-ai)", "--dangerously-skip-permissions"}); err != nil {
+		t.Fatalf("ParseFlags returned error: %v", err)
+	}
+	requested, err := userRequestedClaudeSkipPermissions(cmd)
+	if err != nil {
+		t.Fatalf("userRequestedClaudeSkipPermissions returned error: %v", err)
+	}
+	if !requested {
+		t.Fatal("userRequestedClaudeSkipPermissions = false, want true")
+	}
+}
+
+func TestLaunchUserArgsDoesNotDuplicateClaudeDangerouslySkipPermissions(t *testing.T) {
+	args, err := launchUserArgs(launchTarget{AppID: "claude-code"}, []string{"--dangerously-skip-permissions"}, true)
+	if err != nil {
+		t.Fatalf("launchUserArgs returned error: %v", err)
+	}
+	if len(args) != 1 || args[0] != "--dangerously-skip-permissions" {
+		t.Fatalf("launchUserArgs duplicated Claude Code permissions flag: %#v", args)
+	}
+}
+
+func TestLaunchUserArgsRejectsClaudeDangerouslySkipPermissionsForOtherApps(t *testing.T) {
+	_, err := launchUserArgs(launchTarget{AppID: "codex", DisplayName: "Codex"}, nil, true)
+	if err == nil {
+		t.Fatal("launchUserArgs returned nil error, want unsupported app error")
+	}
+}
+
 func TestWriteOpenCodeLaunchConfig(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)

@@ -34,9 +34,11 @@ type launchOptions struct {
 }
 
 const launchSupportedApps = "claude-code, open-code, codex, pi, openclaw, csgclaw, dify, anythingllm"
+const claudeDangerouslySkipPermissionsFlag = "dangerously-skip-permissions"
 
 func newLaunchCmd() *cobra.Command {
 	var opts launchOptions
+	var claudeDangerouslySkipPermissions bool
 
 	cmd := &cobra.Command{
 		Use:     "launch APP [-- APP_ARGS...]",
@@ -72,6 +74,7 @@ Use ` + "`--`" + ` to pass through arguments to the launched app binary.`,
 	cmd.Flags().BoolVarP(&opts.SkipConfirm, "yes", "y", false, "Install without confirmation if the app is missing")
 	cmd.Flags().StringVar(&opts.Model, "model", "", "Use a specific local model when launching the app")
 	cmd.Flags().StringVar(&opts.Gateway, "gateway", "", "Use a remote csghub-lite gateway URL (e.g. http://192.168.1.18:11435)")
+	cmd.Flags().BoolVar(&claudeDangerouslySkipPermissions, claudeDangerouslySkipPermissionsFlag, false, "Pass --dangerously-skip-permissions to Claude Code")
 	return cmd
 }
 
@@ -140,7 +143,16 @@ func runLaunch(cmd *cobra.Command, args []string, opts launchOptions) error {
 		return err
 	}
 
-	prepared, err := prepareLaunchExecution(target, serverURL, modelID, args[1:])
+	passClaudeSkipPermissions, err := userRequestedClaudeSkipPermissions(cmd)
+	if err != nil {
+		return err
+	}
+	userArgs, err := launchUserArgs(target, args[1:], passClaudeSkipPermissions)
+	if err != nil {
+		return err
+	}
+
+	prepared, err := prepareLaunchExecution(target, serverURL, modelID, userArgs)
 	if err != nil {
 		return err
 	}
@@ -148,6 +160,32 @@ func runLaunch(cmd *cobra.Command, args []string, opts launchOptions) error {
 	fmt.Printf("Using model %s\n", modelID)
 	fmt.Printf("Launching %s...\n", target.DisplayName)
 	return launchProcess(prepared.Binary, prepared.Args, prepared.Env)
+}
+
+func userRequestedClaudeSkipPermissions(cmd *cobra.Command) (bool, error) {
+	if cmd == nil {
+		return false, nil
+	}
+	flag := cmd.Flags().Lookup(claudeDangerouslySkipPermissionsFlag)
+	if flag == nil || !flag.Changed {
+		return false, nil
+	}
+	value, err := cmd.Flags().GetBool(claudeDangerouslySkipPermissionsFlag)
+	if err != nil {
+		return false, err
+	}
+	return value, nil
+}
+
+func launchUserArgs(target launchTarget, args []string, passClaudeSkipPermissions bool) ([]string, error) {
+	userArgs := append([]string{}, args...)
+	if !passClaudeSkipPermissions {
+		return userArgs, nil
+	}
+	if target.AppID != "claude-code" {
+		return nil, fmt.Errorf("--dangerously-skip-permissions is only supported for Claude Code")
+	}
+	return appendArgsIfMissing(userArgs, "--dangerously-skip-permissions"), nil
 }
 
 func ensureAIAppsServer(cfg *config.Config) (string, error) {

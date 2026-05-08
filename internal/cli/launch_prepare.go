@@ -353,6 +353,17 @@ func prependArgsIfMissing(args []string, defaults []string, flags ...string) []s
 	return merged
 }
 
+func appendArgsIfMissing(args []string, flags ...string) []string {
+	merged := append([]string{}, args...)
+	for _, flag := range flags {
+		if hasAnyFlag(merged, flag) {
+			continue
+		}
+		merged = append(merged, flag)
+	}
+	return merged
+}
+
 func hasAnyFlag(args []string, flags ...string) bool {
 	for _, arg := range args {
 		for _, flag := range flags {

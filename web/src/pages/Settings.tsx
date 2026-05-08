@@ -203,6 +203,12 @@ function normalizeVersion(version?: string): string {
   return (version || "").trim().replace(/^v/i, "");
 }
 
+function reloadAfterUpgrade() {
+  const url = new URL(window.location.href);
+  url.searchParams.set("_upgrade", Date.now().toString());
+  window.location.replace(url.toString());
+}
+
 function reloadWhenUpgraded(expectedVersion?: string) {
   const expected = normalizeVersion(expectedVersion);
   const deadline = Date.now() + upgradeReloadTimeoutMs;
@@ -215,7 +221,7 @@ function reloadWhenUpgraded(expectedVersion?: string) {
     try {
       const settings = await getSettings();
       if (!expected || normalizeVersion(settings.version) === expected) {
-        window.location.reload();
+        reloadAfterUpgrade();
         return;
       }
     } catch {
