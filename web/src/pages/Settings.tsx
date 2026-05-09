@@ -870,6 +870,33 @@ export function Settings() {
         </div>
       </div>
 
+      {/* API docs */}
+      <div class="mb-10">
+        <div class="flex items-center gap-2 mb-1">
+          <svg class="w-5 h-5 text-gray-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M12 6.253v13m0-13C10.832 5.477 8.955 5 7 5a4 4 0 00-4 4v9a4 4 0 014-4c1.955 0 3.832.477 5 1.253m0-9C13.168 5.477 15.045 5 17 5a4 4 0 014 4v9a4 4 0 00-4-4c-1.955 0-3.832.477-5 1.253" />
+          </svg>
+          <span class="font-semibold text-gray-900">{t("settings.apiDocs")}</span>
+        </div>
+        <p class="text-sm text-gray-500 mb-3 ml-7">{t("settings.apiDocsDesc")}</p>
+        <div class="ml-7 rounded-xl border border-gray-200 bg-white p-4">
+          <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <p class="text-sm font-semibold text-gray-900">{t("settings.apiDocsTitle")}</p>
+              <p class="mt-1 text-sm text-gray-500">{t("settings.apiDocsHint")}</p>
+            </div>
+            <a
+              href="/api-docs.html"
+              target="_blank"
+              rel="noopener noreferrer"
+              class="inline-flex items-center justify-center px-4 py-2 border border-indigo-200 rounded-lg text-sm text-indigo-700 hover:bg-indigo-50 transition-colors"
+            >
+              {t("settings.openApiDocs")}
+            </a>
+          </div>
+        </div>
+      </div>
+
       {/* Version information */}
       <div class="mb-10">
         <div class="flex items-center gap-2 mb-1">

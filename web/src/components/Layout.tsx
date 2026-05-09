@@ -28,10 +28,10 @@ function HelpIcon() {
   );
 }
 
-function DocsIcon() {
+function PricingIcon({ active }: { active: boolean }) {
   return (
-    <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="#9CA3AF" stroke-width="2">
-      <path stroke-linecap="round" stroke-linejoin="round" d="M12 6.253v13m0-13C10.832 5.477 8.955 5 7 5a4 4 0 00-4 4v9a4 4 0 014-4c1.955 0 3.832.477 5 1.253m0-9C13.168 5.477 15.045 5 17 5a4 4 0 014 4v9a4 4 0 00-4-4c-1.955 0-3.832.477-5 1.253" />
+    <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke={active ? "currentColor" : "#9CA3AF"} stroke-width="2">
+      <path stroke-linecap="round" stroke-linejoin="round" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
     </svg>
   );
 }
@@ -82,15 +82,22 @@ export function Layout({ children }: { children: ComponentChildren }) {
             </a>
           );
         })()}
-        <a
-          href="/api-docs.html"
-          target="_blank"
-          rel="noopener noreferrer"
-          class="flex items-center gap-3 mx-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors text-gray-600 hover:bg-gray-50 hover:text-gray-900"
-        >
-          <DocsIcon />
-          {t("nav.apiDocs")}
-        </a>
+        {(() => {
+          const active = path === "/pricing";
+          return (
+            <a
+              href="/pricing"
+              class={`flex items-center gap-3 mx-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
+                active
+                  ? "bg-indigo-50 text-indigo-700"
+                  : "text-gray-600 hover:bg-gray-50 hover:text-gray-900"
+              }`}
+            >
+              <PricingIcon active={active} />
+              {t("nav.pricing")}
+            </a>
+          );
+        })()}
         <a
           href="https://opencsg.com/docs/csghub/101/function/csghub-lite/intro"
           target="_blank"

@@ -48,6 +48,20 @@ func TestModelInfoFromRemote_LabelFallsBackToID(t *testing.T) {
 	}
 }
 
+func TestModelInfoFromRemote_LabelUsesOfficialName(t *testing.T) {
+	info, ok := modelInfoFromRemote(remoteModel{
+		ID:           "Qwen/Qwen3Guard-Gen-0.6B:s-qwen-qwen3guard-gen-0-6b(OpenCSG)",
+		Task:         "text-generation",
+		OfficialName: "Qwen3Guard-Gen-0.6B",
+	})
+	if !ok {
+		t.Fatal("expected model to be included")
+	}
+	if info.Label != "Qwen3Guard-Gen-0.6B" {
+		t.Fatalf("Label = %q, want official name", info.Label)
+	}
+}
+
 func TestModelInfoFromRemote_LabelPreservesProviderSuffix(t *testing.T) {
 	info, ok := modelInfoFromRemote(remoteModel{
 		ID:          "deepseek-v3.2",
@@ -59,6 +73,45 @@ func TestModelInfoFromRemote_LabelPreservesProviderSuffix(t *testing.T) {
 	}
 	if info.Label != "deepseek-v3.2(infini-ai)" {
 		t.Fatalf("Label = %q, want display name with provider", info.Label)
+	}
+}
+
+func TestModelInfoFromRemote_ExtractsPricing(t *testing.T) {
+	info, ok := modelInfoFromRemote(remoteModel{
+		ID:      "Qwen/Qwen3Guard-Gen-0.6B",
+		Task:    "text-generation",
+		OwnedBy: "OpenCSG",
+		Metadata: map[string]interface{}{
+			"llm_type": "serverless",
+			"pricing": map[string]interface{}{
+				"input_token_price": map[string]interface{}{
+					"currency":          "￥",
+					"price_per_million": 0.12,
+				},
+				"output_token_price": map[string]interface{}{
+					"currency":          "￥",
+					"price_per_million": "0.24",
+				},
+			},
+		},
+	})
+	if !ok {
+		t.Fatal("expected model to be included")
+	}
+	if info.LLMType != "serverless" {
+		t.Fatalf("LLMType = %q, want serverless", info.LLMType)
+	}
+	if info.OwnedBy != "OpenCSG" {
+		t.Fatalf("OwnedBy = %q, want OpenCSG", info.OwnedBy)
+	}
+	if info.Pricing == nil || info.Pricing.InputTokenPrice == nil || info.Pricing.OutputTokenPrice == nil {
+		t.Fatalf("Pricing = %#v, want input and output prices", info.Pricing)
+	}
+	if info.Pricing.InputTokenPrice.Currency != "￥" || info.Pricing.InputTokenPrice.PricePerMillion != 0.12 {
+		t.Fatalf("InputTokenPrice = %#v, want ￥0.12", info.Pricing.InputTokenPrice)
+	}
+	if info.Pricing.OutputTokenPrice.Currency != "￥" || info.Pricing.OutputTokenPrice.PricePerMillion != 0.24 {
+		t.Fatalf("OutputTokenPrice = %#v, want ￥0.24", info.Pricing.OutputTokenPrice)
 	}
 }
 

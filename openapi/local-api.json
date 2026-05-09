@@ -3259,12 +3259,11 @@
           "display_name": {
             "type": "string"
           },
+          "label": {
+            "type": "string"
+          },
           "source": {
-            "type": "string",
-            "enum": [
-              "local",
-              "cloud"
-            ]
+            "type": "string"
           },
           "pipeline_tag": {
             "type": "string"
@@ -3272,11 +3271,50 @@
           "has_mmproj": {
             "type": "boolean"
           },
+          "context_window": {
+            "type": "integer"
+          },
           "description": {
             "type": "string"
           },
           "license": {
             "type": "string"
+          },
+          "llm_type": {
+            "type": "string"
+          },
+          "owned_by": {
+            "type": "string"
+          },
+          "pricing": {
+            "$ref": "#/components/schemas/ModelPricing"
+          }
+        }
+      },
+      "ModelPricing": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "input_token_price": {
+            "$ref": "#/components/schemas/ModelTokenPrice"
+          },
+          "output_token_price": {
+            "$ref": "#/components/schemas/ModelTokenPrice"
+          }
+        }
+      },
+      "ModelTokenPrice": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "price_per_million"
+        ],
+        "properties": {
+          "currency": {
+            "type": "string"
+          },
+          "price_per_million": {
+            "type": "number"
           }
         }
       },

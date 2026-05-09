@@ -159,19 +159,32 @@ type ToolFunction struct {
 }
 
 type ModelInfo struct {
-	Name          string    `json:"name"`
-	Model         string    `json:"model"`
-	Size          int64     `json:"size"`
-	Format        string    `json:"format"`
-	ModifiedAt    time.Time `json:"modified_at"`
-	Label         string    `json:"label,omitempty"`
-	DisplayName   string    `json:"display_name,omitempty"`
-	Source        string    `json:"source,omitempty"`
-	PipelineTag   string    `json:"pipeline_tag,omitempty"`
-	HasMMProj     bool      `json:"has_mmproj,omitempty"`
-	ContextWindow int64     `json:"context_window,omitempty"`
-	Description   string    `json:"description,omitempty"`
-	License       string    `json:"license,omitempty"`
+	Name          string        `json:"name"`
+	Model         string        `json:"model"`
+	Size          int64         `json:"size"`
+	Format        string        `json:"format"`
+	ModifiedAt    time.Time     `json:"modified_at"`
+	Label         string        `json:"label,omitempty"`
+	DisplayName   string        `json:"display_name,omitempty"`
+	Source        string        `json:"source,omitempty"`
+	PipelineTag   string        `json:"pipeline_tag,omitempty"`
+	HasMMProj     bool          `json:"has_mmproj,omitempty"`
+	ContextWindow int64         `json:"context_window,omitempty"`
+	Description   string        `json:"description,omitempty"`
+	License       string        `json:"license,omitempty"`
+	LLMType       string        `json:"llm_type,omitempty"`
+	OwnedBy       string        `json:"owned_by,omitempty"`
+	Pricing       *ModelPricing `json:"pricing,omitempty"`
+}
+
+type ModelPricing struct {
+	InputTokenPrice  *ModelTokenPrice `json:"input_token_price,omitempty"`
+	OutputTokenPrice *ModelTokenPrice `json:"output_token_price,omitempty"`
+}
+
+type ModelTokenPrice struct {
+	Currency        string  `json:"currency,omitempty"`
+	PricePerMillion float64 `json:"price_per_million"`
 }
 
 type ModelOptions struct {

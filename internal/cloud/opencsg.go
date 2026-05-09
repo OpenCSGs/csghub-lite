@@ -49,6 +49,7 @@ type remoteModel struct {
 	OwnedBy         string                 `json:"owned_by"`
 	Task            string                 `json:"task"`
 	DisplayName     string                 `json:"display_name"`
+	OfficialName    string                 `json:"official_name"`
 	Public          bool                   `json:"public"`
 	MaxInputTokens  int                    `json:"max_input_tokens"`
 	MaxTokens       int                    `json:"max_tokens"`
@@ -173,6 +174,9 @@ func modelInfoFromRemote(item remoteModel) (api.ModelInfo, bool) {
 
 	displayName := strings.TrimSpace(item.DisplayName)
 	if displayName == "" {
+		displayName = strings.TrimSpace(item.OfficialName)
+	}
+	if displayName == "" {
 		displayName = strings.TrimSpace(item.ID)
 	}
 
@@ -187,6 +191,10 @@ func modelInfoFromRemote(item remoteModel) (api.ModelInfo, bool) {
 	}
 	limits := modelTokenLimitsFromRemote(item)
 
+	llmType := extractLLMType(item.Metadata)
+	ownedBy := strings.TrimSpace(item.OwnedBy)
+	pricing := extractPricing(item.Metadata)
+
 	return api.ModelInfo{
 		Name:          item.ID,
 		Model:         item.ID,
@@ -198,6 +206,9 @@ func modelInfoFromRemote(item remoteModel) (api.ModelInfo, bool) {
 		PipelineTag:   pipelineTag,
 		HasMMProj:     item.Task == "image-text-to-text",
 		ContextWindow: int64(limits.MaxInputTokens),
+		LLMType:       llmType,
+		OwnedBy:       ownedBy,
+		Pricing:       pricing,
 	}, true
 }
 
@@ -323,6 +334,90 @@ func firstPositive(values ...int) int {
 		}
 	}
 	return 0
+}
+
+func extractLLMType(metadata map[string]interface{}) string {
+	if len(metadata) == 0 {
+		return ""
+	}
+	if v, ok := metadata["llm_type"]; ok {
+		switch val := v.(type) {
+		case string:
+			return strings.TrimSpace(val)
+		}
+	}
+	return ""
+}
+
+func extractPricing(metadata map[string]interface{}) *api.ModelPricing {
+	if len(metadata) == 0 {
+		return nil
+	}
+
+	pricingMap, ok := metadata["pricing"].(map[string]interface{})
+	if !ok || len(pricingMap) == 0 {
+		return nil
+	}
+
+	input := extractTokenPrice(pricingMap["input_token_price"])
+	output := extractTokenPrice(pricingMap["output_token_price"])
+	if input == nil && output == nil {
+		return nil
+	}
+
+	return &api.ModelPricing{
+		InputTokenPrice:  input,
+		OutputTokenPrice: output,
+	}
+}
+
+func extractTokenPrice(value interface{}) *api.ModelTokenPrice {
+	priceMap, ok := value.(map[string]interface{})
+	if !ok || len(priceMap) == 0 {
+		return nil
+	}
+
+	price, ok := numericPriceValue(priceMap["price_per_million"])
+	if !ok {
+		return nil
+	}
+
+	return &api.ModelTokenPrice{
+		Currency:        stringValue(priceMap["currency"]),
+		PricePerMillion: price,
+	}
+}
+
+func stringValue(value interface{}) string {
+	switch v := value.(type) {
+	case string:
+		return strings.TrimSpace(v)
+	default:
+		return ""
+	}
+}
+
+func numericPriceValue(value interface{}) (float64, bool) {
+	switch v := value.(type) {
+	case float64:
+		return v, true
+	case float32:
+		return float64(v), true
+	case int:
+		return float64(v), true
+	case int64:
+		return float64(v), true
+	case int32:
+		return float64(v), true
+	case json.Number:
+		n, err := v.Float64()
+		return n, err == nil
+	case string:
+		n, err := strconv.ParseFloat(strings.TrimSpace(v), 64)
+		return n, err == nil
+	default:
+		return 0, false
+	}
 }
 
 func cloneModels(models []api.ModelInfo) []api.ModelInfo {

@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"net/http"
+	"sort"
 	"strings"
 	"time"
 
@@ -70,6 +71,8 @@ func (s *Server) listAvailableModelsWithRefresh(ctx context.Context, refreshClou
 		out = append(out, item)
 	}
 
+	sortModelsByPriority(out)
+
 	return out, nil
 }
 
@@ -123,4 +126,27 @@ func (s *Server) refreshCloudChatModels(ctx context.Context) ([]api.ModelInfo, e
 
 		return models, err
 	}
+}
+
+func sortModelsByPriority(models []api.ModelInfo) {
+	sort.SliceStable(models, func(i, j int) bool {
+		iType := strings.TrimSpace(strings.ToLower(models[i].LLMType))
+		jType := strings.TrimSpace(strings.ToLower(models[j].LLMType))
+		iOwner := strings.TrimSpace(strings.ToLower(models[i].OwnedBy))
+		jOwner := strings.TrimSpace(strings.ToLower(models[j].OwnedBy))
+
+		iIsExternal := iType == "external_llm"
+		jIsExternal := jType == "external_llm"
+		if iIsExternal != jIsExternal {
+			return iIsExternal
+		}
+
+		iIsOpenCSG := iOwner == "opencsg"
+		jIsOpenCSG := jOwner == "opencsg"
+		if iIsOpenCSG != jIsOpenCSG {
+			return iIsOpenCSG
+		}
+
+		return models[i].Model < models[j].Model
+	})
 }

@@ -11,8 +11,22 @@ export interface ModelInfo {
   source?: string;
   pipeline_tag?: string;
   has_mmproj?: boolean;
+  context_window?: number;
   description?: string;
   license?: string;
+  llm_type?: string;
+  owned_by?: string;
+  pricing?: ModelPricing;
+}
+
+export interface ModelPricing {
+  input_token_price?: ModelTokenPrice;
+  output_token_price?: ModelTokenPrice;
+}
+
+export interface ModelTokenPrice {
+  currency?: string;
+  price_per_million: number;
 }
 
 export interface LocalModelSearchResponse {
