@@ -27,7 +27,10 @@
       "Bash(git check-ignore *)",
       "WebFetch(domain:raw.githubusercontent.com)",
       "WebFetch(domain:github.com)",
-      "WebSearch"
+      "WebSearch",
+      "Bash(gh run *)",
+      "Bash(scripts/push.sh *)",
+      "Bash(go run *)"
     ]
   }
 }
