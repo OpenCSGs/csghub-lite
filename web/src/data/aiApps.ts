@@ -45,6 +45,9 @@ export interface AIAppRuntimeState {
   latestVersion?: string;
   updateAvailable?: boolean;
   modelID?: string;
+  runtimeSupported: boolean;
+  runtimeRunning: boolean;
+  runtimeStatus?: "running" | "stopped";
   logPath?: string;
   lastError?: string;
   logLines: string[];
@@ -435,6 +438,9 @@ export const initialAIAppStates = aiAppsCatalog.reduce<Record<string, AIAppRunti
     supported: app.installMode !== "docker",
     disabled: app.installMode === "docker",
     liveLogsReady: app.liveLogsReady,
+    runtimeSupported: ["openclaw", "csgclaw"].includes(app.id),
+    runtimeRunning: false,
+    runtimeStatus: ["openclaw", "csgclaw"].includes(app.id) ? "stopped" : undefined,
     logLines: [],
   };
   return acc;

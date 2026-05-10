@@ -57,6 +57,8 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("GET /api/apps", s.handleApps)
 	mux.HandleFunc("POST /api/apps/install", s.handleAppInstall)
 	mux.HandleFunc("POST /api/apps/uninstall", s.handleAppUninstall)
+	mux.HandleFunc("POST /api/apps/start", s.handleAppStart)
+	mux.HandleFunc("POST /api/apps/stop", s.handleAppStop)
 	mux.HandleFunc("POST /api/apps/open", s.handleAppOpen)
 	mux.HandleFunc("POST /api/apps/model", s.handleAppModelSave)
 	mux.HandleFunc("GET /api/apps/logs", s.handleAppLogs)

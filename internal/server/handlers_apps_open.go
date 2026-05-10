@@ -11,6 +11,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
+	"strconv"
 	"strings"
 	"time"
 
@@ -26,6 +28,7 @@ const (
 	openClawOpenTimeout     = 2 * time.Minute
 	openClawGatewayWait     = 2 * time.Minute
 	openClawGatewayLogName  = "openclaw-gateway.log"
+	openClawGatewayPIDName  = "openclaw-gateway.pid"
 	openClawDashboardPrefix = "Dashboard URL:"
 	openClawContextWindow   = 16000
 	openClawMaxTokens       = 4096
@@ -432,15 +435,10 @@ func dashboardHostPort(rawURL string) (string, error) {
 }
 
 func (s *Server) startOpenClawGateway(binary string) (*exec.Cmd, error) {
-	appHome, err := config.AppHome()
+	logPath, pidPath, err := openClawGatewayPaths()
 	if err != nil {
 		return nil, err
 	}
-	logDir := filepath.Join(appHome, "apps", "logs")
-	if err := os.MkdirAll(logDir, 0o755); err != nil {
-		return nil, fmt.Errorf("creating OpenClaw gateway log dir: %w", err)
-	}
-	logPath := filepath.Join(logDir, openClawGatewayLogName)
 	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
 	if err != nil {
 		return nil, fmt.Errorf("opening OpenClaw gateway log: %w", err)
@@ -457,9 +455,176 @@ func (s *Server) startOpenClawGateway(binary string) (*exec.Cmd, error) {
 		_ = logFile.Close()
 		return nil, fmt.Errorf("starting OpenClaw gateway: %w", err)
 	}
+	if err := os.WriteFile(pidPath, []byte(strconv.Itoa(cmd.Process.Pid)), 0o644); err != nil {
+		log.Printf("AI APP openclaw: writing gateway pid failed: %v", err)
+	}
 	log.Printf("AI APP openclaw: gateway process started pid=%d log=%s", cmd.Process.Pid, logPath)
 	_ = logFile.Close()
 	return cmd, nil
+}
+
+func openClawGatewayRunning(ctx context.Context, binary string) bool {
+	url, err := openClawDashboardURL(ctx, binary)
+	if err != nil {
+		return false
+	}
+	return dashboardReachable(url)
+}
+
+func stopOpenClawGateway(ctx context.Context, binary string) error {
+	url, _ := openClawDashboardURL(ctx, binary)
+	if !dashboardReachableOrDefault(url, openClawDefaultGatewayAddr()) {
+		removeOpenClawGatewayPID()
+		return nil
+	}
+
+	stopCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	output, err := exec.CommandContext(stopCtx, binary, "--profile", openClawWebProfile, "gateway", "stop").CombinedOutput()
+	if stopCtx.Err() == context.DeadlineExceeded {
+		log.Printf("AI APP openclaw: gateway stop command timed out")
+	} else if err != nil {
+		msg := strings.TrimSpace(string(output))
+		if msg == "" {
+			msg = err.Error()
+		}
+		log.Printf("AI APP openclaw: gateway stop command failed: %s", msg)
+	}
+
+	if waitForDashboardStopOrDefault(url, 3*time.Second) == nil {
+		removeOpenClawGatewayPID()
+		return nil
+	}
+	killOpenClawGatewayPID()
+	if waitForDashboardStopOrDefault(url, 5*time.Second) == nil {
+		removeOpenClawGatewayPID()
+		return nil
+	}
+	killOpenClawGatewayListeners(url)
+	if waitForDashboardStopOrDefault(url, 5*time.Second) == nil {
+		removeOpenClawGatewayPID()
+		return nil
+	}
+	if runtime.GOOS != "windows" {
+		_ = exec.Command("pkill", "-f", "openclaw .*gateway run").Run()
+	}
+	if err := waitForDashboardStopOrDefault(url, 5*time.Second); err != nil {
+		return fmt.Errorf("OpenClaw gateway did not stop in time")
+	}
+	removeOpenClawGatewayPID()
+	return nil
+}
+
+func openClawGatewayPaths() (logPath, pidPath string, err error) {
+	appHome, err := config.AppHome()
+	if err != nil {
+		return "", "", err
+	}
+	logDir := filepath.Join(appHome, "apps", "logs")
+	if err := os.MkdirAll(logDir, 0o755); err != nil {
+		return "", "", fmt.Errorf("creating OpenClaw gateway log dir: %w", err)
+	}
+	return filepath.Join(logDir, openClawGatewayLogName), filepath.Join(logDir, openClawGatewayPIDName), nil
+}
+
+func openClawDefaultGatewayAddr() string {
+	return "127.0.0.1:18789"
+}
+
+func dashboardReachableOrDefault(rawURL, defaultHostPort string) bool {
+	hostPort, err := dashboardHostPort(rawURL)
+	if err != nil {
+		hostPort = defaultHostPort
+	}
+	conn, err := net.DialTimeout("tcp", hostPort, 750*time.Millisecond)
+	if err != nil {
+		return false
+	}
+	_ = conn.Close()
+	return true
+}
+
+func waitForDashboardStopOrDefault(rawURL string, timeout time.Duration) error {
+	hostPort, err := dashboardHostPort(rawURL)
+	if err != nil {
+		hostPort = openClawDefaultGatewayAddr()
+	}
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		conn, err := net.DialTimeout("tcp", hostPort, 750*time.Millisecond)
+		if err != nil {
+			return nil
+		}
+		_ = conn.Close()
+		time.Sleep(200 * time.Millisecond)
+	}
+	return fmt.Errorf("OpenClaw gateway did not stop in time")
+}
+
+func killOpenClawGatewayPID() {
+	_, pidPath, err := openClawGatewayPaths()
+	if err != nil {
+		return
+	}
+	data, err := os.ReadFile(pidPath)
+	if err != nil {
+		return
+	}
+	pid, err := strconv.Atoi(strings.TrimSpace(string(data)))
+	if err != nil || pid <= 0 || pid == os.Getpid() {
+		return
+	}
+	process, err := os.FindProcess(pid)
+	if err != nil {
+		return
+	}
+	if err := process.Kill(); err != nil {
+		log.Printf("AI APP openclaw: killing gateway process pid=%d failed: %v", pid, err)
+	}
+	_ = process.Release()
+}
+
+func killOpenClawGatewayListeners(rawURL string) {
+	if runtime.GOOS == "windows" {
+		return
+	}
+	hostPort, err := dashboardHostPort(rawURL)
+	if err != nil {
+		hostPort = openClawDefaultGatewayAddr()
+	}
+	_, port, err := net.SplitHostPort(hostPort)
+	if err != nil || port == "" {
+		return
+	}
+	lsof, err := exec.LookPath("lsof")
+	if err != nil {
+		return
+	}
+	output, err := exec.Command(lsof, "-tiTCP:"+port, "-sTCP:LISTEN").Output()
+	if err != nil {
+		return
+	}
+	for _, rawPID := range strings.Fields(string(output)) {
+		pid, err := strconv.Atoi(strings.TrimSpace(rawPID))
+		if err != nil || pid <= 0 || pid == os.Getpid() {
+			continue
+		}
+		process, err := os.FindProcess(pid)
+		if err != nil {
+			continue
+		}
+		if err := process.Kill(); err != nil {
+			log.Printf("AI APP openclaw: killing gateway listener pid=%d failed: %v", pid, err)
+		}
+		_ = process.Release()
+	}
+}
+
+func removeOpenClawGatewayPID() {
+	_, pidPath, err := openClawGatewayPaths()
+	if err == nil {
+		_ = os.Remove(pidPath)
+	}
 }
 
 func releaseStartedOpenClawGateway(cmd *exec.Cmd) {

@@ -1805,6 +1805,89 @@
         }
       }
     },
+    "/api/apps/start": {
+      "post": {
+        "tags": [
+          "AI Apps"
+        ],
+        "summary": "Start an AI App runtime",
+        "description": "Starts the long-running runtime for AI Apps that expose one, currently OpenClaw and CSGClaw.",
+        "operationId": "startAIApp",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AIAppActionRequest"
+              },
+              "example": {
+                "app_id": "openclaw",
+                "model_id": "Qwen/Qwen3-0.6B-GGUF"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Runtime started.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AIAppInfo"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      }
+    },
+    "/api/apps/stop": {
+      "post": {
+        "tags": [
+          "AI Apps"
+        ],
+        "summary": "Stop an AI App runtime",
+        "description": "Stops the long-running runtime for AI Apps that expose one, currently OpenClaw and CSGClaw.",
+        "operationId": "stopAIApp",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AIAppActionRequest"
+              },
+              "example": {
+                "app_id": "openclaw"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Runtime stopped.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AIAppInfo"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      }
+    },
     "/api/apps/open": {
       "post": {
         "tags": [
@@ -3911,6 +3994,8 @@
           "disabled",
           "status",
           "progress_mode",
+          "runtime_supported",
+          "runtime_running",
           "updated_at"
         ],
         "properties": {
@@ -3967,6 +4052,21 @@
           },
           "model_id": {
             "type": "string"
+          },
+          "runtime_supported": {
+            "type": "boolean",
+            "description": "Whether this app exposes a long-running runtime that can be started or stopped."
+          },
+          "runtime_running": {
+            "type": "boolean",
+            "description": "Whether the app runtime is currently reachable."
+          },
+          "runtime_status": {
+            "type": "string",
+            "enum": [
+              "running",
+              "stopped"
+            ]
           },
           "log_path": {
             "type": "string"

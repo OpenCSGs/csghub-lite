@@ -1017,6 +1017,19 @@ func TestPrepareAIAppShellLaunchSetsTerminalEnvForClaudeCode(t *testing.T) {
 }
 
 func TestPrepareAIAppShellLaunchUsesCustomProviderForCodex(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	codexConfigDir := filepath.Join(home, ".codex")
+	if err := os.MkdirAll(codexConfigDir, 0o755); err != nil {
+		t.Fatalf("mkdir codex config dir: %v", err)
+	}
+	existingConfig := `mcp_servers.remotion-documentation.command = "npx"
+mcp_servers.remotion-documentation.args = ["@remotion/mcp@latest"]
+`
+	if err := os.WriteFile(filepath.Join(codexConfigDir, "config.toml"), []byte(existingConfig), 0o644); err != nil {
+		t.Fatalf("write codex config: %v", err)
+	}
+
 	binDir := t.TempDir()
 	commandPath := filepath.Join(binDir, "codex")
 	content := "#!/bin/sh\nexit 0\n"
@@ -1044,31 +1057,40 @@ func TestPrepareAIAppShellLaunchUsesCustomProviderForCodex(t *testing.T) {
 		t.Fatalf("prepareAIAppShellLaunch returned error: %v", err)
 	}
 
-	for _, want := range []string{
-		`model_provider="csghub_lite"`,
-		`model_providers.csghub_lite.name="OpenCSG"`,
-		`model_providers.csghub_lite.base_url="http://127.0.0.1:11435/v1"`,
-		`model_providers.csghub_lite.supports_websockets=false`,
-	} {
-		if !hasConfigOverride(prepared.Args, want) {
-			t.Fatalf("missing Codex config override %q in args %#v", want, prepared.Args)
-		}
-	}
 	if !slices.Contains(prepared.Args, "--no-alt-screen") {
 		t.Fatalf("expected Codex web shell args to include --no-alt-screen: %#v", prepared.Args)
 	}
 	if hasConfigPrefix(prepared.Args, "openai_base_url=") {
 		t.Fatalf("args = %#v, want custom provider config instead of openai_base_url", prepared.Args)
 	}
-	catalogValue := configValue(prepared.Args, "model_catalog_json=")
+	data, err := os.ReadFile(filepath.Join(codexConfigDir, "config.toml"))
+	if err != nil {
+		t.Fatalf("read codex config: %v", err)
+	}
+	configText := string(data)
+	for _, want := range []string{
+		`model_provider = "csghub_lite"`,
+		`model = "Qwen/Qwen3.5-2B"`,
+		`model_catalog_json = "`,
+		`[model_providers.csghub_lite]`,
+		`name = "OpenCSG"`,
+		`base_url = "http://127.0.0.1:11435/v1"`,
+		`supports_websockets = false`,
+		`mcp_servers.remotion-documentation.args = ["@remotion/mcp@latest"]`,
+	} {
+		if !strings.Contains(configText, want) {
+			t.Fatalf("codex config missing %q:\n%s", want, configText)
+		}
+	}
+	catalogValue := configValueFromConfig(configText, "model_catalog_json")
 	if catalogValue == "" {
-		t.Fatalf("missing model_catalog_json config in args %#v", prepared.Args)
+		t.Fatalf("missing model_catalog_json in config:\n%s", configText)
 	}
 	catalogPath, err := strconv.Unquote(catalogValue)
 	if err != nil {
 		t.Fatalf("unquote model_catalog_json %q: %v", catalogValue, err)
 	}
-	data, err := os.ReadFile(catalogPath)
+	data, err = os.ReadFile(catalogPath)
 	if err != nil {
 		t.Fatalf("read model catalog: %v", err)
 	}
@@ -1099,6 +1121,17 @@ func TestPrepareAIAppShellLaunchUsesCustomProviderForCodex(t *testing.T) {
 	if envHasKey(prepared.Env, "OPENAI_API_KEY") {
 		t.Fatalf("OPENAI_API_KEY should not be set for Codex custom provider: %#v", prepared.Env)
 	}
+}
+
+func configValueFromConfig(configText, key string) string {
+	prefix := key + " = "
+	for _, line := range strings.Split(configText, "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, prefix) {
+			return strings.TrimSpace(strings.TrimPrefix(line, prefix))
+		}
+	}
+	return ""
 }
 
 func TestPrepareAIAppShellLaunchUsesPiProviderConfig(t *testing.T) {

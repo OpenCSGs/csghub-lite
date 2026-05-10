@@ -180,6 +180,9 @@ export interface AIAppInfo {
   latest_version?: string;
   update_available?: boolean;
   model_id?: string;
+  runtime_supported: boolean;
+  runtime_running: boolean;
+  runtime_status?: "running" | "stopped";
   log_path?: string;
   last_error?: string;
   disabled_reason?: string;
@@ -925,6 +928,22 @@ export async function installAIApp(appId: string): Promise<AIAppInfo> {
 
 export async function uninstallAIApp(appId: string): Promise<AIAppInfo> {
   return fetchJSON<AIAppInfo>("/api/apps/uninstall", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ app_id: appId }),
+  });
+}
+
+export async function startAIApp(appId: string, modelId?: string, source?: string): Promise<AIAppInfo> {
+  return fetchJSON<AIAppInfo>("/api/apps/start", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ app_id: appId, model_id: modelId, source }),
+  });
+}
+
+export async function stopAIApp(appId: string): Promise<AIAppInfo> {
+  return fetchJSON<AIAppInfo>("/api/apps/stop", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ app_id: appId }),

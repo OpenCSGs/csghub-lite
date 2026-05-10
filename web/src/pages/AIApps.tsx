@@ -9,6 +9,7 @@ import {
   openAIApp,
   saveAIAppModel,
   saveCloudToken,
+  stopAIApp,
   streamAIAppLogs,
   uninstallAIApp,
   type AIAppInfo as RemoteAIAppInfo,
@@ -44,6 +45,7 @@ const actionError = signal("");
 const pendingInstallId = signal("");
 const pendingUninstallId = signal("");
 const pendingOpenId = signal("");
+const pendingStopId = signal("");
 const visibleError = computed(() => actionError.value || loadError.value);
 
 function hasCloudAuth(status: CloudAuthStatus | null | undefined): boolean {
@@ -200,6 +202,19 @@ export function AIApps() {
     }
   };
 
+  const handleStopApp = async (appId: string) => {
+    pendingStopId.value = appId;
+    actionError.value = "";
+    try {
+      const state = await stopAIApp(appId);
+      mergeAppStates([state]);
+    } catch (error) {
+      actionError.value = localizeAIAppErrorMessage((error as Error).message, t("aiApps.stopFailed"));
+    } finally {
+      pendingStopId.value = "";
+    }
+  };
+
   const grouped = groupedApps.value;
 
   return (
@@ -310,7 +325,9 @@ export function AIApps() {
           pendingInstall={pendingInstallId.value === selectedApp.value.id}
           pendingUninstall={pendingUninstallId.value === selectedApp.value.id}
           pendingOpen={pendingOpenId.value === selectedApp.value.id}
+          pendingStop={pendingStopId.value === selectedApp.value.id}
           onOpenChat={(modelId?: string, source?: string) => handleOpenApp(selectedApp.value!.id, modelId, source)}
+          onStop={() => handleStopApp(selectedApp.value!.id)}
         />
       )}
     </div>
@@ -369,12 +386,13 @@ function AIAppCard({
   const isUninstalling = state.status === "uninstalling";
   const isWorking = isInstalling || isUninstalling;
   const canOpenChat = canOpenAIApp(app, state);
+  const showRuntimeIndicator = canControlAIAppRuntime(state);
 
   return (
     <div class={`relative border rounded-xl bg-white p-5 flex flex-col justify-between min-h-[236px] overflow-hidden ${
       state.disabled ? "border-gray-200 opacity-80" : "border-gray-200"
     }`}>
-      {isInstalled && <InstalledCorner />}
+      {showRuntimeIndicator ? <RuntimeStatusCorner state={state} /> : isInstalled && <InstalledCorner />}
 
       <div>
         <div class="flex items-start gap-3">
@@ -496,7 +514,9 @@ function LiveLogsDrawer({
   pendingInstall,
   pendingUninstall,
   pendingOpen,
+  pendingStop,
   onOpenChat,
+  onStop,
 }: {
   app: AIAppCatalogEntry;
   state: AIAppRuntimeState;
@@ -507,7 +527,9 @@ function LiveLogsDrawer({
   pendingInstall: boolean;
   pendingUninstall: boolean;
   pendingOpen: boolean;
+  pendingStop: boolean;
   onOpenChat: (modelId?: string, source?: string) => void;
+  onStop: () => void;
 }) {
   void locale.value;
 
@@ -517,10 +539,11 @@ function LiveLogsDrawer({
   const isUninstalling = state.status === "uninstalling";
   const isWorking = isInstalling || isUninstalling;
   const showTaskLogs = state.liveLogsReady && (mode === "install" || isWorking);
-  const requestPending = pendingInstall || pendingUninstall;
+  const requestPending = pendingInstall || pendingUninstall || pendingStop;
   const canOpenChat = canOpenAIApp(app, state);
   const canSelectModel = canSelectAIAppModel(app);
   const showProgressSummary = !state.disabled && isWorking;
+  const showRuntimeSummary = canControlAIAppRuntime(state);
   const [models, setModels] = useState<ModelInfo[]>([]);
   const [modelsLoading, setModelsLoading] = useState(false);
   const [selectedModel, setSelectedModel] = useState("");
@@ -799,6 +822,14 @@ function LiveLogsDrawer({
                 </span>
               </div>
               <p class="text-sm text-gray-500 mt-1">{getLocalizedText(app.description, locale.value)}</p>
+              <a
+                href={app.website}
+                target="_blank"
+                rel="noreferrer"
+                class="inline-flex items-center text-xs text-indigo-600 hover:text-indigo-700 hover:underline mt-2"
+              >
+                {t("aiApps.visitWebsite")}
+              </a>
             </div>
           </div>
         </div>
@@ -816,12 +847,15 @@ function LiveLogsDrawer({
             {drawerNotice(state)}
           </div>
 
-          <div class={`grid grid-cols-1 ${showProgressSummary ? "sm:grid-cols-5" : "sm:grid-cols-4"} gap-3`}>
+          <div class={`grid grid-cols-1 ${showProgressSummary || showRuntimeSummary ? "sm:grid-cols-5" : "sm:grid-cols-4"} gap-3`}>
             <SummaryTile label={t("aiApps.installMode")} value={installModeLabel(app.installMode)} />
             {showProgressSummary && (
               <SummaryTile label={t("aiApps.progressMode")} value={renderProgressValue(state.progressMode, state.progress)} />
             )}
             <SummaryTile label={t("aiApps.currentStatus")} value={statusLabel(state)} />
+            {showRuntimeSummary && (
+              <SummaryTile label={t("aiApps.runtimeStatus")} value={runtimeStatusLabel(state)} />
+            )}
             <SummaryTile label={t("aiApps.currentVersion")} value={state.version || "—"} />
             <SummaryTile label={t("aiApps.latestVersion")} value={state.latestVersion || "—"} />
             <SummaryTile label={t("aiApps.updateStatus")} value={updateStatusLabel(state)} />
@@ -991,15 +1025,28 @@ function LiveLogsDrawer({
         </div>
 
         <div class="px-6 py-4 border-t border-gray-100 flex items-center justify-between gap-3">
-          <a
-            href={app.website}
-            target="_blank"
-            rel="noreferrer"
-            class="text-sm text-gray-500 hover:text-indigo-600 transition-colors"
-          >
-            {t("aiApps.visitWebsite")}
-          </a>
+          <div class="min-w-0">
+            {showRuntimeSummary && (
+              <span class="inline-flex items-center gap-2 text-sm text-gray-600">
+                <RuntimeStatusDot state={state} className="h-2.5 w-2.5" />
+                <span>{runtimeStatusLabel(state)}</span>
+              </span>
+            )}
+          </div>
           <div class="flex items-center gap-3">
+            {showRuntimeSummary && !isWorking && state.runtimeRunning && (
+                <button
+                  onClick={onStop}
+                  disabled={pendingStop}
+                  class={`inline-flex items-center justify-center rounded-lg border px-4 py-2 text-sm font-medium transition-colors ${
+                    pendingStop
+                      ? "border-gray-200 text-gray-300 cursor-not-allowed"
+                      : "border-red-200 text-red-600 hover:bg-red-50"
+                  }`}
+                >
+                  {pendingStop ? t("aiApps.stopping") : t("aiApps.stop")}
+                </button>
+            )}
             {canOpenChat && (
               <button
                 onClick={() => void handleOpenCurrentApp()}
@@ -1194,6 +1241,31 @@ function InstalledCorner() {
   );
 }
 
+function RuntimeStatusCorner({ state }: { state: AIAppRuntimeState }) {
+  const label = runtimeStatusLabel(state);
+
+  return (
+    <span
+      class="absolute top-3 right-3 inline-flex h-3 w-3"
+      title={label}
+      aria-label={label}
+    >
+      <RuntimeStatusDot state={state} className="h-3 w-3" />
+    </span>
+  );
+}
+
+function RuntimeStatusDot({ state, className }: { state: AIAppRuntimeState; className: string }) {
+  const isRunning = state.runtimeRunning || state.runtimeStatus === "running";
+
+  return (
+    <span class={`relative inline-flex ${className}`}>
+      {isRunning && <span class="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />}
+      <span class={`relative inline-flex rounded-full shadow-sm ring-2 ring-white ${className} ${runtimeStatusDotClass(state)}`} />
+    </span>
+  );
+}
+
 function mergeAppStates(remoteApps: RemoteAIAppInfo[]) {
   const next = { ...appStates.value };
   const fallback = createAIAppStateSnapshot();
@@ -1214,6 +1286,9 @@ function mergeAppStates(remoteApps: RemoteAIAppInfo[]) {
       latestVersion: remote.latest_version,
       updateAvailable: Boolean(remote.update_available),
       modelID: remote.model_id || "",
+      runtimeSupported: Boolean(remote.runtime_supported),
+      runtimeRunning: Boolean(remote.runtime_running),
+      runtimeStatus: remote.runtime_status || (remote.runtime_supported ? "stopped" : undefined),
       logPath: remote.log_path,
       lastError: remote.last_error,
     };
@@ -1325,6 +1400,24 @@ function canOpenAIApp(app: AIAppCatalogEntry, state: AIAppRuntimeState): boolean
   return ["openclaw", "csgclaw", "claude-code", "open-code", "codex", "pi"].includes(app.id) &&
     state.status === "installed" &&
     !state.disabled;
+}
+
+function canControlAIAppRuntime(state: AIAppRuntimeState): boolean {
+  return state.runtimeSupported &&
+    state.status === "installed" &&
+    !state.disabled;
+}
+
+function runtimeStatusLabel(state: AIAppRuntimeState): string {
+  return state.runtimeRunning || state.runtimeStatus === "running"
+    ? t("aiApps.runtime.running")
+    : t("aiApps.runtime.stopped");
+}
+
+function runtimeStatusDotClass(state: AIAppRuntimeState): string {
+  return state.runtimeRunning || state.runtimeStatus === "running"
+    ? "bg-emerald-500"
+    : "bg-red-500";
 }
 
 function cliLaunchPreview(app: AIAppCatalogEntry, modelID: string): string {

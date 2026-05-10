@@ -307,19 +307,26 @@ func (s *Server) startCSGClawServe(binary string) error {
 // stopCSGClaw terminates any running csgclaw serve process so a fresh
 // instance can be started with updated configuration.
 func stopCSGClaw(binary string) {
+	_ = stopCSGClawServe(binary)
+}
+
+func stopCSGClawServe(binary string) error {
 	if !csgclawReachable() {
-		return
+		return nil
 	}
 	if _, pidPath, err := csgclawServePaths(); err == nil {
 		_ = exec.Command(binary, "stop", "--pid", pidPath).Run()
 	}
 	if waitForCSGClawStop(3*time.Second) == nil {
-		return
+		return nil
 	}
 	if runtime.GOOS != "windows" {
 		_ = exec.Command("pkill", "-f", "csgclaw (serve|_serve)").Run()
 	}
-	_ = waitForCSGClawStop(3 * time.Second)
+	if err := waitForCSGClawStop(3 * time.Second); err != nil {
+		return err
+	}
+	return nil
 }
 
 func stopCSGClawManager(ctx context.Context, binary string) {

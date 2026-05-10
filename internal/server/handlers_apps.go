@@ -7,8 +7,15 @@ import (
 	"log"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/opencsgs/csghub-lite/pkg/api"
+)
+
+const (
+	aiAppRuntimeStatusRunning = "running"
+	aiAppRuntimeStatusStopped = "stopped"
+	aiAppRuntimeStatusTimeout = 2 * time.Second
 )
 
 func (s *Server) handleApps(w http.ResponseWriter, r *http.Request) {
@@ -81,6 +88,58 @@ func (s *Server) handleAppUninstall(w http.ResponseWriter, r *http.Request) {
 
 	s.enrichAIApp(r.Context(), &info)
 	writeJSON(w, http.StatusAccepted, info)
+}
+
+func (s *Server) handleAppStart(w http.ResponseWriter, r *http.Request) {
+	var req api.AIAppActionRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if strings.TrimSpace(req.AppID) == "" {
+		writeError(w, http.StatusBadRequest, "app_id is required")
+		return
+	}
+
+	log.Printf("AI APP %s: start requested model=%q source=%q", req.AppID, req.ModelID, req.Source)
+	info, err := s.startAIAppRuntime(r.Context(), req.AppID, req.ModelID, req.Source)
+	if err != nil {
+		log.Printf("AI APP %s: start failed: %v", req.AppID, err)
+		if strings.Contains(err.Error(), "unknown app") {
+			writeError(w, http.StatusNotFound, err.Error())
+			return
+		}
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusOK, info)
+}
+
+func (s *Server) handleAppStop(w http.ResponseWriter, r *http.Request) {
+	var req api.AIAppActionRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if strings.TrimSpace(req.AppID) == "" {
+		writeError(w, http.StatusBadRequest, "app_id is required")
+		return
+	}
+
+	log.Printf("AI APP %s: stop requested", req.AppID)
+	info, err := s.stopAIAppRuntime(r.Context(), req.AppID)
+	if err != nil {
+		log.Printf("AI APP %s: stop failed: %v", req.AppID, err)
+		if strings.Contains(err.Error(), "unknown app") {
+			writeError(w, http.StatusNotFound, err.Error())
+			return
+		}
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusOK, info)
 }
 
 func (s *Server) handleAppModelSave(w http.ResponseWriter, r *http.Request) {
@@ -168,7 +227,11 @@ func (s *Server) enrichAIApps(ctx context.Context, apps []api.AIAppInfo) {
 }
 
 func (s *Server) enrichAIApp(ctx context.Context, info *api.AIAppInfo) {
-	if info == nil || !info.Supported || info.Disabled {
+	if info == nil {
+		return
+	}
+	s.enrichAIAppRuntime(ctx, info)
+	if !info.Supported || info.Disabled {
 		return
 	}
 
@@ -197,6 +260,30 @@ func (s *Server) enrichAIApp(ctx context.Context, info *api.AIAppInfo) {
 
 	if err == nil {
 		info.ModelID = modelID
+	}
+}
+
+func (s *Server) enrichAIAppRuntime(ctx context.Context, info *api.AIAppInfo) {
+	if !aiAppSupportsRuntimeLifecycle(info.ID) {
+		return
+	}
+
+	info.RuntimeSupported = true
+	info.RuntimeStatus = aiAppRuntimeStatusStopped
+	if !info.Supported || info.Disabled || !info.Installed {
+		return
+	}
+
+	statusCtx, cancel := context.WithTimeout(ctx, aiAppRuntimeStatusTimeout)
+	defer cancel()
+	running, err := s.aiAppRuntimeRunning(statusCtx, info.ID)
+	if err != nil {
+		log.Printf("AI APP %s: runtime status check failed: %v", info.ID, err)
+		return
+	}
+	info.RuntimeRunning = running
+	if running {
+		info.RuntimeStatus = aiAppRuntimeStatusRunning
 	}
 }
 
