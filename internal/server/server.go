@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/opencsgs/csghub-lite/internal/apps"
+	"github.com/opencsgs/csghub-lite/internal/chathistory"
 	"github.com/opencsgs/csghub-lite/internal/cloud"
 	"github.com/opencsgs/csghub-lite/internal/config"
 	"github.com/opencsgs/csghub-lite/internal/convert"
@@ -83,6 +84,8 @@ type Server struct {
 	thirdPartyModelsCache    []api.ModelInfo
 	thirdPartyModelsCacheAt  time.Time
 	thirdPartyModelsCacheMu  sync.Mutex
+
+	conversations *chathistory.Store
 }
 
 func New(cfg *config.Config, version string) *Server {
@@ -103,6 +106,10 @@ func New(cfg *config.Config, version string) *Server {
 		logBuf:         logBuf,
 	}
 	s.appShells = newAIAppShellManager()
+
+	if appHome, err := config.AppHome(); err == nil {
+		s.conversations = chathistory.NewStore(appHome)
+	}
 
 	handler := s.routes()
 	s.http = &http.Server{

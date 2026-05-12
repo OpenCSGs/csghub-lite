@@ -480,3 +480,33 @@ type ThirdPartyProviderUpdateRequest struct {
 	Provider string `json:"provider,omitempty"`
 	Enabled  *bool  `json:"enabled,omitempty"`
 }
+
+// -- Conversation history types --
+
+type Conversation struct {
+	ID        string                `json:"id"`
+	Title     string                `json:"title"`
+	Model     string                `json:"model,omitempty"`
+	CreatedAt time.Time             `json:"created_at"`
+	UpdatedAt time.Time             `json:"updated_at"`
+	Messages  []Message             `json:"messages"`
+	Settings  *ConversationSettings `json:"settings,omitempty"`
+}
+
+type ConversationMeta struct {
+	ID        string    `json:"id"`
+	Title     string    `json:"title"`
+	Model     string    `json:"model,omitempty"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+	MsgCount  int       `json:"msg_count"`
+}
+
+type ConversationSettings struct {
+	NumCtx      int `json:"num_ctx,omitempty"`
+	NumParallel int `json:"num_parallel,omitempty"`
+}
+
+type ConversationsListResponse struct {
+	Conversations []ConversationMeta `json:"conversations"`
+}

@@ -1,25 +1,25 @@
 import { useEffect, useRef } from "preact/hooks";
 import { signal, computed } from "@preact/signals";
-import { getTags, getPs, streamChat, getCloudAuthStatus, saveCloudToken } from "../api/client";
-import type { ModelInfo, ChatMessage, ContentPart, CloudAuthStatus } from "../api/client";
+import {
+  getTags, getPs, streamChat, getCloudAuthStatus, saveCloudToken,
+  listConversations, getConversation, createConversation, updateConversation, deleteConversation,
+} from "../api/client";
+import type {
+  ModelInfo, ChatMessage, ContentPart, CloudAuthStatus,
+  ConversationMeta, Conversation,
+} from "../api/client";
 import { t, locale } from "../i18n";
 import { parseReasoningText } from "../reasoning";
 
-interface Session {
-  id: string;
-  title: string;
-  messages: ChatMessage[];
-  numCtx?: number;
-  numParallel?: number;
-}
-
 const availableModels = signal<ModelInfo[]>([]);
 const selectedModelKey = signal("");
-const sessions = signal<Session[]>(loadSessions());
-const activeSessionId = signal(sessions.value[0]?.id || "");
+const conversationMetas = signal<ConversationMeta[]>([]);
+const activeConversation = signal<Conversation | null>(null);
+const activeSessionId = signal("");
 const inputText = signal("");
 const isGenerating = signal(false);
 const showSettings = signal(false);
+const showSidebar = signal(true);
 const showCloudAuthDialog = signal(false);
 const cloudAuth = signal<CloudAuthStatus | null>(null);
 const cloudTokenInput = signal("");
@@ -36,6 +36,7 @@ const topP = signal(0.75);
 const maxTokens = signal(4096);
 
 const streamingContent = signal("");
+const searchingQuery = signal("");
 const chatError = signal("");
 const pendingImages = signal<PendingImage[]>([]);
 const contextStorageKey = "csghub.chat.num_ctx";
@@ -169,58 +170,75 @@ function defaultNumParallel(): number {
   return readNumParallel() || 4;
 }
 
-function makeId(): string {
-  if (typeof crypto !== "undefined" && crypto.randomUUID) {
-    return crypto.randomUUID();
-  }
-  return "xxxx-xxxx-xxxx".replace(/x/g, () =>
-    Math.floor(Math.random() * 16).toString(16)
-  );
+function relativeTime(dateStr: string): string {
+  const now = Date.now();
+  const then = new Date(dateStr).getTime();
+  const diffMs = now - then;
+  const mins = Math.floor(diffMs / 60000);
+  if (mins < 1) return t("chat.justNow");
+  if (mins < 60) return t("chat.minutesAgo", mins);
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return t("chat.hoursAgo", hours);
+  return t("chat.daysAgo", Math.floor(hours / 24));
 }
 
-function loadSessions(): Session[] {
+async function refreshConversationList() {
+  try {
+    const metas = await listConversations();
+    conversationMetas.value = metas;
+  } catch {
+    /* ignore */
+  }
+}
+
+async function loadConversation(id: string) {
+  try {
+    const conv = await getConversation(id);
+    activeConversation.value = conv;
+    activeSessionId.value = conv.id;
+  } catch {
+    /* ignore */
+  }
+}
+
+async function saveCurrentConversation() {
+  const conv = activeConversation.value;
+  if (!conv) return;
+  try {
+    await updateConversation(conv.id, {
+      title: conv.title,
+      model: conv.model,
+      messages: conv.messages,
+      settings: conv.settings,
+    });
+    refreshConversationList();
+  } catch {
+    /* non-fatal */
+  }
+}
+
+async function migrateLocalStorage() {
   try {
     const raw = localStorage.getItem("csghub-chat-sessions");
-    if (raw) {
-      const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed) && parsed.length > 0) {
-        return parsed.map((s) => ({
-          ...s,
-          numCtx: normalizeNumCtx(s?.numCtx),
-          numParallel: s?.numParallel || defaultNumParallel(),
-        }));
-      }
+    if (!raw) return;
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed) || parsed.length === 0) return;
+
+    for (const session of parsed) {
+      if (!session.messages || session.messages.length === 0) continue;
+      await createConversation({
+        title: session.title || "Imported Chat",
+        messages: session.messages,
+        settings: {
+          num_ctx: session.numCtx || defaultNumCtx(),
+          num_parallel: session.numParallel || defaultNumParallel(),
+        },
+      });
     }
-  } catch { /* ignore */ }
-  const s: Session = { id: makeId(), title: "New Chat", messages: [], numCtx: defaultNumCtx(), numParallel: defaultNumParallel() };
-  return [s];
-}
-
-function stripImagesForStorage(s: Session[]): Session[] {
-  return s.map((sess) => ({
-    ...sess,
-    messages: sess.messages.map((m) => {
-      if (!Array.isArray(m.content)) return m;
-      const textOnly = (m.content as ContentPart[])
-        .filter((p) => p.type === "text")
-        .map((p) => p.text || "")
-        .join("");
-      return { ...m, content: textOnly || "(image)" };
-    }),
-  }));
-}
-
-function saveSessions() {
-  try {
-    const safe = stripImagesForStorage(sessions.value);
-    localStorage.setItem("csghub-chat-sessions", JSON.stringify(safe));
+    localStorage.removeItem("csghub-chat-sessions");
   } catch {
-    /* quota exceeded or other storage error — non-fatal */
+    /* ignore migration errors */
   }
-}
-
-function getActiveSession(): Session | undefined {
-  return sessions.value.find((s) => s.id === activeSessionId.value);
 }
 
 export function Chat() {
@@ -310,13 +328,27 @@ export function Chat() {
     getCloudAuthStatus().then((status) => {
       cloudAuth.value = status;
     }).catch(() => {});
+
+    (async () => {
+      await migrateLocalStorage();
+      await refreshConversationList();
+      const metas = conversationMetas.value;
+      if (metas.length > 0) {
+        await loadConversation(metas[0].id);
+      } else {
+        const conv = await createConversation({});
+        activeConversation.value = conv;
+        activeSessionId.value = conv.id;
+        await refreshConversationList();
+      }
+    })();
   }, []);
 
   useEffect(() => {
     if (messagesRef.current) {
       messagesRef.current.scrollTop = messagesRef.current.scrollHeight;
     }
-  }, [getActiveSession()?.messages.length, streamingContent.value]);
+  }, [activeConversation.value?.messages.length, streamingContent.value]);
 
   const handleImageUpload = (e: Event) => {
     const files = (e.target as HTMLInputElement).files;
@@ -355,8 +387,8 @@ export function Chat() {
       }
     }
 
-    const session = getActiveSession();
-    if (!session) {
+    const conv = activeConversation.value;
+    if (!conv) {
       chatError.value = "No active session. Please create a new chat.";
       return;
     }
@@ -380,31 +412,36 @@ export function Chat() {
       apiParts.push({ type: "text" as const, text });
 
       apiMessages = [
-        ...session.messages,
+        ...conv.messages,
         { role: "user", content: apiParts },
       ];
     } else {
       userContent = text;
       apiMessages = [
-        ...session.messages,
+        ...conv.messages,
         { role: "user", content: text },
       ];
     }
 
-    session.messages.push({ role: "user", content: userContent });
-    if (session.messages.length === 1) {
-      session.title = text.slice(0, 30) || "New Chat";
+    conv.messages.push({ role: "user", content: userContent });
+    if (conv.messages.length === 1) {
+      conv.title = text.slice(0, 30) || "New Chat";
     }
-    sessions.value = [...sessions.value];
+    conv.model = modelKey(currentModel);
+    activeConversation.value = { ...conv };
     inputText.value = "";
     pendingImages.value = [];
-    saveSessions();
+    saveCurrentConversation();
 
     isGenerating.value = true;
     streamingContent.value = "";
+    searchingQuery.value = "";
 
     const ac = new AbortController();
     abortRef.current = ac;
+
+    const numCtx = normalizeNumCtx(conv.settings?.num_ctx);
+    const numParallel = conv.settings?.num_parallel || defaultNumParallel();
 
     chatError.value = "";
     try {
@@ -415,36 +452,40 @@ export function Chat() {
           temperature: temperature.value,
           top_p: topP.value,
           max_tokens: maxTokens.value,
-          num_ctx: normalizeNumCtx(session.numCtx),
-          num_parallel: session.numParallel || defaultNumParallel(),
+          num_ctx: numCtx,
+          num_parallel: numParallel,
           system: systemPrompt.value || undefined,
           source: currentModel.source,
         },
         (token, done) => {
           if (done) {
-            session.messages.push({
+            searchingQuery.value = "";
+            conv.messages.push({
               role: "assistant",
               content: streamingContent.value,
             });
-            sessions.value = [...sessions.value];
+            activeConversation.value = { ...conv };
             streamingContent.value = "";
-            saveSessions();
+            saveCurrentConversation();
           } else {
             streamingContent.value += token;
           }
         },
-        ac.signal
+        ac.signal,
+        (query) => {
+          searchingQuery.value = query;
+        },
       );
     } catch (e: any) {
       const errMessage = e?.message || t("chat.failedResp");
       if (streamingContent.value) {
-        session.messages.push({
+        conv.messages.push({
           role: "assistant",
           content: streamingContent.value,
         });
-        sessions.value = [...sessions.value];
+        activeConversation.value = { ...conv };
         streamingContent.value = "";
-        saveSessions();
+        saveCurrentConversation();
       } else if (!ac.signal.aborted) {
         if (currentModel.source === "cloud" && /(AUTH-ERR-1|AUTH-ERR-5|login first|Error 401)/i.test(errMessage)) {
           await openCloudAuthDialog(t("chat.cloudLoginExpired"));
@@ -454,6 +495,7 @@ export function Chat() {
       }
     }
 
+    searchingQuery.value = "";
     isGenerating.value = false;
     abortRef.current = null;
   };
@@ -462,21 +504,52 @@ export function Chat() {
     abortRef.current?.abort();
   };
 
-  const handleNewSession = () => {
-    const s: Session = { id: makeId(), title: "New Chat", messages: [], numCtx: defaultNumCtx(), numParallel: defaultNumParallel() };
-    sessions.value = [s, ...sessions.value];
-    activeSessionId.value = s.id;
-    saveSessions();
+  const handleNewSession = async () => {
+    try {
+      const conv = await createConversation({});
+      activeConversation.value = conv;
+      activeSessionId.value = conv.id;
+      await refreshConversationList();
+    } catch {
+      /* ignore */
+    }
+  };
+
+  const handleSelectConversation = async (id: string) => {
+    if (id === activeSessionId.value) return;
+    await loadConversation(id);
+  };
+
+  const handleDeleteConversation = async (id: string, e: Event) => {
+    e.stopPropagation();
+    if (!confirm(t("chat.deleteChatConfirm"))) return;
+    try {
+      await deleteConversation(id);
+      await refreshConversationList();
+      if (id === activeSessionId.value) {
+        const metas = conversationMetas.value;
+        if (metas.length > 0) {
+          await loadConversation(metas[0].id);
+        } else {
+          const conv = await createConversation({});
+          activeConversation.value = conv;
+          activeSessionId.value = conv.id;
+          await refreshConversationList();
+        }
+      }
+    } catch {
+      /* ignore */
+    }
   };
 
   const handleClearHistory = () => {
-    const session = getActiveSession();
-    if (!session || session.messages.length === 0) return;
+    const conv = activeConversation.value;
+    if (!conv || conv.messages.length === 0) return;
     if (!confirm(t("chat.clearConfirm"))) return;
-    session.messages = [];
-    session.title = "New Chat";
-    sessions.value = [...sessions.value];
-    saveSessions();
+    conv.messages = [];
+    conv.title = "New Chat";
+    activeConversation.value = { ...conv };
+    saveCurrentConversation();
   };
 
   const handleKeyDown = (e: KeyboardEvent) => {
@@ -486,22 +559,78 @@ export function Chat() {
     }
   };
 
-  const session = getActiveSession();
-  const messages = session?.messages || [];
+  const conv = activeConversation.value;
+  const messages = conv?.messages || [];
 
   return (
     <div class="flex h-full">
+      {/* Sidebar */}
+      {showSidebar.value && (
+        <div class="w-64 border-r border-gray-200 bg-gray-50 flex flex-col h-full">
+          <div class="flex items-center justify-between px-4 py-3 border-b border-gray-200">
+            <span class="text-sm font-semibold text-gray-700">{t("chat.conversations")}</span>
+            <button onClick={handleNewSession} class="text-gray-400 hover:text-indigo-600 transition-colors" title={t("chat.newChat")}>
+              <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" />
+              </svg>
+            </button>
+          </div>
+          <div class="flex-1 overflow-auto">
+            {conversationMetas.value.length === 0 && (
+              <div class="text-center text-gray-400 text-xs mt-8 px-4">{t("chat.noConversations")}</div>
+            )}
+            {conversationMetas.value.map((meta) => (
+              <div
+                key={meta.id}
+                onClick={() => handleSelectConversation(meta.id)}
+                class={`group flex items-start gap-2 px-4 py-3 cursor-pointer border-b border-gray-100 transition-colors ${
+                  meta.id === activeSessionId.value ? "bg-indigo-50 border-l-2 border-l-indigo-500" : "hover:bg-gray-100"
+                }`}
+              >
+                <div class="flex-1 min-w-0">
+                  <div class="text-sm font-medium text-gray-800 truncate">{meta.title}</div>
+                  <div class="flex items-center gap-2 mt-0.5">
+                    <span class="text-[11px] text-gray-400">{relativeTime(meta.updated_at)}</span>
+                    {meta.msg_count > 0 && (
+                      <span class="text-[11px] text-gray-400">{t("chat.messages", meta.msg_count)}</span>
+                    )}
+                  </div>
+                </div>
+                <button
+                  onClick={(e) => handleDeleteConversation(meta.id, e)}
+                  class="flex-shrink-0 p-1 rounded text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-all"
+                  title={t("chat.deleteChat")}
+                >
+                  <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                  </svg>
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Main Chat Area */}
       <div class="flex-1 flex flex-col min-w-0">
         {/* Header */}
         <div class="flex items-center justify-between px-6 py-3 border-b border-gray-200 bg-white">
           <div class="flex items-center gap-3">
+            <button
+              onClick={() => (showSidebar.value = !showSidebar.value)}
+              class="text-gray-400 hover:text-gray-600"
+              title={showSidebar.value ? t("chat.hideSidebar") : t("chat.showSidebar")}
+            >
+              <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 12h16M4 18h16" />
+              </svg>
+            </button>
             <button onClick={handleNewSession} class="text-gray-400 hover:text-gray-600" title={t("chat.newChat")}>
               <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" />
               </svg>
             </button>
-            <span class="text-sm font-medium text-gray-700 truncate max-w-xs">{session?.title || t("chat.chat")}</span>
+            <span class="text-sm font-medium text-gray-700 truncate max-w-xs">{conv?.title || t("chat.chat")}</span>
           </div>
           <div class="flex items-center gap-2">
             <button
@@ -542,6 +671,17 @@ export function Chat() {
           {messages.map((m, i) => (
             <MessageBubble key={i} message={m} />
           ))}
+          {searchingQuery.value && !streamingContent.value && (
+            <div class="flex justify-start">
+              <div class="flex items-center gap-2 rounded-2xl px-4 py-3 text-sm bg-blue-50 border border-blue-200 text-blue-700">
+                <svg class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                  <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" />
+                  <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                </svg>
+                <span>{t("chat.searchingFor", searchingQuery.value)}</span>
+              </div>
+            </div>
+          )}
           {streamingContent.value && (
             <MessageBubble message={{ role: "assistant", content: streamingContent.value }} streaming />
           )}
@@ -549,7 +689,6 @@ export function Chat() {
 
         {/* Input */}
         <div class="px-6 py-4 border-t border-gray-200 bg-white">
-          {/* Image previews */}
           {pendingImages.value.length > 0 && (
             <div class="flex gap-2 mb-2 flex-wrap">
               {pendingImages.value.map((img, i) => (
@@ -566,7 +705,6 @@ export function Chat() {
             </div>
           )}
           <div class="flex items-center gap-3">
-            {/* Model selector */}
             <select
               class="border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-600 focus:outline-none focus:ring-2 focus:ring-indigo-500 max-w-[200px]"
               value={selectedModelKey.value}
@@ -578,7 +716,6 @@ export function Chat() {
                 </option>
               ))}
             </select>
-            {/* Image upload for vision models */}
             {isVisionModel.value && (
               <label class="p-2.5 rounded-lg border border-gray-200 text-gray-500 hover:text-indigo-600 hover:border-indigo-300 cursor-pointer transition-colors" title={t("chat.uploadImage")}>
                 <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
@@ -650,21 +787,22 @@ export function Chat() {
           <div>
             <div class="flex items-center justify-between mb-1.5">
               <label class="text-sm font-medium text-gray-700">num_ctx</label>
-              <span class="text-sm text-gray-500 tabular-nums">{normalizeNumCtx(session?.numCtx)}</span>
+              <span class="text-sm text-gray-500 tabular-nums">{normalizeNumCtx(conv?.settings?.num_ctx)}</span>
             </div>
             <input
               type="range"
               min={0}
               max={contextLengthSteps.length - 1}
               step={1}
-              value={Math.max(0, contextLengthSteps.indexOf(normalizeNumCtx(session?.numCtx)))}
+              value={Math.max(0, contextLengthSteps.indexOf(normalizeNumCtx(conv?.settings?.num_ctx)))}
               onInput={(e) => {
                 const idx = Number((e.target as HTMLInputElement).value);
-                const s = getActiveSession();
-                if (!s) return;
-                s.numCtx = contextLengthSteps[idx] || defaultNumCtx();
-                sessions.value = [...sessions.value];
-                saveSessions();
+                const c = activeConversation.value;
+                if (!c) return;
+                if (!c.settings) c.settings = {};
+                c.settings.num_ctx = contextLengthSteps[idx] || defaultNumCtx();
+                activeConversation.value = { ...c };
+                saveCurrentConversation();
               }}
               class="w-full h-1.5 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-indigo-600"
             />
@@ -696,7 +834,6 @@ export function Chat() {
       {showCloudAuthDialog.value && (
         <div class="fixed inset-0 z-50 flex items-center justify-center bg-gray-900/40 px-4">
           <div class="w-full max-w-lg rounded-2xl bg-white p-6 shadow-2xl">
-            {/* Model name display with copy button */}
             {selectedModelInfo.value && (
               <div class="mb-4 flex items-center justify-between rounded-lg bg-indigo-50 px-3 py-2">
                 <div class="flex items-center gap-2">

@@ -65,6 +65,13 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("GET /api/apps/shell/{id}/ws", s.handleAppShellWS)
 	mux.HandleFunc("POST /api/apps/shell/{id}/close", s.handleAppShellClose)
 
+	// Conversation history
+	mux.HandleFunc("GET /api/conversations", s.handleConversationsList)
+	mux.HandleFunc("POST /api/conversations", s.handleConversationCreate)
+	mux.HandleFunc("GET /api/conversations/{id}", s.handleConversationGet)
+	mux.HandleFunc("PUT /api/conversations/{id}", s.handleConversationUpdate)
+	mux.HandleFunc("DELETE /api/conversations/{id}", s.handleConversationDelete)
+
 	// Upgrade API
 	mux.HandleFunc("GET /api/upgrade/check", s.handleUpgradeCheck)
 	mux.HandleFunc("POST /api/upgrade", s.handleUpgrade)

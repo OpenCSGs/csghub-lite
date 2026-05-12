@@ -495,6 +495,11 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if s.shouldInjectWebSearch(eng) {
+		s.handleChatWithWebSearch(w, r, req, eng, opts, stream)
+		return
+	}
+
 	if stream {
 		if requestWantsSSE(r) {
 			w.Header().Set("Content-Type", "text/event-stream")

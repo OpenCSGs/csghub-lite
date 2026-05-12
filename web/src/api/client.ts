@@ -528,12 +528,70 @@ function stripImagesFromOldMessages(msgs: ChatMessage[]): ChatMessage[] {
   });
 }
 
+// -- Conversation history API --
+
+export interface ConversationMeta {
+  id: string;
+  title: string;
+  model?: string;
+  created_at: string;
+  updated_at: string;
+  msg_count: number;
+}
+
+export interface ConversationSettings {
+  num_ctx?: number;
+  num_parallel?: number;
+}
+
+export interface Conversation {
+  id: string;
+  title: string;
+  model?: string;
+  created_at: string;
+  updated_at: string;
+  messages: ChatMessage[];
+  settings?: ConversationSettings;
+}
+
+export async function listConversations(): Promise<ConversationMeta[]> {
+  const data = await fetchJSON<{ conversations: ConversationMeta[] }>("/api/conversations");
+  return data.conversations || [];
+}
+
+export async function getConversation(id: string): Promise<Conversation> {
+  return fetchJSON<Conversation>(`/api/conversations/${encodeURIComponent(id)}`);
+}
+
+export async function createConversation(init?: Partial<Conversation>): Promise<Conversation> {
+  return fetchJSON<Conversation>("/api/conversations", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(init || {}),
+  });
+}
+
+export async function updateConversation(id: string, patch: Partial<Conversation>): Promise<Conversation> {
+  return fetchJSON<Conversation>(`/api/conversations/${encodeURIComponent(id)}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(patch),
+  });
+}
+
+export async function deleteConversation(id: string): Promise<void> {
+  await fetchJSON<{ status: string }>(`/api/conversations/${encodeURIComponent(id)}`, {
+    method: "DELETE",
+  });
+}
+
 export function streamChat(
   model: string,
   messages: ChatMessage[],
   options: { temperature?: number; top_p?: number; max_tokens?: number; num_ctx?: number; num_parallel?: number; system?: string; source?: string },
   onToken: (token: string, done: boolean) => void,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  onSearching?: (query: string) => void,
 ): Promise<void> {
   let msgs = stripImagesFromOldMessages([...messages]);
   if (options.system) {
@@ -591,7 +649,9 @@ export function streamChat(
               if (line.startsWith("data: ")) {
                 try {
                   const data = JSON.parse(line.slice(6));
-                  if (data.message?.content) {
+                  if (data.searching && onSearching) {
+                    onSearching(data.searching);
+                  } else if (data.message?.content) {
                     onToken(data.message.content, false);
                   }
                   if (data.done) {
