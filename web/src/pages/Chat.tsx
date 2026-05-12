@@ -7,6 +7,7 @@ import {
 import type {
   ModelInfo, ChatMessage, ContentPart, CloudAuthStatus,
   ConversationMeta, Conversation,
+  ChatMessageMeta,
 } from "../api/client";
 import { t, locale } from "../i18n";
 import { parseReasoningText } from "../reasoning";
@@ -21,6 +22,7 @@ const isGenerating = signal(false);
 const showSettings = signal(false);
 const showSidebar = signal(true);
 const showCloudAuthDialog = signal(false);
+const openConversationMenuId = signal("");
 const cloudAuth = signal<CloudAuthStatus | null>(null);
 const cloudTokenInput = signal("");
 const cloudAuthError = signal("");
@@ -80,6 +82,47 @@ function saveSelectedModelKey(key: string) {
   } catch {
     /* ignore storage failures */
   }
+}
+
+function estimateTokens(text: string): number {
+  const cjkChars = (text.match(/[\u3400-\u9fff\uf900-\ufaff\u3040-\u30ff]/g) || []).length;
+  const nonCjk = text.replace(/[\u3400-\u9fff\uf900-\ufaff\u3040-\u30ff]/g, "");
+  const wordLike = (nonCjk.match(/[A-Za-z0-9_]+|[^\sA-Za-z0-9_]/g) || []).length;
+  return Math.max(1, cjkChars + Math.ceil(wordLike * 1.25));
+}
+
+function buildResponseMeta(text: string, startedAt: number): ChatMessageMeta {
+  const durationMs = Math.max(1, Date.now() - startedAt);
+  const tokens = estimateTokens(stripReasoningForStats(text));
+  const seconds = durationMs / 1000;
+  return {
+    tokens,
+    speed: tokens / Math.max(seconds, 0.001),
+    duration_ms: durationMs,
+    estimated: true,
+  };
+}
+
+function stripReasoningForStats(text: string): string {
+  const parsed = parseReasoningText(text);
+  return parsed.answer || text;
+}
+
+function formatResponseMeta(meta: ChatMessageMeta): string {
+  const tokens = meta.tokens ?? 0;
+  const speed = meta.speed ?? 0;
+  const duration = formatDuration(meta.duration_ms || 0);
+  return t("chat.responseMeta", tokens, speed.toFixed(speed >= 10 ? 0 : 1), duration);
+}
+
+function formatDuration(durationMs: number): string {
+  const seconds = durationMs / 1000;
+  if (seconds < 60) {
+    return `${seconds.toFixed(seconds >= 10 ? 0 : 1)}s`;
+  }
+  const mins = Math.floor(seconds / 60);
+  const secs = Math.round(seconds % 60);
+  return `${mins}m ${String(secs).padStart(2, "0")}s`;
 }
 
 const selectedModelInfo = computed(() =>
@@ -444,6 +487,7 @@ export function Chat() {
     const numParallel = conv.settings?.num_parallel || defaultNumParallel();
 
     chatError.value = "";
+    const responseStartedAt = Date.now();
     try {
       await streamChat(
         currentModel.model || currentModel.name,
@@ -460,9 +504,11 @@ export function Chat() {
         (token, done) => {
           if (done) {
             searchingQuery.value = "";
+            const assistantContent = streamingContent.value;
             conv.messages.push({
               role: "assistant",
-              content: streamingContent.value,
+              content: assistantContent,
+              meta: buildResponseMeta(assistantContent, responseStartedAt),
             });
             activeConversation.value = { ...conv };
             streamingContent.value = "";
@@ -479,9 +525,11 @@ export function Chat() {
     } catch (e: any) {
       const errMessage = e?.message || t("chat.failedResp");
       if (streamingContent.value) {
+        const assistantContent = streamingContent.value;
         conv.messages.push({
           role: "assistant",
-          content: streamingContent.value,
+          content: assistantContent,
+          meta: buildResponseMeta(assistantContent, responseStartedAt),
         });
         activeConversation.value = { ...conv };
         streamingContent.value = "";
@@ -506,6 +554,7 @@ export function Chat() {
 
   const handleNewSession = async () => {
     try {
+      openConversationMenuId.value = "";
       const conv = await createConversation({});
       activeConversation.value = conv;
       activeSessionId.value = conv.id;
@@ -517,11 +566,13 @@ export function Chat() {
 
   const handleSelectConversation = async (id: string) => {
     if (id === activeSessionId.value) return;
+    openConversationMenuId.value = "";
     await loadConversation(id);
   };
 
   const handleDeleteConversation = async (id: string, e: Event) => {
     e.stopPropagation();
+    openConversationMenuId.value = "";
     if (!confirm(t("chat.deleteChatConfirm"))) return;
     try {
       await deleteConversation(id);
@@ -539,6 +590,25 @@ export function Chat() {
       }
     } catch {
       /* ignore */
+    }
+  };
+
+  const handleRenameConversation = async (meta: ConversationMeta, e: Event) => {
+    e.stopPropagation();
+    openConversationMenuId.value = "";
+    const nextTitle = prompt(t("chat.renameChatPrompt"), meta.title)?.trim();
+    if (!nextTitle || nextTitle === meta.title) return;
+    try {
+      const updated = await updateConversation(meta.id, { title: nextTitle });
+      if (meta.id === activeSessionId.value && activeConversation.value) {
+        activeConversation.value = {
+          ...activeConversation.value,
+          title: updated.title || nextTitle,
+        };
+      }
+      await refreshConversationList();
+    } catch {
+      chatError.value = t("chat.renameChatFailed");
     }
   };
 
@@ -563,202 +633,291 @@ export function Chat() {
   const messages = conv?.messages || [];
 
   return (
-    <div class="flex h-full">
-      {/* Sidebar */}
+    <div class="flex h-full gap-0 bg-[#f7f8fb] p-4">
+      {/* Conversation history */}
       {showSidebar.value && (
-        <div class="w-64 border-r border-gray-200 bg-gray-50 flex flex-col h-full">
-          <div class="flex items-center justify-between px-4 py-3 border-b border-gray-200">
-            <span class="text-sm font-semibold text-gray-700">{t("chat.conversations")}</span>
-            <button onClick={handleNewSession} class="text-gray-400 hover:text-indigo-600 transition-colors" title={t("chat.newChat")}>
-              <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" />
+        <aside class="mr-4 flex h-full w-[280px] flex-shrink-0 flex-col rounded-[22px] border border-gray-200 bg-white shadow-sm">
+          <div class="flex items-center justify-between border-b border-gray-100 px-5 py-4">
+            <span class="text-sm font-semibold text-gray-900">{t("chat.conversationHistory")}</span>
+            <button
+              onClick={() => (showSidebar.value = false)}
+              class="rounded-lg p-1 text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600"
+              title={t("chat.hideSidebar")}
+            >
+              <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
               </svg>
             </button>
           </div>
-          <div class="flex-1 overflow-auto">
+          <div class="px-4 py-3">
+            <button
+              onClick={handleNewSession}
+              class="flex w-full items-center justify-center gap-2 rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm font-medium text-gray-700 transition-colors hover:border-blue-200 hover:bg-blue-50 hover:text-blue-600"
+            >
+              <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" />
+              </svg>
+              {t("chat.newChat")}
+            </button>
+          </div>
+          <div class="flex-1 overflow-auto px-3 pb-4">
             {conversationMetas.value.length === 0 && (
-              <div class="text-center text-gray-400 text-xs mt-8 px-4">{t("chat.noConversations")}</div>
+              <div class="mt-8 px-4 text-center text-xs text-gray-400">{t("chat.noConversations")}</div>
             )}
             {conversationMetas.value.map((meta) => (
               <div
                 key={meta.id}
                 onClick={() => handleSelectConversation(meta.id)}
-                class={`group flex items-start gap-2 px-4 py-3 cursor-pointer border-b border-gray-100 transition-colors ${
-                  meta.id === activeSessionId.value ? "bg-indigo-50 border-l-2 border-l-indigo-500" : "hover:bg-gray-100"
+                class={`group relative mb-1 flex cursor-pointer items-center gap-3 rounded-xl px-3 py-2.5 transition-colors ${
+                  meta.id === activeSessionId.value ? "bg-blue-50 text-blue-700" : "text-gray-700 hover:bg-gray-50"
                 }`}
               >
-                <div class="flex-1 min-w-0">
-                  <div class="text-sm font-medium text-gray-800 truncate">{meta.title}</div>
-                  <div class="flex items-center gap-2 mt-0.5">
-                    <span class="text-[11px] text-gray-400">{relativeTime(meta.updated_at)}</span>
+                <div class="min-w-0 flex-1">
+                  <div class="truncate text-sm font-medium">{meta.title}</div>
+                  <div class="mt-0.5 flex items-center gap-2">
+                    <span class={`text-[11px] ${meta.id === activeSessionId.value ? "text-blue-400" : "text-gray-400"}`}>
+                      {relativeTime(meta.updated_at)}
+                    </span>
                     {meta.msg_count > 0 && (
-                      <span class="text-[11px] text-gray-400">{t("chat.messages", meta.msg_count)}</span>
+                      <span class={`text-[11px] ${meta.id === activeSessionId.value ? "text-blue-400" : "text-gray-400"}`}>
+                        {t("chat.messages", meta.msg_count)}
+                      </span>
                     )}
                   </div>
                 </div>
                 <button
-                  onClick={(e) => handleDeleteConversation(meta.id, e)}
-                  class="flex-shrink-0 p-1 rounded text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-all"
-                  title={t("chat.deleteChat")}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    openConversationMenuId.value = openConversationMenuId.value === meta.id ? "" : meta.id;
+                  }}
+                  class={`flex-shrink-0 rounded-lg p-1 transition-all ${
+                    meta.id === activeSessionId.value
+                      ? "text-blue-400 hover:bg-blue-100 hover:text-blue-600"
+                      : "text-gray-300 opacity-0 hover:bg-gray-100 hover:text-gray-500 group-hover:opacity-100"
+                  }`}
+                  title={t("chat.moreActions")}
                 >
-                  <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                  <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M6 12h.01M12 12h.01M18 12h.01" />
                   </svg>
                 </button>
+                {openConversationMenuId.value === meta.id && (
+                  <div class="absolute right-3 top-10 z-10 w-28 overflow-hidden rounded-xl border border-gray-200 bg-white py-1 text-sm shadow-lg">
+                    <button
+                      onClick={(e) => handleRenameConversation(meta, e)}
+                      class="block w-full px-3 py-2 text-left text-gray-700 hover:bg-gray-50"
+                    >
+                      {t("chat.renameChat")}
+                    </button>
+                    <button
+                      onClick={(e) => handleDeleteConversation(meta.id, e)}
+                      class="block w-full px-3 py-2 text-left text-red-600 hover:bg-red-50"
+                    >
+                      {t("chat.deleteChat")}
+                    </button>
+                  </div>
+                )}
               </div>
             ))}
           </div>
-        </div>
+        </aside>
       )}
 
       {/* Main Chat Area */}
-      <div class="flex-1 flex flex-col min-w-0">
+      <section class="flex min-w-0 flex-1 flex-col overflow-hidden rounded-[22px] border border-gray-200 bg-white shadow-sm">
         {/* Header */}
-        <div class="flex items-center justify-between px-6 py-3 border-b border-gray-200 bg-white">
+        <div class="flex h-14 items-center justify-between border-b border-gray-100 bg-white px-5">
           <div class="flex items-center gap-3">
             <button
               onClick={() => (showSidebar.value = !showSidebar.value)}
-              class="text-gray-400 hover:text-gray-600"
+              class="rounded-lg p-1.5 text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600"
               title={showSidebar.value ? t("chat.hideSidebar") : t("chat.showSidebar")}
             >
-              <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+              <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 12h16M4 18h16" />
               </svg>
             </button>
-            <button onClick={handleNewSession} class="text-gray-400 hover:text-gray-600" title={t("chat.newChat")}>
-              <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <button
+              onClick={handleNewSession}
+              class="rounded-lg p-1.5 text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600"
+              title={t("chat.newChat")}
+            >
+              <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" />
               </svg>
             </button>
-            <span class="text-sm font-medium text-gray-700 truncate max-w-xs">{conv?.title || t("chat.chat")}</span>
+            <span class="max-w-xs truncate text-sm font-semibold text-gray-900">{conv?.title || t("chat.chat")}</span>
+            <button
+              onClick={(e) => {
+                const meta = conversationMetas.value.find((item) => item.id === activeSessionId.value);
+                if (meta) handleRenameConversation(meta, e);
+              }}
+              disabled={!conv}
+              class="rounded-lg p-1 text-gray-300 transition-colors hover:bg-gray-100 hover:text-gray-500 disabled:cursor-not-allowed disabled:opacity-40"
+              title={t("chat.renameChat")}
+            >
+              <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M16.862 4.487l1.651-1.651a1.875 1.875 0 112.652 2.652L8.25 18.403 4.5 19.5l1.097-3.75L16.862 4.487z" />
+              </svg>
+            </button>
           </div>
           <div class="flex items-center gap-2">
             <button
               onClick={handleClearHistory}
-              class="p-1.5 rounded-lg text-gray-400 hover:text-red-500 transition-colors"
+              class="rounded-lg p-1.5 text-gray-400 transition-colors hover:bg-red-50 hover:text-red-500"
               title={t("chat.clearHistory")}
             >
-              <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+              <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
               </svg>
             </button>
             <button
               onClick={() => (showSettings.value = !showSettings.value)}
-              class={`p-1.5 rounded-lg transition-colors ${showSettings.value ? "bg-indigo-50 text-indigo-600" : "text-gray-400 hover:text-gray-600"}`}
+              class={`rounded-lg p-1.5 transition-colors ${showSettings.value ? "bg-blue-50 text-blue-600" : "text-gray-400 hover:bg-gray-100 hover:text-gray-600"}`}
               title={t("chat.settings")}
             >
-              <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+              <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4" />
+              </svg>
+            </button>
+            <button class="rounded-lg p-1.5 text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600" title={t("chat.moreActions")}>
+              <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M12 6h.01M12 12h.01M12 18h.01" />
               </svg>
             </button>
           </div>
         </div>
 
         {/* Messages */}
-        <div ref={messagesRef} class="flex-1 overflow-auto px-6 py-4 space-y-4">
-          {chatError.value && (
-            <div class="flex items-start gap-2 bg-red-50 border border-red-200 text-red-700 text-sm px-4 py-3 rounded-lg">
-              <svg class="w-4 h-4 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
-              <span class="whitespace-pre-line flex-1">{chatError.value}</span>
-              <button onClick={() => (chatError.value = "")} class="ml-auto text-red-400 hover:text-red-600 flex-shrink-0">&#x2715;</button>
-            </div>
-          )}
-          {messages.length === 0 && !streamingContent.value && !chatError.value && (
-            <div class="text-center text-gray-400 text-sm mt-20">{t("chat.startConv")}</div>
-          )}
-          {messages.map((m, i) => (
-            <MessageBubble key={i} message={m} />
-          ))}
-          {searchingQuery.value && !streamingContent.value && (
-            <div class="flex justify-start">
-              <div class="flex items-center gap-2 rounded-2xl px-4 py-3 text-sm bg-blue-50 border border-blue-200 text-blue-700">
-                <svg class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
-                  <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" />
-                  <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+        <div ref={messagesRef} class="flex-1 overflow-auto bg-white px-6 py-8">
+          <div class="mx-auto flex min-h-full max-w-[760px] flex-col gap-5">
+            {chatError.value && (
+              <div class="flex items-start gap-2 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                <svg class="mt-0.5 h-4 w-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                 </svg>
-                <span>{t("chat.searchingFor", searchingQuery.value)}</span>
+                <span class="flex-1 whitespace-pre-line">{chatError.value}</span>
+                <button onClick={() => (chatError.value = "")} class="ml-auto flex-shrink-0 text-red-400 hover:text-red-600">&#x2715;</button>
               </div>
-            </div>
-          )}
-          {streamingContent.value && (
-            <MessageBubble message={{ role: "assistant", content: streamingContent.value }} streaming />
-          )}
+            )}
+            {messages.length === 0 && !streamingContent.value && !chatError.value && (
+              <div class="flex min-h-[360px] items-center justify-center text-center">
+                <div>
+                  <div class="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-2xl bg-gray-50 text-gray-300">
+                    <svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                      <path stroke-linecap="round" stroke-linejoin="round" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 4v-4z" />
+                    </svg>
+                  </div>
+                  <div class="text-sm text-gray-400">{t("chat.startConv")}</div>
+                </div>
+              </div>
+            )}
+            {messages.map((m, i) => (
+              <MessageBubble key={i} message={m} />
+            ))}
+            {searchingQuery.value && !streamingContent.value && (
+              <div class="flex justify-start">
+                <div class="flex items-center gap-2 rounded-2xl border border-blue-100 bg-blue-50 px-4 py-3 text-sm text-blue-700">
+                  <svg class="h-4 w-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" />
+                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                  </svg>
+                  <span>{t("chat.searchingFor", searchingQuery.value)}</span>
+                </div>
+              </div>
+            )}
+            {streamingContent.value && (
+              <MessageBubble message={{ role: "assistant", content: streamingContent.value }} streaming />
+            )}
+          </div>
         </div>
 
         {/* Input */}
-        <div class="px-6 py-4 border-t border-gray-200 bg-white">
-          {pendingImages.value.length > 0 && (
-            <div class="flex gap-2 mb-2 flex-wrap">
-              {pendingImages.value.map((img, i) => (
-                <div key={i} class="relative group">
-                  <img src={img.thumb} class="w-16 h-16 object-cover rounded-lg border border-gray-200" />
-                  <button
-                    onClick={() => removeImage(i)}
-                    class="absolute -top-1.5 -right-1.5 w-5 h-5 bg-red-500 text-white rounded-full text-xs flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
-                  >
-                    x
-                  </button>
-                </div>
-              ))}
-            </div>
-          )}
-          <div class="flex items-center gap-3">
-            <select
-              class="border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-600 focus:outline-none focus:ring-2 focus:ring-indigo-500 max-w-[200px]"
-              value={selectedModelKey.value}
-              onChange={(e) => handleModelChange((e.target as HTMLSelectElement).value)}
-            >
-              {availableModels.value.map((m) => (
-                <option key={modelKey(m)} value={modelKey(m)}>
-                  {modelLabel(m)}
-                </option>
-              ))}
-            </select>
-            {isVisionModel.value && (
-              <label class="p-2.5 rounded-lg border border-gray-200 text-gray-500 hover:text-indigo-600 hover:border-indigo-300 cursor-pointer transition-colors" title={t("chat.uploadImage")}>
-                <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                  <path stroke-linecap="round" stroke-linejoin="round" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                </svg>
-                <input type="file" accept="image/*" multiple class="hidden" onChange={handleImageUpload} />
-              </label>
+        <div class="border-t border-gray-100 bg-white px-6 py-5">
+          <div class="mx-auto max-w-[760px]">
+            {pendingImages.value.length > 0 && (
+              <div class="mb-3 flex flex-wrap gap-2">
+                {pendingImages.value.map((img, i) => (
+                  <div key={i} class="group relative">
+                    <img src={img.thumb} class="h-16 w-16 rounded-xl border border-gray-200 object-cover" />
+                    <button
+                      onClick={() => removeImage(i)}
+                      class="absolute -right-1.5 -top-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-red-500 text-xs text-white opacity-0 transition-opacity group-hover:opacity-100"
+                    >
+                      x
+                    </button>
+                  </div>
+                ))}
+              </div>
             )}
-            <div class="flex-1 relative">
+            <div class="rounded-[24px] border border-gray-200 bg-white p-3 shadow-[0_16px_50px_rgba(15,23,42,0.08)]">
               <textarea
-                class="w-full border border-gray-200 rounded-lg px-4 py-2.5 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
-                rows={1}
+                class="min-h-[46px] w-full resize-none border-0 bg-transparent px-2 text-sm leading-6 text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-0"
+                rows={2}
                 placeholder={isVisionModel.value ? t("chat.askImage") : t("chat.askHelp")}
                 value={inputText.value}
                 onInput={(e) => (inputText.value = (e.target as HTMLTextAreaElement).value)}
                 onKeyDown={handleKeyDown}
               />
+              <div class="mt-2 flex items-center justify-between gap-3">
+                <div class="flex min-w-0 items-center gap-2">
+                  {isVisionModel.value ? (
+                    <label class="flex h-9 w-9 cursor-pointer items-center justify-center rounded-xl border border-gray-200 text-gray-500 transition-colors hover:border-blue-200 hover:bg-blue-50 hover:text-blue-600" title={t("chat.uploadImage")}>
+                      <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" />
+                      </svg>
+                      <input type="file" accept="image/*" multiple class="hidden" onChange={handleImageUpload} />
+                    </label>
+                  ) : (
+                    <button
+                      disabled
+                      class="flex h-9 w-9 cursor-not-allowed items-center justify-center rounded-xl border border-gray-200 text-gray-300"
+                      title={t("chat.uploadImage")}
+                    >
+                      <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" />
+                      </svg>
+                    </button>
+                  )}
+                  <select
+                    class="max-w-[260px] truncate rounded-full border border-gray-200 bg-gray-50 px-3 py-2 text-xs font-medium text-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    value={selectedModelKey.value}
+                    onChange={(e) => handleModelChange((e.target as HTMLSelectElement).value)}
+                  >
+                    {availableModels.value.map((m) => (
+                      <option key={modelKey(m)} value={modelKey(m)}>
+                        {modelLabel(m)}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                {isGenerating.value ? (
+                  <button
+                    onClick={handleStop}
+                    class="flex h-9 w-9 items-center justify-center rounded-xl bg-red-500 text-white transition-colors hover:bg-red-600"
+                    title={t("chat.stop")}
+                  >
+                    <svg class="h-4 w-4" fill="currentColor" viewBox="0 0 24 24">
+                      <rect x="6" y="6" width="12" height="12" rx="1" />
+                    </svg>
+                  </button>
+                ) : (
+                  <button
+                    onClick={handleSend}
+                    disabled={!inputText.value.trim() || !selectedModelInfo.value}
+                    class="flex h-9 w-9 items-center justify-center rounded-xl bg-blue-600 text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-40"
+                    title={t("chat.send")}
+                  >
+                    <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                      <path stroke-linecap="round" stroke-linejoin="round" d="M5 10l7-7m0 0l7 7m-7-7v18" />
+                    </svg>
+                  </button>
+                )}
+              </div>
             </div>
-            {isGenerating.value ? (
-              <button
-                onClick={handleStop}
-                class="p-2.5 rounded-lg bg-red-500 text-white hover:bg-red-600 transition-colors"
-                title={t("chat.stop")}
-              >
-                <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
-                  <rect x="6" y="6" width="12" height="12" rx="1" />
-                </svg>
-              </button>
-            ) : (
-              <button
-                onClick={handleSend}
-                disabled={!inputText.value.trim() || !selectedModelInfo.value}
-                class="p-2.5 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-40 transition-colors"
-                title={t("chat.send")}
-              >
-                <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                  <path stroke-linecap="round" stroke-linejoin="round" d="M5 12h14m-7-7l7 7-7 7" />
-                </svg>
-              </button>
-            )}
           </div>
         </div>
-      </div>
+      </section>
 
       {/* Settings Panel */}
       {showSettings.value && (
@@ -937,6 +1096,12 @@ export function Chat() {
 function MessageBubble({ message, streaming }: { message: ChatMessage; streaming?: boolean }) {
   const isUser = message.role === "user";
   const content = message.content;
+  const plainText = typeof content === "string"
+    ? content
+    : (content as ContentPart[])
+      .filter((part) => part.type === "text" && part.text)
+      .map((part) => part.text)
+      .join("\n");
 
   const renderContent = () => {
     if (typeof content === "string") {
@@ -987,15 +1152,44 @@ function MessageBubble({ message, streaming }: { message: ChatMessage; streaming
   };
 
   return (
-    <div class={`flex ${isUser ? "justify-end" : "justify-start"}`}>
+    <div class={`flex w-full ${isUser ? "justify-end" : "justify-start"}`}>
+      {!isUser && (
+        <div class="mr-3 mt-1 flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-blue-50 text-xs font-semibold text-blue-600">
+          AI
+        </div>
+      )}
       <div
-        class={`max-w-[75%] rounded-2xl px-4 py-3 text-sm leading-relaxed ${
+        class={`text-sm leading-relaxed ${
           isUser
-            ? "bg-indigo-600 text-white"
-            : "bg-white border border-gray-200 text-gray-800"
+            ? "max-w-[72%] rounded-[18px] bg-gray-100 px-4 py-3 text-gray-900"
+            : "max-w-[760px] flex-1 text-gray-800"
         } ${streaming ? "animate-pulse" : ""}`}
       >
         {renderContent()}
+        {!isUser && (
+          <div class="mt-3 flex items-center gap-3 text-xs text-gray-300">
+            <button
+              onClick={() => plainText && navigator.clipboard.writeText(plainText)}
+              class="rounded-md p-1 text-gray-300 transition-colors hover:bg-gray-50 hover:text-gray-500"
+              title={t("chat.copyResponse")}
+            >
+              <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+              </svg>
+            </button>
+            <button class="rounded-md p-1 text-gray-300 transition-colors hover:bg-gray-50 hover:text-gray-500" title={t("chat.likeResponse")}>
+              <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M14 9V5a3 3 0 00-3-3l-4 9v11h11.28a2 2 0 001.95-1.56l1.38-6A2 2 0 0019.66 12H14zM7 22H4a2 2 0 01-2-2v-7a2 2 0 012-2h3" />
+              </svg>
+            </button>
+            <button class="rounded-md p-1 text-gray-300 transition-colors hover:bg-gray-50 hover:text-gray-500" title={t("chat.dislikeResponse")}>
+              <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M10 15v4a3 3 0 003 3l4-9V2H5.72a2 2 0 00-1.95 1.56l-1.38 6A2 2 0 004.34 12H10zM17 2h3a2 2 0 012 2v7a2 2 0 01-2 2h-3" />
+              </svg>
+            </button>
+            {message.meta && <span>{formatResponseMeta(message.meta)}</span>}
+          </div>
+        )}
       </div>
     </div>
   );

@@ -221,6 +221,14 @@ export interface ContentPart {
 export interface ChatMessage {
   role: string;
   content: ChatContent;
+  meta?: ChatMessageMeta;
+}
+
+export interface ChatMessageMeta {
+  tokens?: number;
+  speed?: number;
+  duration_ms?: number;
+  estimated?: boolean;
 }
 
 export interface PullProgress {
