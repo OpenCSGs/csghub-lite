@@ -76,7 +76,10 @@ csghub-lite publishes two container images:
 - Standard image: `opencsg-registry.cn-beijing.cr.aliyuncs.com/opencsghq/csghub-lite:latest`
 - ROCm image: `opencsg-registry.cn-beijing.cr.aliyuncs.com/opencsghq/csghub-lite-rocm:latest`
 
-Persist `/root/.csghub-lite` so downloaded models, datasets, settings, API keys, and usage data survive container restarts.
+The images are lightweight bootstrap runtimes. On container start they download
+`csghub-lite` and the matching `llama-server`; by default this happens only when
+the persisted install is missing. Persist `/root/.csghub-lite` so downloaded
+models, engines, settings, API keys, and usage data survive container restarts.
 
 ```bash
 # Standard image with a host directory
@@ -84,6 +87,28 @@ mkdir -p ~/.csghub-lite-docker
 docker run -d --name csghub-lite \
   -p 11435:11435 \
   -v ~/.csghub-lite-docker:/root/.csghub-lite \
+  opencsg-registry.cn-beijing.cr.aliyuncs.com/opencsghq/csghub-lite:latest
+```
+
+Pin the runtime application and llama.cpp engine versions:
+
+```bash
+docker run -d --name csghub-lite \
+  -p 11435:11435 \
+  -e CSGHUB_LITE_VERSION=v0.5.10 \
+  -e CSGHUB_LITE_LLAMA_CPP_TAG=b8914 \
+  -e CSGHUB_LITE_INSTALL_POLICY=if-version-mismatch \
+  -v csghub-lite-data:/root/.csghub-lite \
+  opencsg-registry.cn-beijing.cr.aliyuncs.com/opencsghq/csghub-lite:latest
+```
+
+Force an upgrade on startup:
+
+```bash
+docker run -d --name csghub-lite \
+  -p 11435:11435 \
+  -e CSGHUB_LITE_INSTALL_ALWAYS=1 \
+  -v csghub-lite-data:/root/.csghub-lite \
   opencsg-registry.cn-beijing.cr.aliyuncs.com/opencsghq/csghub-lite:latest
 ```
 
@@ -102,6 +127,8 @@ docker run -d --name csghub-lite-rocm \
 ```
 
 After the container starts, open `http://localhost:11435`.
+See the [Docker runtime guide](docs/guides/docker.md) for install policy and
+version pinning details.
 
 ## Quick Start
 

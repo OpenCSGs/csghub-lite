@@ -12,12 +12,13 @@ type GenerateRequest struct {
 }
 
 type ChatRequest struct {
-	Model    string        `json:"model"`
-	Source   string        `json:"source,omitempty"`
-	Messages []Message     `json:"messages"`
-	Tools    []Tool        `json:"tools,omitempty"`
-	Stream   *bool         `json:"stream,omitempty"`
-	Options  *ModelOptions `json:"options,omitempty"`
+	Model     string            `json:"model"`
+	Source    string            `json:"source,omitempty"`
+	Messages  []Message         `json:"messages"`
+	Tools     []Tool            `json:"tools,omitempty"`
+	Stream    *bool             `json:"stream,omitempty"`
+	Options   *ModelOptions     `json:"options,omitempty"`
+	WebSearch *WebSearchOptions `json:"web_search,omitempty"`
 }
 
 type PullRequest struct {
@@ -71,6 +72,30 @@ type ChatResponse struct {
 	Message   *Message  `json:"message,omitempty"`
 	Done      bool      `json:"done"`
 	CreatedAt time.Time `json:"created_at"`
+}
+
+type WebSearchOptions struct {
+	Enabled bool   `json:"enabled,omitempty"`
+	Query   string `json:"query,omitempty"`
+}
+
+type WebSearchSettings struct {
+	Enabled        bool     `json:"enabled"`
+	MaxResults     int      `json:"max_results"`
+	Language       string   `json:"language,omitempty"`
+	Providers      []string `json:"providers,omitempty"`
+	SafeSearch     int      `json:"safe_search"`
+	TimeoutSeconds int      `json:"timeout_seconds"`
+}
+
+type WebSearchResult struct {
+	Title       string  `json:"title"`
+	URL         string  `json:"url"`
+	Snippet     string  `json:"snippet,omitempty"`
+	Engine      string  `json:"engine,omitempty"`
+	Category    string  `json:"category,omitempty"`
+	Score       float64 `json:"score,omitempty"`
+	PublishedAt string  `json:"published_at,omitempty"`
 }
 
 type TagsResponse struct {
@@ -129,13 +154,22 @@ type RunningModel struct {
 // -- Shared types --
 
 type Message struct {
-	Role             string      `json:"role"`
-	Content          interface{} `json:"content"`
-	Thinking         string      `json:"thinking,omitempty"`
-	ReasoningContent string      `json:"reasoning_content,omitempty"`
-	ToolCalls        []ToolCall  `json:"tool_calls,omitempty"`
-	ToolName         string      `json:"tool_name,omitempty"`
-	ToolCallID       string      `json:"tool_call_id,omitempty"`
+	Role             string       `json:"role"`
+	Content          interface{}  `json:"content"`
+	Thinking         string       `json:"thinking,omitempty"`
+	ReasoningContent string       `json:"reasoning_content,omitempty"`
+	ToolCalls        []ToolCall   `json:"tool_calls,omitempty"`
+	ToolName         string       `json:"tool_name,omitempty"`
+	ToolCallID       string       `json:"tool_call_id,omitempty"`
+	Meta             *MessageMeta `json:"meta,omitempty"`
+}
+
+type MessageMeta struct {
+	Tokens     int               `json:"tokens,omitempty"`
+	Speed      float64           `json:"speed,omitempty"`
+	DurationMS int64             `json:"duration_ms,omitempty"`
+	Estimated  bool              `json:"estimated,omitempty"`
+	Sources    []WebSearchResult `json:"sources,omitempty"`
 }
 
 type Tool struct {
@@ -284,18 +318,20 @@ type DatasetPullResponse struct {
 }
 
 type SettingsResponse struct {
-	Version    string `json:"version"`
-	StorageDir string `json:"storage_dir"`
-	ModelDir   string `json:"model_dir"`
-	DatasetDir string `json:"dataset_dir"`
-	Autostart  bool   `json:"autostart"`
+	Version    string            `json:"version"`
+	StorageDir string            `json:"storage_dir"`
+	ModelDir   string            `json:"model_dir"`
+	DatasetDir string            `json:"dataset_dir"`
+	Autostart  bool              `json:"autostart"`
+	WebSearch  WebSearchSettings `json:"web_search"`
 }
 
 type SettingsUpdateRequest struct {
-	StorageDir string `json:"storage_dir,omitempty"`
-	ModelDir   string `json:"model_dir,omitempty"`
-	DatasetDir string `json:"dataset_dir,omitempty"`
-	Autostart  *bool  `json:"autostart,omitempty"`
+	StorageDir string             `json:"storage_dir,omitempty"`
+	ModelDir   string             `json:"model_dir,omitempty"`
+	DatasetDir string             `json:"dataset_dir,omitempty"`
+	Autostart  *bool              `json:"autostart,omitempty"`
+	WebSearch  *WebSearchSettings `json:"web_search,omitempty"`
 }
 
 type APIKeyInfo struct {

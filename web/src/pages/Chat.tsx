@@ -1,13 +1,15 @@
+import MarkdownIt from "markdown-it";
 import { useEffect, useRef } from "preact/hooks";
 import { signal, computed } from "@preact/signals";
 import {
   getTags, getPs, streamChat, getCloudAuthStatus, saveCloudToken,
   listConversations, getConversation, createConversation, updateConversation, deleteConversation,
+  getSettings,
 } from "../api/client";
 import type {
   ModelInfo, ChatMessage, ContentPart, CloudAuthStatus,
   ConversationMeta, Conversation,
-  ChatMessageMeta,
+  ChatMessageMeta, WebSearchResult,
 } from "../api/client";
 import { t, locale } from "../i18n";
 import { parseReasoningText } from "../reasoning";
@@ -27,6 +29,9 @@ const cloudAuth = signal<CloudAuthStatus | null>(null);
 const cloudTokenInput = signal("");
 const cloudAuthError = signal("");
 const isSavingCloudToken = signal(false);
+const webSearchEnabled = signal(true);
+const webSearchAvailable = signal(false);
+const streamingSources = signal<WebSearchResult[]>([]);
 
 function hasCloudAuth(status: CloudAuthStatus | null | undefined): boolean {
   return status?.authenticated ?? status?.has_token ?? false;
@@ -39,6 +44,8 @@ const maxTokens = signal(4096);
 
 const streamingContent = signal("");
 const searchingQuery = signal("");
+const searchPlanningQuery = signal("");
+const searchSkippedReason = signal("");
 const chatError = signal("");
 const pendingImages = signal<PendingImage[]>([]);
 const contextStorageKey = "csghub.chat.num_ctx";
@@ -47,6 +54,8 @@ const contextLengthLabels = ["4k", "8k", "16k", "32k", "64k", "128k", "256k"];
 const parallelStorageKey = "csghub.chat.num_parallel";
 const parallelSteps = [1, 2, 4, 8];
 const selectedModelStorageKey = "csghub.chat.selected_model";
+const webSearchStorageKey = "csghub.chat.web_search.enabled";
+const legacyWebSearchModeStorageKey = "csghub.chat.web_search.mode";
 const providersChangedEvent = "csghub:providers-changed";
 
 function modelKey(model: Pick<ModelInfo, "model" | "name" | "source">): string {
@@ -80,6 +89,28 @@ function saveSelectedModelKey(key: string) {
     } else {
       localStorage.removeItem(selectedModelStorageKey);
     }
+  } catch {
+    /* ignore storage failures */
+  }
+}
+
+function readWebSearchEnabled(defaultValue: boolean): boolean {
+  try {
+    const raw = localStorage.getItem(webSearchStorageKey);
+    if (raw === "1") return true;
+    if (raw === "0") return false;
+    const legacyMode = localStorage.getItem(legacyWebSearchModeStorageKey);
+    if (legacyMode === "off") return false;
+    if (legacyMode === "auto" || legacyMode === "fast" || legacyMode === "always") return true;
+  } catch {
+    /* ignore storage failures */
+  }
+  return defaultValue;
+}
+
+function saveWebSearchEnabled(enabled: boolean) {
+  try {
+    localStorage.setItem(webSearchStorageKey, enabled ? "1" : "0");
   } catch {
     /* ignore storage failures */
   }
@@ -124,6 +155,27 @@ function formatDuration(durationMs: number): string {
   const mins = Math.floor(seconds / 60);
   const secs = Math.round(seconds % 60);
   return `${mins}m ${String(secs).padStart(2, "0")}s`;
+}
+
+const markdown = new MarkdownIt({
+  breaks: true,
+  html: false,
+  linkify: true,
+  typographer: true,
+});
+
+function MarkdownContent({ text }: { text: string }) {
+  return <div class="chat-markdown" dangerouslySetInnerHTML={{ __html: markdown.render(text) }} />;
+}
+
+function thinkingPreview(text: string): string {
+  const lines = text
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  const preview = lines[lines.length - 1] || text.trim();
+  const chars = Array.from(preview);
+  return chars.length > 80 ? `${chars.slice(0, 80).join("")}...` : preview;
 }
 
 const selectedModelInfo = computed(() =>
@@ -362,6 +414,14 @@ export function Chat() {
     getCloudAuthStatus().then((status) => {
       cloudAuth.value = status;
     }).catch(() => {});
+    getSettings().then((settings) => {
+      const available = Boolean(settings.web_search?.enabled);
+      webSearchAvailable.value = available;
+      webSearchEnabled.value = readWebSearchEnabled(true);
+    }).catch(() => {
+      webSearchAvailable.value = false;
+      webSearchEnabled.value = true;
+    });
 
     (async () => {
       await migrateLocalStorage();
@@ -486,6 +546,9 @@ export function Chat() {
     isGenerating.value = true;
     streamingContent.value = "";
     searchingQuery.value = "";
+    searchPlanningQuery.value = "";
+    searchSkippedReason.value = "";
+    streamingSources.value = [];
 
     const ac = new AbortController();
     abortRef.current = ac;
@@ -507,18 +570,26 @@ export function Chat() {
           num_parallel: numParallel,
           system: systemPrompt.value || undefined,
           source: currentModel.source,
+          web_search: webSearchAvailable.value && webSearchEnabled.value
+            ? { enabled: true, query: text }
+            : { enabled: false },
         },
         (token, done) => {
           if (done) {
             searchingQuery.value = "";
             const assistantContent = streamingContent.value;
+            const sources = streamingSources.value;
             conv.messages.push({
               role: "assistant",
               content: assistantContent,
-              meta: buildResponseMeta(assistantContent, responseStartedAt),
+              meta: {
+                ...buildResponseMeta(assistantContent, responseStartedAt),
+                ...(sources.length > 0 ? { sources } : {}),
+              },
             });
             activeConversation.value = { ...conv };
             streamingContent.value = "";
+            streamingSources.value = [];
             saveCurrentConversation();
           } else {
             streamingContent.value += token;
@@ -528,18 +599,48 @@ export function Chat() {
         (query) => {
           searchingQuery.value = query;
         },
+        (query, results) => {
+          searchingQuery.value = "";
+          streamingSources.value = results;
+          if (query && conv.messages.length > 0) {
+            activeConversation.value = { ...conv };
+          }
+        },
+        (message) => {
+          searchingQuery.value = "";
+          searchSkippedReason.value = t("chat.webSearchFailed", message);
+        },
+        (query) => {
+          searchPlanningQuery.value = query;
+          searchSkippedReason.value = "";
+        },
+        (reason) => {
+          searchPlanningQuery.value = "";
+          searchSkippedReason.value = reason;
+        },
+        (route) => {
+          if (route.action === "skip" && route.reason) {
+            searchPlanningQuery.value = "";
+            searchSkippedReason.value = route.reason;
+          }
+        },
       );
     } catch (e: any) {
       const errMessage = e?.message || t("chat.failedResp");
       if (streamingContent.value) {
         const assistantContent = streamingContent.value;
+        const sources = streamingSources.value;
         conv.messages.push({
           role: "assistant",
           content: assistantContent,
-          meta: buildResponseMeta(assistantContent, responseStartedAt),
+          meta: {
+            ...buildResponseMeta(assistantContent, responseStartedAt),
+            ...(sources.length > 0 ? { sources } : {}),
+          },
         });
         activeConversation.value = { ...conv };
         streamingContent.value = "";
+        streamingSources.value = [];
         saveCurrentConversation();
       } else if (!ac.signal.aborted) {
         if (currentModel.source === "cloud" && /(AUTH-ERR-1|AUTH-ERR-5|login first|Error 401)/i.test(errMessage)) {
@@ -551,6 +652,9 @@ export function Chat() {
     }
 
     searchingQuery.value = "";
+    searchPlanningQuery.value = "";
+    searchSkippedReason.value = "";
+    streamingSources.value = [];
     isGenerating.value = false;
     abortRef.current = null;
   };
@@ -640,10 +744,10 @@ export function Chat() {
   const messages = conv?.messages || [];
 
   return (
-    <div class="flex h-full gap-0 bg-[#f7f8fb] p-4">
+    <div class="flex h-full min-h-0 gap-0 bg-[#f7f8fb] p-4">
       {/* Conversation history */}
       {showSidebar.value && (
-        <aside class="mr-4 flex h-full w-[280px] flex-shrink-0 flex-col rounded-[22px] border border-gray-200 bg-white shadow-sm">
+        <aside class="mr-4 flex h-full min-h-0 w-[280px] flex-shrink-0 flex-col rounded-[22px] border border-gray-200 bg-white shadow-sm">
           <div class="flex items-center justify-between border-b border-gray-100 px-5 py-4">
             <span class="text-sm font-semibold text-gray-900">{t("chat.conversationHistory")}</span>
             <button
@@ -731,7 +835,7 @@ export function Chat() {
       )}
 
       {/* Main Chat Area */}
-      <section class="flex min-w-0 flex-1 flex-col overflow-hidden rounded-[22px] border border-gray-200 bg-white shadow-sm">
+      <section class="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-[22px] border border-gray-200 bg-white shadow-sm">
         {/* Header */}
         <div class="flex h-14 items-center justify-between border-b border-gray-100 bg-white px-5">
           <div class="flex items-center gap-3">
@@ -796,7 +900,7 @@ export function Chat() {
         </div>
 
         {/* Messages */}
-        <div ref={messagesRef} class="flex-1 overflow-auto bg-white px-6 py-8">
+        <div ref={messagesRef} class="min-h-0 flex-1 overflow-auto bg-white px-6 py-8">
           <div class="mx-auto flex min-h-full max-w-[760px] flex-col gap-5">
             {chatError.value && (
               <div class="flex items-start gap-2 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
@@ -822,25 +926,30 @@ export function Chat() {
             {messages.map((m, i) => (
               <MessageBubble key={i} message={m} />
             ))}
-            {searchingQuery.value && !streamingContent.value && (
-              <div class="flex justify-start">
-                <div class="flex items-center gap-2 rounded-2xl border border-blue-100 bg-blue-50 px-4 py-3 text-sm text-blue-700">
-                  <svg class="h-4 w-4 animate-spin" fill="none" viewBox="0 0 24 24">
-                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" />
-                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-                  </svg>
-                  <span>{t("chat.searchingFor", searchingQuery.value)}</span>
-                </div>
-              </div>
+            {isGenerating.value && (
+              <AssistantProgress
+                query={searchingQuery.value}
+                planningQuery={searchPlanningQuery.value}
+                skippedReason={searchSkippedReason.value}
+                sources={streamingSources.value}
+                content={streamingContent.value}
+              />
             )}
             {streamingContent.value && (
-              <MessageBubble message={{ role: "assistant", content: streamingContent.value }} streaming />
+              <MessageBubble
+                message={{
+                  role: "assistant",
+                  content: streamingContent.value,
+                  meta: streamingSources.value.length > 0 ? { sources: streamingSources.value } : undefined,
+                }}
+                streaming
+              />
             )}
           </div>
         </div>
 
         {/* Input */}
-        <div class="border-t border-gray-100 bg-white px-6 py-5">
+        <div class="flex-shrink-0 border-t border-gray-100 bg-white px-6 py-5">
           <div class="mx-auto max-w-[760px]">
             {pendingImages.value.length > 0 && (
               <div class="mb-3 flex flex-wrap gap-2">
@@ -886,6 +995,24 @@ export function Chat() {
                       </svg>
                     </button>
                   )}
+                  <button
+                    type="button"
+                    disabled={!webSearchAvailable.value}
+                    onClick={() => {
+                      const next = !webSearchEnabled.value;
+                      webSearchEnabled.value = next;
+                      saveWebSearchEnabled(next);
+                    }}
+                    class={`h-9 rounded-xl border px-3 text-xs font-medium transition-colors ${
+                      webSearchAvailable.value && webSearchEnabled.value
+                        ? "border-blue-200 bg-blue-50 text-blue-700"
+                        : "border-gray-200 bg-white text-gray-400 hover:border-gray-300 hover:bg-gray-50"
+                    } disabled:cursor-not-allowed disabled:opacity-50`}
+                    title={webSearchAvailable.value ? t("chat.webSearchToggle") : t("chat.webSearchNotConfigured")}
+                    aria-pressed={webSearchAvailable.value && webSearchEnabled.value}
+                  >
+                    {t("chat.webSearch")}
+                  </button>
                   <select
                     class="max-w-[260px] truncate rounded-full border border-gray-200 bg-gray-50 px-3 py-2 text-xs font-medium text-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500"
                     value={selectedModelKey.value}
@@ -1110,23 +1237,32 @@ function MessageBubble({ message, streaming }: { message: ChatMessage; streaming
       .filter((part) => part.type === "text" && part.text)
       .map((part) => part.text)
       .join("\n");
+  const sources = message.meta?.sources || [];
 
   const renderContent = () => {
     if (typeof content === "string") {
       if (!isUser) {
         const parsed = parseReasoningText(content);
         if (parsed.hasThinking) {
-          const thinkingLabel = parsed.thinkingOpen ? t("chat.thinkingLive") : t("chat.thinking");
+          if (!parsed.thinkingOpen) {
+            return parsed.answer ? <MarkdownContent text={parsed.answer} /> : null;
+          }
+          const thinkingLabel = t("chat.thinkingLive");
+          const preview = thinkingPreview(parsed.thinking);
           return (
             <>
               <details
-                open={streaming || parsed.thinkingOpen}
-                class={`rounded-xl border border-amber-200 bg-amber-50/70 px-3 py-2 ${
+                class={`group rounded-xl border border-amber-200 bg-amber-50/70 px-3 py-2 ${
                   parsed.answer ? "mb-3" : ""
                 }`}
               >
-                <summary class="cursor-pointer select-none text-xs font-medium text-amber-700">
-                  {thinkingLabel}
+                <summary class="flex cursor-pointer select-none items-center gap-2 text-xs font-medium text-amber-700">
+                  <span class="shrink-0">{thinkingLabel}</span>
+                  {preview && (
+                    <span class="min-w-0 flex-1 truncate font-normal text-amber-800/80 group-open:hidden">
+                      {preview}
+                    </span>
+                  )}
                 </summary>
                 {parsed.thinking && (
                   <div class="mt-2 whitespace-pre-wrap text-xs leading-relaxed text-amber-900">
@@ -1134,12 +1270,12 @@ function MessageBubble({ message, streaming }: { message: ChatMessage; streaming
                   </div>
                 )}
               </details>
-              {parsed.answer && <p class="whitespace-pre-wrap">{parsed.answer}</p>}
+              {parsed.answer && <MarkdownContent text={parsed.answer} />}
             </>
           );
         }
       }
-      return <p class="whitespace-pre-wrap">{content}</p>;
+      return isUser ? <p class="whitespace-pre-wrap">{content}</p> : <MarkdownContent text={content} />;
     }
     if (Array.isArray(content)) {
       return (
@@ -1174,6 +1310,25 @@ function MessageBubble({ message, streaming }: { message: ChatMessage; streaming
         } ${streaming ? "animate-pulse" : ""}`}
       >
         {renderContent()}
+        {!isUser && sources.length > 0 && (
+          <div class="mt-4 rounded-xl border border-gray-100 bg-gray-50 px-3 py-2">
+            <div class="mb-2 text-xs font-semibold text-gray-500">{t("chat.sources")}</div>
+            <div class="space-y-2">
+              {sources.map((source, idx) => (
+                <a
+                  key={`${source.url}-${idx}`}
+                  href={source.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  class="block rounded-lg px-2 py-1.5 text-xs text-gray-600 transition-colors hover:bg-white hover:text-blue-600"
+                >
+                  <div class="truncate font-medium">[{idx + 1}] {source.title}</div>
+                  {source.snippet && <div class="mt-0.5 line-clamp-2 text-gray-400">{source.snippet}</div>}
+                </a>
+              ))}
+            </div>
+          </div>
+        )}
         {!isUser && (
           <div class="mt-3 flex items-center gap-3 text-xs text-gray-300">
             <button
@@ -1197,6 +1352,91 @@ function MessageBubble({ message, streaming }: { message: ChatMessage; streaming
             </button>
             {message.meta && <span>{formatResponseMeta(message.meta)}</span>}
           </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function AssistantProgress({ query, planningQuery, skippedReason, sources, content }: { query: string; planningQuery: string; skippedReason: string; sources: WebSearchResult[]; content: string }) {
+  const parsed = content ? parseReasoningText(content) : null;
+  const hasAnswer = Boolean(parsed?.answer) || (content && !parsed?.hasThinking);
+  const isThinking = Boolean(content && parsed?.hasThinking && !parsed.answer);
+  const steps = [
+    {
+      key: "planning",
+      label: planningQuery ? t("chat.progressDecidingSearch") : t("chat.progressSkippedSearch"),
+      done: Boolean(skippedReason || query || sources.length > 0 || content),
+      active: Boolean(planningQuery),
+      visible: Boolean(planningQuery || skippedReason),
+    },
+    {
+      key: "search",
+      label: query ? t("chat.progressSearching", query) : sources.length > 0 ? t("chat.progressSearched") : t("chat.progressPreparing"),
+      done: sources.length > 0 || Boolean(content),
+      active: Boolean(query),
+      visible: Boolean(query || sources.length > 0),
+    },
+    {
+      key: "sources",
+      label: sources.length > 0 ? t("chat.progressFoundSources", sources.length) : t("chat.progressFindingSources"),
+      done: sources.length > 0,
+      active: !query && sources.length === 0 && !content,
+      visible: Boolean(query || sources.length > 0),
+    },
+    {
+      key: "thinking",
+      label: isThinking ? t("chat.progressThinking") : hasAnswer ? t("chat.progressThought") : t("chat.progressThinking"),
+      done: hasAnswer,
+      active: isThinking || (!query && sources.length > 0 && !hasAnswer),
+      visible: true,
+    },
+    {
+      key: "answering",
+      label: hasAnswer ? t("chat.progressAnswering") : t("chat.progressWaitingAnswer"),
+      done: false,
+      active: hasAnswer,
+      visible: true,
+    },
+  ].filter((step) => step.visible);
+
+  return (
+    <div class="flex justify-start">
+      <div class="ml-11 mb-1 w-full max-w-[760px] rounded-2xl border border-gray-100 bg-white px-4 py-3 shadow-sm">
+        <div class="flex flex-wrap items-center gap-2 text-xs text-gray-500">
+          {steps.map((step, idx) => (
+            <div key={step.key} class="flex items-center gap-2">
+              <span
+                class={`flex h-5 w-5 items-center justify-center rounded-full border text-[10px] ${
+                  step.done
+                    ? "border-blue-200 bg-blue-50 text-blue-600"
+                    : step.active
+                      ? "border-amber-200 bg-amber-50 text-amber-600"
+                      : "border-gray-200 bg-gray-50 text-gray-400"
+                }`}
+              >
+                {step.done ? (
+                  <svg class="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
+                  </svg>
+                ) : step.active ? <span class="h-2 w-2 animate-pulse rounded-full bg-current" /> : idx + 1}
+              </span>
+              <span class={step.active ? "font-medium text-gray-800" : "text-gray-500"}>{step.label}</span>
+              {idx < steps.length - 1 && <span class="text-gray-200">/</span>}
+            </div>
+          ))}
+        </div>
+        {sources.length > 0 && !hasAnswer && (
+          <div class="mt-2 flex flex-wrap gap-1.5">
+            {sources.slice(0, 4).map((source, idx) => (
+              <span key={`${source.url}-${idx}`} class="max-w-[220px] truncate rounded-full bg-gray-50 px-2 py-1 text-[11px] text-gray-500">
+                [{idx + 1}] {source.title}
+              </span>
+            ))}
+          </div>
+        )}
+        {skippedReason && !query && sources.length === 0 && !hasAnswer && (
+          <div class="mt-2 text-xs text-gray-400">{t("chat.progressSkippedReason", skippedReason)}</div>
         )}
       </div>
     </div>

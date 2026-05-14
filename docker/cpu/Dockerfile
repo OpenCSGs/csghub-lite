@@ -1,8 +1,7 @@
-ARG BASE_IMAGE=rocm/pytorch:rocm7.2.3_ubuntu24.04_py3.12_pytorch_release_2.10.0
-FROM ${BASE_IMAGE}
+FROM ubuntu:24.04
 
-LABEL org.opencontainers.image.title="csghub-lite ROCm runtime"
-LABEL org.opencontainers.image.description="ROCm 7.2.3 Ubuntu 24.04 image that downloads csghub-lite and ROCm llama-server on container start"
+LABEL org.opencontainers.image.title="csghub-lite runtime"
+LABEL org.opencontainers.image.description="Ubuntu 24.04 image that downloads csghub-lite and llama-server on container start"
 LABEL org.opencontainers.image.source="https://github.com/OpenCSGs/csghub-lite"
 
 ENV DEBIAN_FRONTEND=noninteractive \
@@ -10,7 +9,6 @@ ENV DEBIAN_FRONTEND=noninteractive \
     CSGHUB_LITE_LLAMA_SERVER_INSTALL_DIR=/root/.csghub-lite/bin \
     CSGHUB_LITE_INSTALL_POLICY=if-missing \
     CSGHUB_LITE_AUTO_INSTALL_LLAMA_SERVER=1 \
-    CSGHUB_LITE_LLAMA_ROCM_VERSION=7.2 \
     CSGHUB_LITE_FORCE=1 \
     PATH=/root/.csghub-lite/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 
@@ -32,6 +30,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         unzip \
     && rm -rf /var/lib/apt/lists/*
 
+# Reuse the runtime installer shared with the ROCm image.
 COPY docker/rocm/entrypoint.sh /usr/local/bin/csghub-lite-docker-entrypoint
 RUN chmod +x /usr/local/bin/csghub-lite-docker-entrypoint
 

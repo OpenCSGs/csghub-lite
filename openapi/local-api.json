@@ -3115,7 +3115,8 @@
           "storage_dir",
           "model_dir",
           "dataset_dir",
-          "autostart"
+          "autostart",
+          "web_search"
         ],
         "properties": {
           "version": {
@@ -3132,6 +3133,9 @@
           },
           "autostart": {
             "type": "boolean"
+          },
+          "web_search": {
+            "$ref": "#/components/schemas/WebSearchSettings"
           }
         }
       },
@@ -3150,6 +3154,9 @@
           },
           "autostart": {
             "type": "boolean"
+          },
+          "web_search": {
+            "$ref": "#/components/schemas/WebSearchSettings"
           }
         }
       },
@@ -3666,6 +3673,122 @@
           },
           "tool_call_id": {
             "type": "string"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/MessageMeta"
+          }
+        }
+      },
+      "MessageMeta": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "tokens": {
+            "type": "integer"
+          },
+          "speed": {
+            "type": "number"
+          },
+          "duration_ms": {
+            "type": "integer"
+          },
+          "estimated": {
+            "type": "boolean"
+          },
+          "sources": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/WebSearchResult"
+            }
+          }
+        }
+      },
+      "WebSearchOptions": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          },
+          "query": {
+            "type": "string"
+          }
+        }
+      },
+      "WebSearchSettings": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "enabled",
+          "max_results",
+          "safe_search",
+          "timeout_seconds"
+        ],
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          },
+          "max_results": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 10
+          },
+          "language": {
+            "type": "string"
+          },
+          "providers": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "baidu",
+                "bing",
+                "duckduckgo"
+              ]
+            },
+            "description": "Optional provider order. Empty means automatic order."
+          },
+          "safe_search": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 2
+          },
+          "timeout_seconds": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 30
+          }
+        }
+      },
+      "WebSearchResult": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "title",
+          "url"
+        ],
+        "properties": {
+          "title": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string",
+            "format": "uri"
+          },
+          "snippet": {
+            "type": "string"
+          },
+          "engine": {
+            "type": "string"
+          },
+          "category": {
+            "type": "string"
+          },
+          "score": {
+            "type": "number"
+          },
+          "published_at": {
+            "type": "string"
           }
         }
       },
@@ -3689,6 +3812,9 @@
           },
           "options": {
             "$ref": "#/components/schemas/ModelOptions"
+          },
+          "web_search": {
+            "$ref": "#/components/schemas/WebSearchOptions"
           }
         }
       },

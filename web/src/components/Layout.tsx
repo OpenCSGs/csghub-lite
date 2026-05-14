@@ -108,9 +108,9 @@ export function Layout({ children }: { children: ComponentChildren }) {
           {t("nav.help")}
         </a>
       </aside>
-      <main class="flex-1 overflow-auto bg-gray-50 flex flex-col">
-        <div class="flex-1">{children}</div>
-        <div class="py-3 text-xs text-gray-400 text-center">
+      <main class="flex min-h-0 flex-1 flex-col overflow-hidden bg-gray-50">
+        <div class="min-h-0 flex-1 overflow-auto">{children}</div>
+        <div class="flex-shrink-0 py-3 text-xs text-gray-400 text-center">
           &copy; OpenCSG &middot; Powered By OpenCSG
         </div>
       </main>

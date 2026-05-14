@@ -150,6 +150,26 @@ export interface AppSettings {
   model_dir: string;
   dataset_dir: string;
   autostart: boolean;
+  web_search: WebSearchSettings;
+}
+
+export interface WebSearchSettings {
+  enabled: boolean;
+  max_results: number;
+  language?: string;
+  providers?: string[];
+  safe_search: number;
+  timeout_seconds: number;
+}
+
+export interface WebSearchResult {
+  title: string;
+  url: string;
+  snippet?: string;
+  engine?: string;
+  category?: string;
+  score?: number;
+  published_at?: string;
 }
 
 export interface LocalAPIKeyInfo {
@@ -270,6 +290,7 @@ export interface ChatMessageMeta {
   speed?: number;
   duration_ms?: number;
   estimated?: boolean;
+  sources?: WebSearchResult[];
 }
 
 export interface PullProgress {
@@ -407,7 +428,7 @@ export async function getSettings(): Promise<AppSettings> {
   return fetchJSON<AppSettings>("/api/settings");
 }
 
-export async function saveSettings(patch: { storage_dir?: string; model_dir?: string; dataset_dir?: string; autostart?: boolean }): Promise<AppSettings> {
+export async function saveSettings(patch: { storage_dir?: string; model_dir?: string; dataset_dir?: string; autostart?: boolean; web_search?: WebSearchSettings }): Promise<AppSettings> {
   return fetchJSON<AppSettings>("/api/settings", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -667,10 +688,15 @@ export async function deleteConversation(id: string): Promise<void> {
 export function streamChat(
   model: string,
   messages: ChatMessage[],
-  options: { temperature?: number; top_p?: number; max_tokens?: number; num_ctx?: number; num_parallel?: number; system?: string; source?: string },
+  options: { temperature?: number; top_p?: number; max_tokens?: number; num_ctx?: number; num_parallel?: number; system?: string; source?: string; web_search?: { enabled: boolean; query?: string } },
   onToken: (token: string, done: boolean) => void,
   signal?: AbortSignal,
   onSearching?: (query: string) => void,
+  onSearchResults?: (query: string, results: WebSearchResult[]) => void,
+  onSearchError?: (message: string) => void,
+  onSearchPlanning?: (query: string) => void,
+  onSearchSkipped?: (reason: string) => void,
+  onSearchRoute?: (route: { action?: string; reason?: string; confidence?: number }) => void,
 ): Promise<void> {
   let msgs = stripImagesFromOldMessages([...messages]);
   if (options.system) {
@@ -690,6 +716,7 @@ export function streamChat(
         source: options.source,
         messages: msgs,
         stream: true,
+        web_search: options.web_search,
         options: {
           temperature: options.temperature,
           top_p: options.top_p,
@@ -728,8 +755,18 @@ export function streamChat(
               if (line.startsWith("data: ")) {
                 try {
                   const data = JSON.parse(line.slice(6));
-                  if (data.searching && onSearching) {
+                  if (data.search_route && onSearchRoute) {
+                    onSearchRoute(data.search_route);
+                  } else if (data.search_planning && onSearchPlanning) {
+                    onSearchPlanning(String(data.search_planning));
+                  } else if (data.search_skipped && onSearchSkipped) {
+                    onSearchSkipped(String(data.search_skipped));
+                  } else if (data.searching && onSearching) {
                     onSearching(data.searching);
+                  } else if (Array.isArray(data.search_results) && onSearchResults) {
+                    onSearchResults(data.search_query || "", data.search_results as WebSearchResult[]);
+                  } else if (data.search_error && onSearchError) {
+                    onSearchError(String(data.search_error));
                   } else if (data.message?.content) {
                     onToken(data.message.content, false);
                   }

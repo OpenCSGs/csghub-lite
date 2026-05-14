@@ -496,7 +496,13 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 	for _, m := range req.Messages {
 		messages = append(messages, inference.Message{Role: m.Role, Content: m.Content, ReasoningContent: m.ReasoningContent})
 	}
+	currentDateContext := currentDateContextForQuery(latestUserText(req.Messages), time.Now())
+	messages = insertSystemMessage(messages, inference.Message{
+		Role:    "system",
+		Content: currentDateContext,
+	})
 	inputTokens := countMessageTokens(req.Messages)
+	inputTokens += estimateAnthropicTokens(currentDateContext)
 
 	stream := req.Stream == nil || *req.Stream
 	if hasToolChatFeatures(req) {
@@ -511,6 +517,11 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("Connection", "keep-alive")
 
 			wroteChunk := false
+			messages, searchContext := s.augmentChatMessagesWithWebSearch(r.Context(), req, messages, func(v interface{}) {
+				wroteChunk = true
+				writeSSE(w, v)
+			})
+			inputTokens += estimateAnthropicTokens(searchContext)
 			var full strings.Builder
 			onToken := func(token string) {
 				wroteChunk = true
@@ -558,6 +569,11 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Connection", "keep-alive")
 
 		wroteChunk := false
+		messages, searchContext := s.augmentChatMessagesWithWebSearch(r.Context(), req, messages, func(v interface{}) {
+			wroteChunk = true
+			writeNDJSON(w, v)
+		})
+		inputTokens += estimateAnthropicTokens(searchContext)
 		var full strings.Builder
 		onToken := func(token string) {
 			wroteChunk = true
@@ -601,6 +617,8 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 			CreatedAt: time.Now(),
 		})
 	} else {
+		messages, searchContext := s.augmentChatMessagesWithWebSearch(r.Context(), req, messages, nil)
+		inputTokens += estimateAnthropicTokens(searchContext)
 		response, err := eng.Chat(r.Context(), messages, opts, nil)
 		if err != nil {
 			writeInferenceError(w, err)

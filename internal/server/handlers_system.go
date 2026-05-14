@@ -79,27 +79,41 @@ func (s *Server) handleSettingsUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var updated bool
+	var dirsUpdated bool
+	var configUpdated bool
 	storageDir := strings.TrimSpace(req.StorageDir)
 	if storageDir != "" {
 		storageDir = filepath.Clean(storageDir)
 		s.cfg.ModelDir = config.ModelDirForStorage(storageDir)
 		s.cfg.DatasetDir = config.DatasetDirForStorage(storageDir)
-		updated = true
+		dirsUpdated = true
+		configUpdated = true
 	} else {
 		modelDir := strings.TrimSpace(req.ModelDir)
 		datasetDir := strings.TrimSpace(req.DatasetDir)
 		if modelDir != "" {
 			s.cfg.ModelDir = filepath.Clean(modelDir)
-			updated = true
+			dirsUpdated = true
+			configUpdated = true
 		}
 		if datasetDir != "" {
 			s.cfg.DatasetDir = filepath.Clean(datasetDir)
-			updated = true
+			dirsUpdated = true
+			configUpdated = true
 		}
 	}
 
-	if updated {
+	if req.WebSearch != nil {
+		next, err := webSearchSettingsToConfig(*req.WebSearch)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		s.cfg.WebSearch = next
+		configUpdated = true
+	}
+
+	if dirsUpdated {
 		if err := os.MkdirAll(s.cfg.ModelDir, 0o755); err != nil {
 			writeError(w, http.StatusBadRequest, "invalid model directory: "+err.Error())
 			return
@@ -108,6 +122,8 @@ func (s *Server) handleSettingsUpdate(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, "invalid dataset directory: "+err.Error())
 			return
 		}
+	}
+	if configUpdated {
 		if err := config.Save(s.cfg); err != nil {
 			writeError(w, http.StatusInternalServerError, "failed to save config: "+err.Error())
 			return
@@ -139,7 +155,51 @@ func currentSettingsResponse(cfg *config.Config, version string) api.SettingsRes
 		ModelDir:   cfg.ModelDir,
 		DatasetDir: cfg.DatasetDir,
 		Autostart:  autostartEnabled,
+		WebSearch:  webSearchConfigToSettings(cfg.WebSearch),
 	}
+}
+
+func webSearchConfigToSettings(cfg config.WebSearchConfig) api.WebSearchSettings {
+	cfg = config.NormalizeWebSearchConfig(cfg)
+	return api.WebSearchSettings{
+		Enabled:        cfg.Enabled,
+		MaxResults:     cfg.MaxResults,
+		Language:       cfg.Language,
+		Providers:      append([]string{}, cfg.Providers...),
+		SafeSearch:     cfg.SafeSearch,
+		TimeoutSeconds: cfg.TimeoutSeconds,
+	}
+}
+
+func webSearchSettingsToConfig(settings api.WebSearchSettings) (config.WebSearchConfig, error) {
+	next := config.WebSearchConfig{
+		Enabled:        settings.Enabled,
+		MaxResults:     settings.MaxResults,
+		Language:       strings.TrimSpace(settings.Language),
+		Providers:      normalizeWebSearchProviders(settings.Providers),
+		SafeSearch:     settings.SafeSearch,
+		TimeoutSeconds: settings.TimeoutSeconds,
+	}
+	return config.NormalizeWebSearchConfig(next), nil
+}
+
+func normalizeWebSearchProviders(providers []string) []string {
+	out := make([]string, 0, len(providers))
+	seen := map[string]struct{}{}
+	for _, provider := range providers {
+		provider = strings.ToLower(strings.TrimSpace(provider))
+		switch provider {
+		case "baidu", "bing", "duckduckgo":
+		default:
+			continue
+		}
+		if _, ok := seen[provider]; ok {
+			continue
+		}
+		seen[provider] = struct{}{}
+		out = append(out, provider)
+	}
+	return out
 }
 
 // GET /api/system -- system resource information

@@ -36,6 +36,16 @@ type Config struct {
 	ModelDir             string            `json:"model_dir"`
 	DatasetDir           string            `json:"dataset_dir"`
 	AIAppPreferredModels map[string]string `json:"ai_app_preferred_models,omitempty"`
+	WebSearch            WebSearchConfig   `json:"web_search,omitempty"`
+}
+
+type WebSearchConfig struct {
+	Enabled        bool     `json:"enabled,omitempty"`
+	MaxResults     int      `json:"max_results,omitempty"`
+	Language       string   `json:"language,omitempty"`
+	Providers      []string `json:"providers,omitempty"`
+	SafeSearch     int      `json:"safe_search,omitempty"`
+	TimeoutSeconds int      `json:"timeout_seconds,omitempty"`
 }
 
 var (
@@ -124,6 +134,7 @@ func Load() (*Config, error) {
 			ServerURL:            DefaultServerURL,
 			ListenAddr:           DefaultListenAddr,
 			AIAppPreferredModels: map[string]string{},
+			WebSearch:            DefaultWebSearchConfig(),
 		}
 
 		modelDir, err := DefaultModelDir()
@@ -175,8 +186,38 @@ func Load() (*Config, error) {
 		if globalConfig.AIAppPreferredModels == nil {
 			globalConfig.AIAppPreferredModels = map[string]string{}
 		}
+		globalConfig.WebSearch = NormalizeWebSearchConfig(globalConfig.WebSearch)
 	})
 	return globalConfig, loadErr
+}
+
+func DefaultWebSearchConfig() WebSearchConfig {
+	return WebSearchConfig{
+		Enabled:        true,
+		MaxResults:     5,
+		SafeSearch:     1,
+		TimeoutSeconds: 5,
+	}
+}
+
+func NormalizeWebSearchConfig(cfg WebSearchConfig) WebSearchConfig {
+	defaults := DefaultWebSearchConfig()
+	if cfg.MaxResults <= 0 {
+		cfg.MaxResults = defaults.MaxResults
+	}
+	if cfg.MaxResults > 10 {
+		cfg.MaxResults = 10
+	}
+	if cfg.SafeSearch < 0 || cfg.SafeSearch > 2 {
+		cfg.SafeSearch = defaults.SafeSearch
+	}
+	if cfg.TimeoutSeconds <= 0 {
+		cfg.TimeoutSeconds = defaults.TimeoutSeconds
+	}
+	if cfg.TimeoutSeconds > 30 {
+		cfg.TimeoutSeconds = 30
+	}
+	return cfg
 }
 
 func Get() *Config {
