@@ -80,9 +80,13 @@ The images are lightweight bootstrap runtimes. On container start they download
 `csghub-lite` and the matching `llama-server`; by default this happens only when
 the persisted install is missing. Persist `/root/.csghub-lite` so downloaded
 models, engines, settings, API keys, and usage data survive container restarts.
+Inside the container, `llama-server` is installed to
+`/root/.csghub-lite/bin/llama-server`, so mounting `/root/.csghub-lite`
+also keeps the inference engine across recreates.
 
 ```bash
-# Standard image with a host directory
+# Standard image with a host directory.
+# This persists csghub-lite, llama-server, models, settings, and logs.
 mkdir -p ~/.csghub-lite-docker
 docker run -d --name csghub-lite \
   -p 11435:11435 \
@@ -96,7 +100,7 @@ Pin the runtime application and llama.cpp engine versions:
 docker run -d --name csghub-lite \
   -p 11435:11435 \
   -e CSGHUB_LITE_VERSION=v0.5.10 \
-  -e CSGHUB_LITE_LLAMA_CPP_TAG=b8914 \
+  -e CSGHUB_LITE_LLAMA_CPP_TAG=b9158 \
   -e CSGHUB_LITE_INSTALL_POLICY=if-version-mismatch \
   -v csghub-lite-data:/root/.csghub-lite \
   opencsg-registry.cn-beijing.cr.aliyuncs.com/opencsghq/csghub-lite:latest
@@ -115,6 +119,7 @@ docker run -d --name csghub-lite \
 For AMD GPU hosts with ROCm support:
 
 ```bash
+# The named volume persists /root/.csghub-lite/bin/llama-server.
 docker run -d --name csghub-lite-rocm \
   --device=/dev/kfd \
   --device=/dev/dri \
@@ -125,6 +130,10 @@ docker run -d --name csghub-lite-rocm \
   -v csghub-lite-data:/root/.csghub-lite \
   opencsg-registry.cn-beijing.cr.aliyuncs.com/opencsghq/csghub-lite-rocm:latest
 ```
+
+The ROCm image also includes a prebuilt Python conversion environment for
+SafeTensors-to-GGUF conversion, including CPU PyTorch, `safetensors`,
+`transformers`, and `sentencepiece`.
 
 After the container starts, open `http://localhost:11435`.
 See the [Docker runtime guide](docs/guides/docker.md) for install policy and

@@ -371,6 +371,9 @@ type APIUsageRow struct {
 	APIKeyID     string    `json:"api_key_id"`
 	APIKeyName   string    `json:"api_key_name"`
 	Model        string    `json:"model"`
+	Source       string    `json:"source"`
+	SourceType   string    `json:"source_type"`
+	SourceName   string    `json:"source_name,omitempty"`
 	Requests     int64     `json:"requests"`
 	InputTokens  int64     `json:"input_tokens"`
 	OutputTokens int64     `json:"output_tokens"`
@@ -378,9 +381,22 @@ type APIUsageRow struct {
 	LastUsedAt   time.Time `json:"last_used_at"`
 }
 
+type APIUsageSourceTotal struct {
+	Source       string `json:"source"`
+	SourceType   string `json:"source_type"`
+	SourceName   string `json:"source_name,omitempty"`
+	Requests     int64  `json:"requests"`
+	InputTokens  int64  `json:"input_tokens"`
+	OutputTokens int64  `json:"output_tokens"`
+	TotalTokens  int64  `json:"total_tokens"`
+}
+
 type APIUsageResponse struct {
-	Totals APIUsageTotals `json:"totals"`
-	Rows   []APIUsageRow  `json:"rows"`
+	Period       string                `json:"period"`
+	From         *time.Time            `json:"from,omitempty"`
+	Totals       APIUsageTotals        `json:"totals"`
+	SourceTotals []APIUsageSourceTotal `json:"source_totals"`
+	Rows         []APIUsageRow         `json:"rows"`
 }
 
 type DirectoryBrowseRequest struct {

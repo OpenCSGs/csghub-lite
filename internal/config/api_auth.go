@@ -192,14 +192,21 @@ type APIUsageEvent struct {
 	APIKeyID     string
 	APIKeyName   string
 	Model        string
+	Source       string
+	SourceType   string
+	SourceName   string
 	InputTokens  int64
 	OutputTokens int64
+	CreatedAt    time.Time
 }
 
 type APIUsageRecord struct {
 	APIKeyID     string    `json:"api_key_id"`
 	APIKeyName   string    `json:"api_key_name"`
 	Model        string    `json:"model"`
+	Source       string    `json:"source,omitempty"`
+	SourceType   string    `json:"source_type,omitempty"`
+	SourceName   string    `json:"source_name,omitempty"`
 	Requests     int64     `json:"requests"`
 	InputTokens  int64     `json:"input_tokens"`
 	OutputTokens int64     `json:"output_tokens"`
@@ -207,8 +214,28 @@ type APIUsageRecord struct {
 	LastUsedAt   time.Time `json:"last_used_at"`
 }
 
+type APIUsageEventRecord struct {
+	APIKeyID     string    `json:"api_key_id"`
+	APIKeyName   string    `json:"api_key_name"`
+	Model        string    `json:"model"`
+	Source       string    `json:"source,omitempty"`
+	SourceType   string    `json:"source_type,omitempty"`
+	SourceName   string    `json:"source_name,omitempty"`
+	Requests     int64     `json:"requests,omitempty"`
+	InputTokens  int64     `json:"input_tokens"`
+	OutputTokens int64     `json:"output_tokens"`
+	TotalTokens  int64     `json:"total_tokens"`
+	CreatedAt    time.Time `json:"created_at"`
+}
+
 type APIUsageState struct {
-	Records []APIUsageRecord `json:"records"`
+	Records []APIUsageRecord      `json:"records"`
+	Events  []APIUsageEventRecord `json:"events,omitempty"`
+}
+
+type APIUsageListOptions struct {
+	Since *time.Time
+	Until *time.Time
 }
 
 type APIUsageStore struct {
@@ -232,32 +259,34 @@ func (s *APIUsageStore) Add(event APIUsageEvent) error {
 	if err != nil {
 		return err
 	}
-	now := time.Now().UTC()
-	for i := range state.Records {
-		if state.Records[i].APIKeyID == event.APIKeyID && state.Records[i].Model == event.Model {
-			state.Records[i].APIKeyName = event.APIKeyName
-			state.Records[i].Requests++
-			state.Records[i].InputTokens += event.InputTokens
-			state.Records[i].OutputTokens += event.OutputTokens
-			state.Records[i].TotalTokens += event.InputTokens + event.OutputTokens
-			state.Records[i].LastUsedAt = now
-			return s.saveLocked(state)
-		}
+	migrateLegacyAPIUsageEvents(&state, time.Now().UTC())
+	state.Events = compactAPIUsageEvents(state.Events)
+	now := event.CreatedAt
+	if now.IsZero() {
+		now = time.Now().UTC()
+	} else {
+		now = now.UTC()
 	}
-	state.Records = append(state.Records, APIUsageRecord{
+	record := APIUsageEventRecord{
 		APIKeyID:     event.APIKeyID,
 		APIKeyName:   event.APIKeyName,
 		Model:        event.Model,
+		Source:       strings.TrimSpace(event.Source),
+		SourceType:   strings.TrimSpace(event.SourceType),
+		SourceName:   strings.TrimSpace(event.SourceName),
 		Requests:     1,
 		InputTokens:  event.InputTokens,
 		OutputTokens: event.OutputTokens,
 		TotalTokens:  event.InputTokens + event.OutputTokens,
-		LastUsedAt:   now,
-	})
+		CreatedAt:    now,
+	}
+	upsertAPIUsageEventBucket(&state.Events, record)
+	state.Records = aggregateAPIUsageEvents(state.Events, APIUsageListOptions{})
+	sortAPIUsageRecords(state.Records)
 	return s.saveLocked(state)
 }
 
-func (s *APIUsageStore) List() (APIUsageState, error) {
+func (s *APIUsageStore) List(options APIUsageListOptions) (APIUsageState, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -265,13 +294,15 @@ func (s *APIUsageStore) List() (APIUsageState, error) {
 	if err != nil {
 		return APIUsageState{}, err
 	}
-	sort.Slice(state.Records, func(i, j int) bool {
-		if state.Records[i].APIKeyName == state.Records[j].APIKeyName {
-			return state.Records[i].Model < state.Records[j].Model
-		}
-		return state.Records[i].APIKeyName < state.Records[j].APIKeyName
-	})
-	return state, nil
+	migrateLegacyAPIUsageEvents(&state, time.Now().UTC())
+	if len(state.Events) > 0 {
+		state.Events = compactAPIUsageEvents(state.Events)
+		state.Records = aggregateAPIUsageEvents(state.Events, options)
+	} else {
+		state.Records = filterAPIUsageRecords(state.Records, options)
+	}
+	sortAPIUsageRecords(state.Records)
+	return APIUsageState{Records: state.Records}, nil
 }
 
 func (s *APIUsageStore) loadLocked() (APIUsageState, error) {
@@ -289,7 +320,247 @@ func (s *APIUsageStore) loadLocked() (APIUsageState, error) {
 	if state.Records == nil {
 		state.Records = []APIUsageRecord{}
 	}
+	if state.Events == nil {
+		state.Events = []APIUsageEventRecord{}
+	}
 	return state, nil
+}
+
+func migrateLegacyAPIUsageEvents(state *APIUsageState, fallback time.Time) {
+	if len(state.Events) > 0 || len(state.Records) == 0 {
+		return
+	}
+	if fallback.IsZero() {
+		fallback = time.Now().UTC()
+	}
+	for _, record := range state.Records {
+		usedAt := record.LastUsedAt
+		if usedAt.IsZero() {
+			usedAt = fallback
+		}
+		state.Events = append(state.Events, APIUsageEventRecord{
+			APIKeyID:     record.APIKeyID,
+			APIKeyName:   record.APIKeyName,
+			Model:        record.Model,
+			Source:       record.Source,
+			SourceType:   record.SourceType,
+			SourceName:   record.SourceName,
+			Requests:     apiUsageRecordRequests(record),
+			InputTokens:  record.InputTokens,
+			OutputTokens: record.OutputTokens,
+			TotalTokens:  record.TotalTokens,
+			CreatedAt:    usedAt.UTC(),
+		})
+	}
+}
+
+func compactAPIUsageEvents(events []APIUsageEventRecord) []APIUsageEventRecord {
+	if len(events) == 0 {
+		return []APIUsageEventRecord{}
+	}
+	out := make([]APIUsageEventRecord, 0, len(events))
+	index := make(map[string]int, len(events))
+	for _, event := range events {
+		event.APIKeyID = strings.TrimSpace(event.APIKeyID)
+		event.APIKeyName = strings.TrimSpace(event.APIKeyName)
+		event.Model = strings.TrimSpace(event.Model)
+		event.Source = strings.TrimSpace(event.Source)
+		event.SourceType = strings.TrimSpace(event.SourceType)
+		event.SourceName = strings.TrimSpace(event.SourceName)
+		event.Requests = apiUsageEventRequests(event)
+		event.TotalTokens = apiUsageEventTotalTokens(event)
+		if !event.CreatedAt.IsZero() {
+			event.CreatedAt = event.CreatedAt.UTC()
+		}
+		key := apiUsageEventBucketKey(event)
+		if i, ok := index[key]; ok {
+			out[i].APIKeyName = latestNonEmpty(out[i].APIKeyName, event.APIKeyName)
+			out[i].SourceName = latestNonEmpty(out[i].SourceName, event.SourceName)
+			out[i].Requests += event.Requests
+			out[i].InputTokens += event.InputTokens
+			out[i].OutputTokens += event.OutputTokens
+			out[i].TotalTokens += event.TotalTokens
+			if event.CreatedAt.After(out[i].CreatedAt) {
+				out[i].CreatedAt = event.CreatedAt
+			}
+			continue
+		}
+		index[key] = len(out)
+		out = append(out, event)
+	}
+	sortAPIUsageEvents(out)
+	return out
+}
+
+func upsertAPIUsageEventBucket(events *[]APIUsageEventRecord, event APIUsageEventRecord) {
+	compacted := compactAPIUsageEvents([]APIUsageEventRecord{event})
+	if len(compacted) == 0 {
+		return
+	}
+	event = compacted[0]
+	key := apiUsageEventBucketKey(event)
+	for i := range *events {
+		if apiUsageEventBucketKey((*events)[i]) == key {
+			(*events)[i].APIKeyName = latestNonEmpty((*events)[i].APIKeyName, event.APIKeyName)
+			(*events)[i].SourceName = latestNonEmpty((*events)[i].SourceName, event.SourceName)
+			(*events)[i].Requests += apiUsageEventRequests(event)
+			(*events)[i].InputTokens += event.InputTokens
+			(*events)[i].OutputTokens += event.OutputTokens
+			(*events)[i].TotalTokens += apiUsageEventTotalTokens(event)
+			if event.CreatedAt.After((*events)[i].CreatedAt) {
+				(*events)[i].CreatedAt = event.CreatedAt
+			}
+			return
+		}
+	}
+	*events = append(*events, event)
+	sortAPIUsageEvents(*events)
+}
+
+func upsertAPIUsageRecord(state *APIUsageState, event APIUsageEventRecord) {
+	requests := apiUsageEventRequests(event)
+	for i := range state.Records {
+		if state.Records[i].APIKeyID == event.APIKeyID &&
+			state.Records[i].Model == event.Model &&
+			state.Records[i].Source == event.Source &&
+			state.Records[i].SourceType == event.SourceType {
+			state.Records[i].APIKeyName = event.APIKeyName
+			state.Records[i].SourceName = event.SourceName
+			state.Records[i].Requests += requests
+			state.Records[i].InputTokens += event.InputTokens
+			state.Records[i].OutputTokens += event.OutputTokens
+			state.Records[i].TotalTokens += apiUsageEventTotalTokens(event)
+			state.Records[i].LastUsedAt = event.CreatedAt
+			return
+		}
+	}
+	state.Records = append(state.Records, APIUsageRecord{
+		APIKeyID:     event.APIKeyID,
+		APIKeyName:   event.APIKeyName,
+		Model:        event.Model,
+		Source:       event.Source,
+		SourceType:   event.SourceType,
+		SourceName:   event.SourceName,
+		Requests:     requests,
+		InputTokens:  event.InputTokens,
+		OutputTokens: event.OutputTokens,
+		TotalTokens:  apiUsageEventTotalTokens(event),
+		LastUsedAt:   event.CreatedAt,
+	})
+}
+
+func aggregateAPIUsageEvents(events []APIUsageEventRecord, options APIUsageListOptions) []APIUsageRecord {
+	state := APIUsageState{Records: []APIUsageRecord{}}
+	for _, event := range events {
+		if !apiUsageTimeInRange(event.CreatedAt, options) {
+			continue
+		}
+		upsertAPIUsageRecord(&state, event)
+	}
+	return state.Records
+}
+
+func apiUsageEventBucketKey(event APIUsageEventRecord) string {
+	return strings.Join([]string{
+		strings.TrimSpace(event.APIKeyID),
+		strings.TrimSpace(event.Model),
+		strings.TrimSpace(event.Source),
+		strings.TrimSpace(event.SourceType),
+		apiUsageEventDay(event.CreatedAt),
+	}, "\x00")
+}
+
+func apiUsageEventDay(value time.Time) string {
+	if value.IsZero() {
+		return ""
+	}
+	return value.UTC().Format("2006-01-02")
+}
+
+func apiUsageRecordRequests(record APIUsageRecord) int64 {
+	if record.Requests > 0 {
+		return record.Requests
+	}
+	return 1
+}
+
+func apiUsageEventRequests(event APIUsageEventRecord) int64 {
+	if event.Requests > 0 {
+		return event.Requests
+	}
+	return 1
+}
+
+func apiUsageEventTotalTokens(event APIUsageEventRecord) int64 {
+	if event.TotalTokens != 0 {
+		return event.TotalTokens
+	}
+	return event.InputTokens + event.OutputTokens
+}
+
+func latestNonEmpty(current, next string) string {
+	next = strings.TrimSpace(next)
+	if next != "" {
+		return next
+	}
+	return strings.TrimSpace(current)
+}
+
+func filterAPIUsageRecords(records []APIUsageRecord, options APIUsageListOptions) []APIUsageRecord {
+	out := make([]APIUsageRecord, 0, len(records))
+	for _, record := range records {
+		if apiUsageTimeInRange(record.LastUsedAt, options) {
+			out = append(out, record)
+		}
+	}
+	return out
+}
+
+func apiUsageTimeInRange(value time.Time, options APIUsageListOptions) bool {
+	if value.IsZero() {
+		return options.Since == nil && options.Until == nil
+	}
+	value = value.UTC()
+	if options.Since != nil && value.Before(options.Since.UTC()) {
+		return false
+	}
+	if options.Until != nil && !value.Before(options.Until.UTC()) {
+		return false
+	}
+	return true
+}
+
+func sortAPIUsageRecords(records []APIUsageRecord) {
+	sort.Slice(records, func(i, j int) bool {
+		if records[i].APIKeyName != records[j].APIKeyName {
+			return records[i].APIKeyName < records[j].APIKeyName
+		}
+		if records[i].SourceType != records[j].SourceType {
+			return records[i].SourceType < records[j].SourceType
+		}
+		if records[i].SourceName != records[j].SourceName {
+			return records[i].SourceName < records[j].SourceName
+		}
+		return records[i].Model < records[j].Model
+	})
+}
+
+func sortAPIUsageEvents(events []APIUsageEventRecord) {
+	sort.Slice(events, func(i, j int) bool {
+		if !events[i].CreatedAt.Equal(events[j].CreatedAt) {
+			return events[i].CreatedAt.Before(events[j].CreatedAt)
+		}
+		if events[i].APIKeyName != events[j].APIKeyName {
+			return events[i].APIKeyName < events[j].APIKeyName
+		}
+		if events[i].SourceType != events[j].SourceType {
+			return events[i].SourceType < events[j].SourceType
+		}
+		if events[i].SourceName != events[j].SourceName {
+			return events[i].SourceName < events[j].SourceName
+		}
+		return events[i].Model < events[j].Model
+	})
 }
 
 func (s *APIUsageStore) saveLocked(state APIUsageState) error {

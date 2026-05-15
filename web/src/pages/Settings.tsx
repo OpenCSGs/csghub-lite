@@ -77,6 +77,8 @@ const providerFormError = signal("");
 const providerFormSaving = signal(false);
 const providersChangedEvent = "csghub:providers-changed";
 type SettingsTab = "system" | "apiKeys" | "usage";
+type UsagePeriod = "week" | "month" | "year" | "all";
+type UsageSourceFilter = { source: string; sourceType: string } | null;
 
 const activeSettingsTab = signal<SettingsTab>("system");
 const localAPIKeys = signal<LocalAPIKeysResponse | null>(null);
@@ -89,6 +91,9 @@ const localAPIKeyDeleting = signal("");
 const localAPIUsage = signal<LocalAPIUsageResponse | null>(null);
 const localAPIUsageLoading = signal(false);
 const localAPIUsageError = signal("");
+const localAPIUsagePeriod = signal<UsagePeriod>("all");
+const localAPIUsageSourceFilter = signal<UsageSourceFilter>(null);
+let localAPIUsageRequestID = 0;
 const copiedBaseURL = signal("");
 const webSearchEnabled = signal(false);
 const webSearchMaxResults = signal(5);
@@ -228,15 +233,30 @@ async function fetchLocalAPIKeys() {
   }
 }
 
-async function fetchLocalAPIUsage() {
+async function fetchLocalAPIUsage(period: UsagePeriod = localAPIUsagePeriod.value) {
+  const requestID = ++localAPIUsageRequestID;
   localAPIUsageLoading.value = true;
   localAPIUsageError.value = "";
   try {
-    localAPIUsage.value = await getLocalAPIUsage();
+    const usage = await getLocalAPIUsage(period);
+    if (requestID !== localAPIUsageRequestID) return;
+    localAPIUsage.value = usage;
+    const sourceFilter = localAPIUsageSourceFilter.value;
+    const sourceStillVisible = sourceFilter
+      ? usage.source_totals.some(
+          (item) => item.source_type === sourceFilter.sourceType && item.source === sourceFilter.source,
+        )
+      : true;
+    if (!sourceStillVisible) {
+      localAPIUsageSourceFilter.value = null;
+    }
   } catch (err: any) {
+    if (requestID !== localAPIUsageRequestID) return;
     localAPIUsageError.value = err?.message || t("settings.apiUsageLoadFailed");
   } finally {
-    localAPIUsageLoading.value = false;
+    if (requestID === localAPIUsageRequestID) {
+      localAPIUsageLoading.value = false;
+    }
   }
 }
 
@@ -602,6 +622,24 @@ function copySettingsSnippet(value: string) {
   }, 1500);
 }
 
+function selectLocalAPIUsagePeriod(period: UsagePeriod) {
+  localAPIUsagePeriod.value = period;
+  void fetchLocalAPIUsage(period);
+}
+
+function toggleLocalAPIUsageSourceFilter(sourceType: string, source: string) {
+  const current = localAPIUsageSourceFilter.value;
+  if (current?.sourceType === sourceType && current.source === source) {
+    localAPIUsageSourceFilter.value = null;
+    return;
+  }
+  localAPIUsageSourceFilter.value = { sourceType, source };
+}
+
+function clearLocalAPIUsageSourceFilter() {
+  localAPIUsageSourceFilter.value = null;
+}
+
 export function Settings() {
   void locale.value;
   const showTokenInput = !(cloudAuth.value?.authenticated && cloudAuth.value?.user);
@@ -659,7 +697,7 @@ export function Settings() {
   };
 
   return (
-    <div class="p-8 max-w-3xl mx-auto">
+    <div class="p-8 max-w-5xl mx-auto">
       <h1 class="text-2xl font-bold text-gray-900">{t("settings.title")}</h1>
       <p class="text-gray-500 text-sm mt-1 mb-6">{t("settings.subtitle")}</p>
 
@@ -1417,6 +1455,11 @@ function CurlExample({ label, value }: { label: string; value: string }) {
 function UsageStatisticsSection() {
   const usage = localAPIUsage.value;
   const rows = usage?.rows || [];
+  const sourceTotals = usage?.source_totals || [];
+  const sourceFilter = localAPIUsageSourceFilter.value;
+  const visibleRows = sourceFilter
+    ? rows.filter((row) => row.source_type === sourceFilter.sourceType && row.source === sourceFilter.source)
+    : rows;
   return (
     <div class="mb-10">
       <div class="flex items-center justify-between gap-3 mb-4">
@@ -1433,15 +1476,42 @@ function UsageStatisticsSection() {
           {localAPIUsageLoading.value ? "..." : t("settings.apiUsageRefresh")}
         </button>
       </div>
+      <div class="mb-5 flex flex-wrap gap-2">
+        <UsagePeriodButton period="week" label={t("settings.apiUsagePeriodWeek")} />
+        <UsagePeriodButton period="month" label={t("settings.apiUsagePeriodMonth")} />
+        <UsagePeriodButton period="year" label={t("settings.apiUsagePeriodYear")} />
+        <UsagePeriodButton period="all" label={t("settings.apiUsagePeriodAll")} />
+      </div>
       <div class="grid gap-3 sm:grid-cols-4">
         <UsageCard label={t("settings.apiUsageRequests")} value={formatNumber(usage?.totals.requests || 0)} />
         <UsageCard label={t("settings.apiUsageInput")} value={formatNumber(usage?.totals.input_tokens || 0)} />
         <UsageCard label={t("settings.apiUsageOutput")} value={formatNumber(usage?.totals.output_tokens || 0)} />
         <UsageCard label={t("settings.apiUsageTotal")} value={formatNumber(usage?.totals.total_tokens || 0)} />
       </div>
+      {sourceTotals.length > 0 && (
+        <div class="mt-4 grid gap-3 sm:grid-cols-3">
+          <SourceUsageCard
+            label={t("settings.apiUsageSourceAll")}
+            requests={usage?.totals.requests || 0}
+            totalTokens={usage?.totals.total_tokens || 0}
+            active={!sourceFilter}
+            onClick={clearLocalAPIUsageSourceFilter}
+          />
+          {sourceTotals.map((item) => (
+            <SourceUsageCard
+              key={`${item.source_type}:${item.source}`}
+              label={apiUsageSourceSummaryLabel(item.source_type, item.source_name)}
+              requests={item.requests}
+              totalTokens={item.total_tokens}
+              active={sourceFilter?.sourceType === item.source_type && sourceFilter.source === item.source}
+              onClick={() => toggleLocalAPIUsageSourceFilter(item.source_type, item.source)}
+            />
+          ))}
+        </div>
+      )}
       {localAPIUsageError.value && <p class="mt-3 text-sm text-red-600">{localAPIUsageError.value}</p>}
       <div class="mt-5 overflow-hidden rounded-xl border border-gray-200 bg-white">
-        {rows.length === 0 ? (
+        {visibleRows.length === 0 ? (
           <p class="p-4 text-sm text-gray-400">{localAPIUsageLoading.value ? "..." : t("settings.apiUsageEmpty")}</p>
         ) : (
           <div class="overflow-x-auto">
@@ -1449,6 +1519,7 @@ function UsageStatisticsSection() {
               <thead class="bg-gray-50 text-left text-xs uppercase tracking-wide text-gray-400">
                 <tr>
                   <th class="px-4 py-3">{t("settings.apiUsageKey")}</th>
+                  <th class="px-4 py-3">{t("settings.apiUsageSource")}</th>
                   <th class="px-4 py-3">{t("settings.apiUsageModel")}</th>
                   <th class="px-4 py-3">{t("settings.apiUsageRequests")}</th>
                   <th class="px-4 py-3">{t("settings.apiUsageInput")}</th>
@@ -1458,9 +1529,10 @@ function UsageStatisticsSection() {
                 </tr>
               </thead>
               <tbody class="divide-y divide-gray-100">
-                {rows.map((row) => (
-                  <tr key={`${row.api_key_id}:${row.model}`}>
+                {visibleRows.map((row) => (
+                  <tr key={`${row.api_key_id}:${row.source}:${row.model}`}>
                     <td class="px-4 py-3 font-medium text-gray-900">{row.api_key_name}</td>
+                    <td class="px-4 py-3 text-gray-600">{apiUsageSourceRowLabel(row.source_type, row.source_name)}</td>
                     <td class="px-4 py-3 text-gray-600">{row.model}</td>
                     <td class="px-4 py-3 text-gray-600">{formatNumber(row.requests)}</td>
                     <td class="px-4 py-3 text-gray-600">{formatNumber(row.input_tokens)}</td>
@@ -1478,6 +1550,23 @@ function UsageStatisticsSection() {
   );
 }
 
+function UsagePeriodButton({ period, label }: { period: UsagePeriod; label: string }) {
+  const active = localAPIUsagePeriod.value === period;
+  return (
+    <button
+      type="button"
+      onClick={() => selectLocalAPIUsagePeriod(period)}
+      class={`rounded-lg border px-3 py-1.5 text-sm transition-colors ${
+        active
+          ? "border-indigo-200 bg-indigo-50 text-indigo-700"
+          : "border-gray-200 text-gray-600 hover:bg-gray-50"
+      }`}
+    >
+      {label}
+    </button>
+  );
+}
+
 function UsageCard({ label, value }: { label: string; value: string }) {
   return (
     <div class="rounded-xl border border-gray-200 bg-white p-4">
@@ -1485,6 +1574,59 @@ function UsageCard({ label, value }: { label: string; value: string }) {
       <p class="mt-2 text-xl font-semibold text-gray-900">{value}</p>
     </div>
   );
+}
+
+function SourceUsageCard({
+  label,
+  requests,
+  totalTokens,
+  active,
+  onClick,
+}: {
+  label: string;
+  requests: number;
+  totalTokens: number;
+  active: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      aria-pressed={active}
+      onClick={onClick}
+      class={`rounded-xl border p-4 text-left transition-colors ${
+        active
+          ? "border-indigo-300 bg-indigo-50"
+          : "border-gray-200 bg-white hover:bg-gray-50"
+      }`}
+    >
+      <p class="text-sm font-semibold text-gray-900">{label}</p>
+      <p class="mt-2 text-xl font-semibold text-gray-900">{formatNumber(totalTokens)}</p>
+      <p class="mt-1 text-xs text-gray-500">{t("settings.apiUsageSourceRequests", formatNumber(requests))}</p>
+    </button>
+  );
+}
+
+function apiUsageSourceSummaryLabel(sourceType: string, sourceName?: string): string {
+  switch (sourceType) {
+    case "local":
+      return t("settings.apiUsageSourceLocal");
+    case "cloud":
+      return t("settings.apiUsageSourceCloud");
+    case "provider":
+      return sourceName
+        ? `${t("settings.apiUsageSourceProvider")} · ${sourceName}`
+        : t("settings.apiUsageSourceProvider");
+    default:
+      return t("settings.apiUsageSourceUnknown");
+  }
+}
+
+function apiUsageSourceRowLabel(sourceType: string, sourceName?: string): string {
+  if (sourceType === "provider" && sourceName) {
+    return `${t("settings.apiUsageSourceProvider")} · ${sourceName}`;
+  }
+  return apiUsageSourceSummaryLabel(sourceType);
 }
 
 function formatNumber(value: number): string {

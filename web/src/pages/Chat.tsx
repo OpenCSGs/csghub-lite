@@ -13,6 +13,7 @@ import type {
 } from "../api/client";
 import { t, locale } from "../i18n";
 import { parseReasoningText } from "../reasoning";
+import { buildChatContextMessages } from "../chatContext";
 
 const availableModels = signal<ModelInfo[]>([]);
 const selectedModelKey = signal("");
@@ -505,7 +506,7 @@ export function Chat() {
 
     const images = pendingImages.value;
     let userContent: ChatMessage["content"];
-    let apiMessages: ChatMessage[];
+    let currentUserMessage: ChatMessage;
 
     if (images.length > 0) {
       const displayParts: ContentPart[] = images.map((img) => ({
@@ -521,17 +522,12 @@ export function Chat() {
       }));
       apiParts.push({ type: "text" as const, text });
 
-      apiMessages = [
-        ...conv.messages,
-        { role: "user", content: apiParts },
-      ];
+      currentUserMessage = { role: "user", content: apiParts };
     } else {
       userContent = text;
-      apiMessages = [
-        ...conv.messages,
-        { role: "user", content: text },
-      ];
+      currentUserMessage = { role: "user", content: text };
     }
+    const apiMessages = buildChatContextMessages(conv.messages, currentUserMessage);
 
     conv.messages.push({ role: "user", content: userContent });
     if (conv.messages.length === 1) {

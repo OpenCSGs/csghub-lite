@@ -166,7 +166,7 @@ func (s *Server) handleOpenAIResponses(w http.ResponseWriter, r *http.Request) {
 			"type":     "response.completed",
 			"response": buildResponsesResponse(id, itemID, req.Model, text, created, "completed", inputTokens),
 		})
-		s.recordAPIUsage(r, req.Model, inputTokens, estimateAnthropicTokens(text))
+		s.recordAPIUsage(r, req.Model, req.Source, inputTokens, estimateAnthropicTokens(text))
 		fmt.Fprintf(w, "event: done\ndata: [DONE]\n\n")
 		if f, ok := w.(http.Flusher); ok {
 			f.Flush()
@@ -180,7 +180,7 @@ func (s *Server) handleOpenAIResponses(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	text = normalizeResponsesVisibleText(text)
-	s.recordAPIUsage(r, req.Model, inputTokens, estimateAnthropicTokens(text))
+	s.recordAPIUsage(r, req.Model, req.Source, inputTokens, estimateAnthropicTokens(text))
 
 	writeJSON(w, http.StatusOK, buildResponsesResponse(id, itemID, req.Model, text, created, "completed", inputTokens))
 }
@@ -223,7 +223,7 @@ func (s *Server) handleOpenAIResponsesProxy(
 	if recordInputTokens == 0 {
 		recordInputTokens = inputTokens
 	}
-	s.recordAPIUsage(r, req.Model, recordInputTokens, outputTokens)
+	s.recordAPIUsage(r, req.Model, req.Source, recordInputTokens, outputTokens)
 	if req.Stream {
 		w.Header().Set("Content-Type", "text/event-stream")
 		w.Header().Set("Cache-Control", "no-cache")
@@ -296,7 +296,7 @@ func (s *Server) handleOpenAIResponsesWithTools(
 	if recordInputTokens == 0 {
 		recordInputTokens = inputTokens
 	}
-	s.recordAPIUsage(r, req.Model, recordInputTokens, outputTokens)
+	s.recordAPIUsage(r, req.Model, req.Source, recordInputTokens, outputTokens)
 
 	if req.Stream {
 		w.Header().Set("Content-Type", "text/event-stream")

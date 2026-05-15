@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"strings"
@@ -89,31 +90,106 @@ func (s *Server) handleAPIUsage(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "API usage store is unavailable")
 		return
 	}
-	state, err := s.apiUsage.List()
+	period, since := apiUsagePeriod(r)
+	options := config.APIUsageListOptions{}
+	if since != nil {
+		options.Since = since
+	}
+	state, err := s.apiUsage.List(options)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to load API usage")
 		return
 	}
 	resp := api.APIUsageResponse{
-		Rows: make([]api.APIUsageRow, 0, len(state.Records)),
+		Period:       period,
+		Rows:         make([]api.APIUsageRow, 0, len(state.Records)),
+		SourceTotals: make([]api.APIUsageSourceTotal, 0, 4),
+	}
+	if since != nil {
+		resp.From = since
 	}
 	for _, record := range state.Records {
 		resp.Totals.Requests += record.Requests
 		resp.Totals.InputTokens += record.InputTokens
 		resp.Totals.OutputTokens += record.OutputTokens
 		resp.Totals.TotalTokens += record.TotalTokens
-		resp.Rows = append(resp.Rows, api.APIUsageRow{
-			APIKeyID:     record.APIKeyID,
-			APIKeyName:   record.APIKeyName,
-			Model:        record.Model,
-			Requests:     record.Requests,
-			InputTokens:  record.InputTokens,
-			OutputTokens: record.OutputTokens,
-			TotalTokens:  record.TotalTokens,
-			LastUsedAt:   record.LastUsedAt,
-		})
+		row := s.apiUsageRow(r.Context(), record)
+		resp.Rows = append(resp.Rows, row)
+		addAPIUsageSourceTotal(&resp.SourceTotals, row)
 	}
 	writeJSON(w, http.StatusOK, resp)
+}
+
+func apiUsagePeriod(r *http.Request) (string, *time.Time) {
+	period := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("period")))
+	now := time.Now().UTC()
+	switch period {
+	case "week":
+		since := now.AddDate(0, 0, -7)
+		return period, &since
+	case "month":
+		since := now.AddDate(0, -1, 0)
+		return period, &since
+	case "year":
+		since := now.AddDate(-1, 0, 0)
+		return period, &since
+	case "all", "":
+		return "all", nil
+	default:
+		return "all", nil
+	}
+}
+
+func (s *Server) apiUsageRow(ctx context.Context, record config.APIUsageRecord) api.APIUsageRow {
+	source := strings.TrimSpace(record.Source)
+	sourceType := strings.TrimSpace(record.SourceType)
+	sourceName := strings.TrimSpace(record.SourceName)
+	if sourceType == "" || source == "" {
+		source, sourceType, sourceName = s.resolveAPIUsageSource(ctx, record.Model, source)
+	}
+	return api.APIUsageRow{
+		APIKeyID:     record.APIKeyID,
+		APIKeyName:   record.APIKeyName,
+		Model:        record.Model,
+		Source:       source,
+		SourceType:   sourceType,
+		SourceName:   sourceName,
+		Requests:     record.Requests,
+		InputTokens:  record.InputTokens,
+		OutputTokens: record.OutputTokens,
+		TotalTokens:  record.TotalTokens,
+		LastUsedAt:   record.LastUsedAt,
+	}
+}
+
+func addAPIUsageSourceTotal(totals *[]api.APIUsageSourceTotal, row api.APIUsageRow) {
+	sourceType := strings.TrimSpace(row.SourceType)
+	if sourceType == "" {
+		sourceType = apiUsageSourceUnknown
+	}
+	source := sourceType
+	if row.Source != "" {
+		source = row.Source
+	}
+	for i := range *totals {
+		if (*totals)[i].SourceType == sourceType && (*totals)[i].Source == source {
+			(*totals)[i].Requests += row.Requests
+			(*totals)[i].InputTokens += row.InputTokens
+			(*totals)[i].OutputTokens += row.OutputTokens
+			(*totals)[i].TotalTokens += row.TotalTokens
+			return
+		}
+	}
+	sourceName := row.SourceName
+	*totals = append(*totals, api.APIUsageSourceTotal{
+		Source:       source,
+		SourceType:   sourceType,
+		SourceName:   sourceName,
+		Requests:     row.Requests,
+		InputTokens:  row.InputTokens,
+		OutputTokens: row.OutputTokens,
+		TotalTokens:  row.TotalTokens,
+	})
 }
 
 func apiKeysResponse(state config.APIKeyState) api.APIKeysResponse {

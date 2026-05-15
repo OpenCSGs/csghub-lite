@@ -6,6 +6,9 @@ runtime dependencies needed to start, then download `csghub-lite` and
 
 Persist `/root/.csghub-lite` to keep the installed binaries, downloaded models,
 configuration, credentials, logs, and usage data across container restarts.
+The container installs `llama-server` at
+`/root/.csghub-lite/bin/llama-server`, so the same mount also persists the
+local inference engine.
 
 ## Images
 
@@ -22,7 +25,7 @@ persisted binaries on later starts.
 | Environment variable | Description |
 | --- | --- |
 | `CSGHUB_LITE_VERSION` | Pin the csghub-lite version, for example `v0.5.10`. |
-| `CSGHUB_LITE_LLAMA_CPP_TAG` | Pin the llama.cpp engine tag, for example `b8914`. |
+| `CSGHUB_LITE_LLAMA_CPP_TAG` | Pin the llama.cpp engine tag, for example `b9158`. |
 | `CSGHUB_LITE_INSTALL_POLICY` | `if-missing`, `if-version-mismatch`, or `always`. |
 | `CSGHUB_LITE_INSTALL_ALWAYS` | Backward-compatible shortcut for forcing reinstall on startup. |
 | `CSGHUB_LITE_INSTALL_URL` | Override the installer URL for private mirrors. |
@@ -34,6 +37,7 @@ persisted binaries on later starts.
 Standard runtime:
 
 ```bash
+# The named volume persists csghub-lite, llama-server, models, settings, and logs.
 docker run -d --name csghub-lite \
   -p 11435:11435 \
   -v csghub-lite-data:/root/.csghub-lite \
@@ -46,7 +50,7 @@ Pin both runtime versions:
 docker run -d --name csghub-lite \
   -p 11435:11435 \
   -e CSGHUB_LITE_VERSION=v0.5.10 \
-  -e CSGHUB_LITE_LLAMA_CPP_TAG=b8914 \
+  -e CSGHUB_LITE_LLAMA_CPP_TAG=b9158 \
   -e CSGHUB_LITE_INSTALL_POLICY=if-version-mismatch \
   -v csghub-lite-data:/root/.csghub-lite \
   opencsg-registry.cn-beijing.cr.aliyuncs.com/opencsghq/csghub-lite:latest
@@ -65,6 +69,7 @@ docker run -d --name csghub-lite \
 ROCm runtime:
 
 ```bash
+# The named volume persists /root/.csghub-lite/bin/llama-server.
 docker run -d --name csghub-lite-rocm \
   --device=/dev/kfd \
   --device=/dev/dri \
@@ -75,3 +80,8 @@ docker run -d --name csghub-lite-rocm \
   -v csghub-lite-data:/root/.csghub-lite \
   opencsg-registry.cn-beijing.cr.aliyuncs.com/opencsghq/csghub-lite-rocm:latest
 ```
+
+The ROCm image prebuilds the SafeTensors-to-GGUF Python conversion environment
+with CPU PyTorch, `safetensors`, `transformers`, and `sentencepiece`. On first
+start, the entrypoint seeds that environment into `/root/.csghub-lite/tools/python`
+when the persisted volume does not already have one.

@@ -201,6 +201,9 @@ export interface LocalAPIUsageRow {
   api_key_id: string;
   api_key_name: string;
   model: string;
+  source: string;
+  source_type: string;
+  source_name?: string;
   requests: number;
   input_tokens: number;
   output_tokens: number;
@@ -208,8 +211,21 @@ export interface LocalAPIUsageRow {
   last_used_at: string;
 }
 
+export interface LocalAPIUsageSourceTotal {
+  source: string;
+  source_type: string;
+  source_name?: string;
+  requests: number;
+  input_tokens: number;
+  output_tokens: number;
+  total_tokens: number;
+}
+
 export interface LocalAPIUsageResponse {
+  period: string;
+  from?: string;
   totals: LocalAPIUsageTotals;
+  source_totals: LocalAPIUsageSourceTotal[];
   rows: LocalAPIUsageRow[];
 }
 
@@ -462,8 +478,9 @@ export async function deleteLocalAPIKey(id: string): Promise<void> {
   });
 }
 
-export async function getLocalAPIUsage(): Promise<LocalAPIUsageResponse> {
-  return fetchJSON<LocalAPIUsageResponse>("/api/api-usage");
+export async function getLocalAPIUsage(period?: string): Promise<LocalAPIUsageResponse> {
+  const query = period ? `?${new URLSearchParams({ period })}` : "";
+  return fetchJSON<LocalAPIUsageResponse>(`/api/api-usage${query}`);
 }
 
 export async function browseLocalDirectories(path?: string): Promise<LocalDirectoryBrowseResponse> {

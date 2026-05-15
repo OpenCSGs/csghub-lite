@@ -414,7 +414,7 @@ func (s *Server) handleGenerate(w http.ResponseWriter, r *http.Request) {
 			})
 			return
 		}
-		s.recordAPIUsage(r, req.Model, inputTokens, estimateAnthropicTokens(full.String()))
+		s.recordAPIUsage(r, req.Model, "", inputTokens, estimateAnthropicTokens(full.String()))
 		writeSSE(w, api.GenerateResponse{
 			Model:     req.Model,
 			Done:      true,
@@ -426,7 +426,7 @@ func (s *Server) handleGenerate(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
-		s.recordAPIUsage(r, req.Model, inputTokens, estimateAnthropicTokens(response))
+		s.recordAPIUsage(r, req.Model, "", inputTokens, estimateAnthropicTokens(response))
 		writeJSON(w, http.StatusOK, api.GenerateResponse{
 			Model:     req.Model,
 			Response:  response,
@@ -555,7 +555,7 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			_ = fullResp
-			s.recordAPIUsage(r, req.Model, inputTokens, estimateAnthropicTokens(full.String()))
+			s.recordAPIUsage(r, req.Model, req.Source, inputTokens, estimateAnthropicTokens(full.String()))
 			writeSSE(w, api.ChatResponse{
 				Model:     req.Model,
 				Done:      true,
@@ -606,7 +606,7 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 			})
 			return
 		}
-		s.recordAPIUsage(r, req.Model, inputTokens, estimateAnthropicTokens(full.String()))
+		s.recordAPIUsage(r, req.Model, req.Source, inputTokens, estimateAnthropicTokens(full.String()))
 		writeNDJSON(w, api.ChatResponse{
 			Model: req.Model,
 			Message: &api.Message{
@@ -624,7 +624,7 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 			writeInferenceError(w, err)
 			return
 		}
-		s.recordAPIUsage(r, req.Model, inputTokens, estimateAnthropicTokens(response))
+		s.recordAPIUsage(r, req.Model, req.Source, inputTokens, estimateAnthropicTokens(response))
 		writeJSON(w, http.StatusOK, api.ChatResponse{
 			Model: req.Model,
 			Message: &api.Message{

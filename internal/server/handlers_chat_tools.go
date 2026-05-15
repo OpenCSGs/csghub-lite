@@ -57,7 +57,7 @@ func (s *Server) handleChatWithTools(w http.ResponseWriter, r *http.Request, req
 	if inputTokens == 0 {
 		inputTokens = countMessageTokens(req.Messages)
 	}
-	s.recordAPIUsage(r, req.Model, inputTokens, outputTokens)
+	s.recordAPIUsage(r, req.Model, req.Source, inputTokens, outputTokens)
 
 	ollamaResp, err := openAIChatResponseToOllama(req.Model, openAIResp)
 	if err != nil {
