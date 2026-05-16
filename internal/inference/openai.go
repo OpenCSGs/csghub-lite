@@ -120,7 +120,11 @@ func (e *openAIEngine) Chat(ctx context.Context, messages []Message, opts Option
 	if len(opts.Stop) > 0 {
 		reqBody["stop"] = opts.Stop
 	}
-	reqBody = sanitizeOpenAIRequestBody(e.modelName, e.disableThinking, reqBody)
+	disableThinking := e.disableThinking || opts.DisableThinking
+	reqBody = sanitizeOpenAIRequestBody(e.modelName, disableThinking, reqBody)
+	if opts.DisableThinking {
+		reqBody = applyExplicitThinkingDisableControls(e.modelName, reqBody)
+	}
 
 	body, err := json.Marshal(reqBody)
 	if err != nil {
@@ -318,6 +322,72 @@ func sanitizeOpenAIRequestBody(modelName string, disableThinking bool, reqBody m
 	return out
 }
 
+func applyExplicitThinkingDisableControls(modelName string, reqBody map[string]interface{}) map[string]interface{} {
+	if len(reqBody) == 0 {
+		return reqBody
+	}
+	out := cloneOpenAIRequestBody(reqBody)
+	changed := applyThinkingDisableControls(modelName, out)
+	if openAIModelRequiresTemperaturePointSixWhenThinkingDisabled(modelName) {
+		out["temperature"] = 0.6
+		changed = true
+	}
+	if !changed {
+		return reqBody
+	}
+	return out
+}
+
+func applyThinkingDisableControls(modelName string, reqBody map[string]interface{}) bool {
+	if reqBody == nil {
+		return false
+	}
+	changed := false
+	if openAIModelUsesThinkingTypeDisabled(modelName) && !hasThinkingTypeDisabled(reqBody) {
+		reqBody["thinking"] = map[string]interface{}{"type": "disabled"}
+		changed = true
+	}
+	if openAIModelSupportsEnableThinkingFalse(modelName) && shouldSetDisableThinkingFlag(reqBody) {
+		reqBody["enable_thinking"] = false
+		changed = true
+	}
+	return changed
+}
+
+func hasThinkingTypeDisabled(reqBody map[string]interface{}) bool {
+	thinking, ok := reqBody["thinking"].(map[string]interface{})
+	if !ok {
+		return false
+	}
+	return strings.EqualFold(strings.TrimSpace(fmt.Sprint(thinking["type"])), "disabled")
+}
+
+func openAIModelUsesThinkingTypeDisabled(modelName string) bool {
+	modelName = strings.TrimSpace(strings.ToLower(modelName))
+	return strings.HasPrefix(modelName, "glm-") ||
+		strings.HasPrefix(modelName, "kimi-") ||
+		strings.HasPrefix(modelName, "moonshot-") ||
+		strings.Contains(modelName, "deepseek-v4") ||
+		strings.HasPrefix(modelName, "mimo-")
+}
+
+func openAIModelSupportsEnableThinkingFalse(modelName string) bool {
+	modelName = strings.TrimSpace(strings.ToLower(modelName))
+	return strings.HasPrefix(modelName, "qwen3") ||
+		strings.HasPrefix(modelName, "qwen/qwen3") ||
+		strings.HasPrefix(modelName, "qwq") ||
+		strings.HasPrefix(modelName, "qwen/qwq")
+}
+
+func openAIModelSupportsDisableThinking(modelName string) bool {
+	return openAIModelSupportsEnableThinkingFalse(modelName)
+}
+
+func openAIModelRequiresTemperaturePointSixWhenThinkingDisabled(modelName string) bool {
+	modelName = strings.TrimSpace(strings.ToLower(modelName))
+	return strings.HasPrefix(modelName, "glm-")
+}
+
 func cloneOpenAIRequestBody(reqBody map[string]interface{}) map[string]interface{} {
 	out := make(map[string]interface{}, len(reqBody))
 	for key, value := range reqBody {
@@ -341,14 +411,6 @@ func openAIModelRequiresToolCallReasoningContent(modelName string) bool {
 	return strings.HasPrefix(modelName, "kimi-") ||
 		strings.HasPrefix(modelName, "moonshot-") ||
 		strings.Contains(modelName, "deepseek-v4")
-}
-
-func openAIModelSupportsDisableThinking(modelName string) bool {
-	modelName = strings.TrimSpace(strings.ToLower(modelName))
-	return strings.HasPrefix(modelName, "qwen3") ||
-		strings.HasPrefix(modelName, "qwen/qwen3") ||
-		strings.HasPrefix(modelName, "qwq") ||
-		strings.HasPrefix(modelName, "qwen/qwq")
 }
 
 func shouldSetDisableThinkingFlag(reqBody map[string]interface{}) bool {

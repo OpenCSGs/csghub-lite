@@ -201,6 +201,39 @@ func TestOpenAIEngineChatRequestBodyForcesSamplingParamsForKimiModels(t *testing
 	}
 }
 
+func TestOpenAIEngineChatKeepsKimiTemperatureWhenThinkingDisabled(t *testing.T) {
+	var got map[string]interface{}
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&got); err != nil {
+			t.Fatalf("decode request: %v", err)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{"choices":[{"message":{"content":"ok"}}]}`)
+	}))
+	defer ts.Close()
+
+	eng := NewOpenAICompatibleEngine(ts.URL, "kimi-k2.6", "test-token")
+	opts := DefaultOptions()
+	opts.Temperature = 0.95
+	opts.DisableThinking = true
+
+	_, err := eng.Chat(context.Background(), []Message{
+		{Role: "user", Content: "hi"},
+	}, opts, nil)
+	if err != nil {
+		t.Fatalf("Chat returned error: %v", err)
+	}
+
+	if got["temperature"] != float64(1) {
+		t.Fatalf("temperature = %v, want kimi default 1", got["temperature"])
+	}
+	thinking, ok := got["thinking"].(map[string]interface{})
+	if !ok || thinking["type"] != "disabled" {
+		t.Fatalf("thinking = %#v, want type disabled", got["thinking"])
+	}
+}
+
 func TestOpenAIEngineChatCompletionAddsKimiReasoningContentToToolCalls(t *testing.T) {
 	var got map[string]interface{}
 
@@ -306,6 +339,39 @@ func TestOpenAIEngineChatCompletionAddsDeepSeekV4ReasoningContentToToolCalls(t *
 	}
 	if value, ok := assistant["reasoning_content"]; !ok || value != "" {
 		t.Fatalf("reasoning_content = %#v, want empty string", assistant["reasoning_content"])
+	}
+}
+
+func TestOpenAIEngineChatCompletionDoesNotDisableGLMThinking(t *testing.T) {
+	var got map[string]interface{}
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&got); err != nil {
+			t.Fatalf("decode request: %v", err)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{"choices":[{"message":{"content":"ok"}}]}`)
+	}))
+	defer ts.Close()
+
+	eng := NewOpenAIEngine(ts.URL, "glm-5", "test-token")
+	resp, err := eng.(ChatCompletionProxier).ChatCompletion(context.Background(), map[string]interface{}{
+		"model":       "glm-5",
+		"temperature": 0.95,
+		"messages": []map[string]interface{}{
+			{"role": "user", "content": "hi"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("ChatCompletion returned error: %v", err)
+	}
+	resp.Body.Close()
+
+	if _, ok := got["thinking"]; ok {
+		t.Fatalf("thinking = %#v, want omitted for gateway proxy", got["thinking"])
+	}
+	if got["temperature"] != 0.95 {
+		t.Fatalf("temperature = %#v, want unchanged for gateway proxy", got["temperature"])
 	}
 }
 

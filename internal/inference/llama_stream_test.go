@@ -15,7 +15,7 @@ func TestHandleStreamReasoningContent(t *testing.T) {
 
 	full, err := e.handleStream(strings.NewReader(sse), func(s string) {
 		tokens.WriteString(s)
-	})
+	}, DefaultOptions())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -31,7 +31,7 @@ func TestHandleStreamReasoningContent(t *testing.T) {
 func TestHandleNonStreamReasoningOnly(t *testing.T) {
 	e := &llamaEngine{}
 	body := `{"choices":[{"message":{"reasoning_content":"Answer","content":""}}]}`
-	got, err := e.handleNonStream(strings.NewReader(body))
+	got, err := e.handleNonStream(strings.NewReader(body), DefaultOptions())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -43,7 +43,7 @@ func TestHandleNonStreamReasoningOnly(t *testing.T) {
 func TestHandleNonStreamBothReasoningAndContent(t *testing.T) {
 	e := &llamaEngine{}
 	body := `{"choices":[{"message":{"reasoning_content":"think","content":"ok"}}]}`
-	got, err := e.handleNonStream(strings.NewReader(body))
+	got, err := e.handleNonStream(strings.NewReader(body), DefaultOptions())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -62,7 +62,7 @@ func TestHandleStreamSameChunkDuplicateContentAndReasoning(t *testing.T) {
 		if s != "你好" {
 			t.Errorf("unexpected token %q", s)
 		}
-	})
+	}, DefaultOptions())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -74,12 +74,26 @@ func TestHandleStreamSameChunkDuplicateContentAndReasoning(t *testing.T) {
 func TestHandleNonStreamDuplicateReasoningAndContent(t *testing.T) {
 	e := &llamaEngine{}
 	body := `{"choices":[{"message":{"reasoning_content":"你好","content":"你好"}}]}`
-	got, err := e.handleNonStream(strings.NewReader(body))
+	got, err := e.handleNonStream(strings.NewReader(body), DefaultOptions())
 	if err != nil {
 		t.Fatal(err)
 	}
 	if got != "你好" {
 		t.Errorf("got %q, want single 你好", got)
+	}
+}
+
+func TestHandleNonStreamDisableThinkingIgnoresReasoning(t *testing.T) {
+	e := &llamaEngine{}
+	body := `{"choices":[{"message":{"reasoning_content":"long thinking","content":"{\"action\":\"skip\"}"}}]}`
+	opts := DefaultOptions()
+	opts.DisableThinking = true
+	got, err := e.handleNonStream(strings.NewReader(body), opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != `{"action":"skip"}` {
+		t.Fatalf("got %q, want content only", got)
 	}
 }
 

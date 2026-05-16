@@ -28,7 +28,7 @@ type webSearchRoute struct {
 	Confidence float64 `json:"confidence"`
 }
 
-func (s *Server) augmentChatMessagesWithWebSearch(ctx context.Context, req api.ChatRequest, messages []inference.Message, emit chatSearchEventWriter) ([]inference.Message, string) {
+func (s *Server) augmentChatMessagesWithWebSearch(ctx context.Context, req api.ChatRequest, messages []inference.Message, eng inference.Engine, emit chatSearchEventWriter) ([]inference.Message, string) {
 	if req.WebSearch == nil || !req.WebSearch.Enabled {
 		return messages, ""
 	}
@@ -44,10 +44,21 @@ func (s *Server) augmentChatMessagesWithWebSearch(ctx context.Context, req api.C
 	if query == "" {
 		return messages, ""
 	}
-	route := webSearchRoute{Action: webSearchActionSearch, Query: query, Reason: "web search is enabled", Confidence: 1}
+
+	route := s.planWebSearchRoute(ctx, eng, req, query, emit)
 	if emit != nil {
 		emit(map[string]interface{}{"search_route": route})
 	}
+	if route.Action == webSearchActionSkip {
+		if emit != nil {
+			emit(map[string]string{"search_skipped": route.Reason})
+		}
+		return messages, ""
+	}
+	if strings.TrimSpace(route.Query) == "" {
+		route.Query = query
+	}
+
 	searchQuery := enrichWebSearchQuery(route.Query, time.Now())
 	if emit != nil {
 		emit(map[string]string{"searching": searchQuery})
@@ -60,6 +71,7 @@ func (s *Server) augmentChatMessagesWithWebSearch(ctx context.Context, req api.C
 		SafeSearch:    cfg.SafeSearch,
 		SafeSearchSet: true,
 		Timeout:       time.Duration(cfg.TimeoutSeconds) * time.Second,
+		Quick:         true,
 	}, websearch.SearchRequest{Query: searchQuery})
 	if err != nil {
 		if emit != nil {

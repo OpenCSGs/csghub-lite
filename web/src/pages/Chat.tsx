@@ -1,5 +1,5 @@
 import MarkdownIt from "markdown-it";
-import { useEffect, useRef } from "preact/hooks";
+import { useEffect, useRef, useState } from "preact/hooks";
 import { signal, computed } from "@preact/signals";
 import {
   getTags, getPs, streamChat, getCloudAuthStatus, saveCloudToken,
@@ -44,7 +44,9 @@ function openExternalURL(url?: string) {
 }
 
 const systemPrompt = signal("");
-const temperature = signal(0.95);
+const defaultChatTemperature = 0.95;
+const kimiChatTemperature = 0.6;
+const temperature = signal(defaultChatTemperature);
 const topP = signal(0.75);
 const maxTokens = signal(4096);
 
@@ -66,6 +68,22 @@ const providersChangedEvent = "csghub:providers-changed";
 
 function modelKey(model: Pick<ModelInfo, "model" | "name" | "source">): string {
   return `${model.source || "local"}:${model.model || model.name}`;
+}
+
+function isKimiFamilyModel(model?: Pick<ModelInfo, "model" | "name" | "source"> | null): boolean {
+  if (!model) return false;
+  const name = (model.model || model.name || "").toLowerCase();
+  if (name.startsWith("kimi-") || name.startsWith("moonshot-")) return true;
+  const source = (model.source || "").toLowerCase();
+  return source.includes("kimi") || source.includes("moonshot");
+}
+
+function defaultTemperatureForModel(model?: Pick<ModelInfo, "model" | "name" | "source"> | null): number {
+  return isKimiFamilyModel(model) ? kimiChatTemperature : defaultChatTemperature;
+}
+
+function applyModelSamplingDefaults(model?: Pick<ModelInfo, "model" | "name" | "source"> | null) {
+  temperature.value = defaultTemperatureForModel(model);
 }
 
 function modelLabel(model: ModelInfo): string {
@@ -163,6 +181,108 @@ function formatDuration(durationMs: number): string {
   return `${mins}m ${String(secs).padStart(2, "0")}s`;
 }
 
+const maxStackedSourceIcons = 5;
+
+function sourceFaviconCandidates(url: string): string[] {
+  try {
+    const origin = new URL(url).origin;
+    return [
+      `${origin}/favicon.ico`,
+      `${origin}/favicon.png`,
+      `${origin}/apple-touch-icon.png`,
+    ];
+  } catch {
+    return [];
+  }
+}
+
+function DefaultSourceIcon() {
+  return (
+    <svg class="h-3.5 w-3.5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+      <path
+        stroke-linecap="round"
+        stroke-linejoin="round"
+        d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"
+      />
+    </svg>
+  );
+}
+
+const sourceIconShellClass =
+  "relative inline-flex h-6 w-6 flex-shrink-0 items-center justify-center overflow-hidden rounded-full border-2 border-white bg-gray-50 shadow-sm transition-transform hover:z-20 hover:scale-110";
+
+function SourceFaviconLink({ source }: { source: WebSearchResult }) {
+  const candidates = source.url ? sourceFaviconCandidates(source.url) : [];
+  const [candidateIdx, setCandidateIdx] = useState(0);
+  const useDefault = candidateIdx >= candidates.length;
+  const title = source.title || source.url || t("chat.sources");
+  const content = useDefault ? (
+    <DefaultSourceIcon />
+  ) : (
+    <img
+      src={candidates[candidateIdx]}
+      alt=""
+      class="h-full w-full object-cover"
+      onError={() => setCandidateIdx((current) => current + 1)}
+    />
+  );
+
+  if (!source.url) {
+    return (
+      <span class={sourceIconShellClass} title={title}>
+        {content}
+      </span>
+    );
+  }
+
+  return (
+    <a
+      href={source.url}
+      target="_blank"
+      rel="noopener noreferrer"
+      title={title}
+      class={`${sourceIconShellClass} hover:ring-2 hover:ring-blue-100`}
+    >
+      {content}
+    </a>
+  );
+}
+
+function MessageSourceLinks({ sources }: { sources: WebSearchResult[] }) {
+  if (sources.length === 0) return null;
+  const visible = sources.slice(0, maxStackedSourceIcons);
+  const overflow = sources.length - visible.length;
+
+  return (
+    <div
+      class="flex items-center border-l border-gray-200 pl-2"
+      role="group"
+      aria-label={t("chat.sources")}
+    >
+      <div class="flex items-center">
+        {visible.map((source, idx) => (
+          <div
+            key={`${source.url || source.title}-${idx}`}
+            class={idx > 0 ? "-ml-2" : ""}
+            style={{ zIndex: visible.length - idx }}
+          >
+            <SourceFaviconLink source={source} />
+          </div>
+        ))}
+        {overflow > 0 && (
+          <span
+            class="-ml-2 relative inline-flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full border-2 border-white bg-gray-100 text-[10px] font-medium text-gray-500 shadow-sm"
+            style={{ zIndex: 0 }}
+            title={t("chat.moreSources", overflow)}
+          >
+            +{overflow}
+          </span>
+        )}
+      </div>
+    </div>
+  );
+}
+
 const markdown = new MarkdownIt({
   breaks: true,
   html: false,
@@ -191,11 +311,19 @@ const selectedModelInfo = computed(() =>
 function setAvailableModels(models: ModelInfo[]) {
   availableModels.value = models;
   if (selectedModelKey.value && models.some((x) => modelKey(x) === selectedModelKey.value)) {
+    const current = models.find((x) => modelKey(x) === selectedModelKey.value);
+    if (isKimiFamilyModel(current)) {
+      applyModelSamplingDefaults(current);
+    }
     return;
   }
   const savedModelKey = readSelectedModelKey();
   if (savedModelKey && models.some((x) => modelKey(x) === savedModelKey)) {
     selectedModelKey.value = savedModelKey;
+    const saved = models.find((x) => modelKey(x) === savedModelKey);
+    if (isKimiFamilyModel(saved)) {
+      applyModelSamplingDefaults(saved);
+    }
     return;
   }
   if (models.length === 0) {
@@ -209,6 +337,7 @@ function setAvailableModels(models: ModelInfo[]) {
   if (fallback) {
     selectedModelKey.value = modelKey(fallback);
     saveSelectedModelKey(selectedModelKey.value);
+    applyModelSamplingDefaults(fallback);
   }
 }
 
@@ -343,8 +472,15 @@ async function migrateLocalStorage() {
   }
 }
 
+const SCROLL_NEAR_BOTTOM_PX = 96;
+
+function isNearScrollBottom(el: HTMLElement): boolean {
+  return el.scrollHeight - el.scrollTop - el.clientHeight <= SCROLL_NEAR_BOTTOM_PX;
+}
+
 export function Chat() {
   const messagesRef = useRef<HTMLDivElement>(null);
+  const stickToBottomRef = useRef(true);
   const abortRef = useRef<AbortController | null>(null);
   void locale.value;
 
@@ -368,6 +504,7 @@ export function Chat() {
     selectedModelKey.value = nextKey;
     saveSelectedModelKey(nextKey);
     const model = availableModels.value.find((x) => modelKey(x) === nextKey);
+    applyModelSamplingDefaults(model);
     if (model?.source === "cloud" && !hasCloudAuth(cloudAuth.value)) {
       void openCloudAuthDialog(t("chat.cloudLoginRequired"));
     }
@@ -460,11 +597,34 @@ export function Chat() {
     };
   }, []);
 
-  useEffect(() => {
-    if (messagesRef.current) {
-      messagesRef.current.scrollTop = messagesRef.current.scrollHeight;
+  const syncStickToBottom = () => {
+    const el = messagesRef.current;
+    if (el) {
+      stickToBottomRef.current = isNearScrollBottom(el);
     }
-  }, [activeConversation.value?.messages.length, streamingContent.value]);
+  };
+
+  const scrollMessagesToBottom = (force = false) => {
+    const el = messagesRef.current;
+    if (!el) return;
+    if (!force && !stickToBottomRef.current) return;
+    el.scrollTop = el.scrollHeight;
+    if (force) stickToBottomRef.current = true;
+  };
+
+  useEffect(() => {
+    scrollMessagesToBottom(true);
+  }, [activeConversation.value?.id, activeConversation.value?.messages.length]);
+
+  useEffect(() => {
+    scrollMessagesToBottom();
+  }, [
+    streamingContent.value,
+    streamingSources.value.length,
+    searchingQuery.value,
+    searchPlanningQuery.value,
+    searchSkippedReason.value,
+  ]);
 
   const handleImageUpload = (e: Event) => {
     const files = (e.target as HTMLInputElement).files;
@@ -544,6 +704,7 @@ export function Chat() {
     pendingImages.value = [];
     saveCurrentConversation();
 
+    stickToBottomRef.current = true;
     isGenerating.value = true;
     streamingContent.value = "";
     searchingQuery.value = "";
@@ -901,7 +1062,11 @@ export function Chat() {
         </div>
 
         {/* Messages */}
-        <div ref={messagesRef} class="min-h-0 flex-1 overflow-auto bg-white px-6 py-8">
+        <div
+          ref={messagesRef}
+          class="min-h-0 flex-1 overflow-auto bg-white px-6 py-8"
+          onScroll={syncStickToBottom}
+        >
           <div class="mx-auto flex min-h-full max-w-[760px] flex-col gap-5">
             {chatError.value && (
               <div class="flex items-start gap-2 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
@@ -1112,7 +1277,7 @@ export function Chat() {
           <button
             onClick={() => {
               systemPrompt.value = "";
-              temperature.value = 0.95;
+              temperature.value = defaultTemperatureForModel(selectedModelInfo.value);
               topP.value = 0.75;
               maxTokens.value = 4096;
             }}
@@ -1316,27 +1481,8 @@ function MessageBubble({ message, streaming }: { message: ChatMessage; streaming
         } ${streaming ? "animate-pulse" : ""}`}
       >
         {renderContent()}
-        {!isUser && sources.length > 0 && (
-          <div class="mt-4 rounded-xl border border-gray-100 bg-gray-50 px-3 py-2">
-            <div class="mb-2 text-xs font-semibold text-gray-500">{t("chat.sources")}</div>
-            <div class="space-y-2">
-              {sources.map((source, idx) => (
-                <a
-                  key={`${source.url}-${idx}`}
-                  href={source.url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  class="block rounded-lg px-2 py-1.5 text-xs text-gray-600 transition-colors hover:bg-white hover:text-blue-600"
-                >
-                  <div class="truncate font-medium">[{idx + 1}] {source.title}</div>
-                  {source.snippet && <div class="mt-0.5 line-clamp-2 text-gray-400">{source.snippet}</div>}
-                </a>
-              ))}
-            </div>
-          </div>
-        )}
-        {!isUser && (
-          <div class="mt-3 flex items-center gap-3 text-xs text-gray-300">
+        {!isUser && !streaming && (
+          <div class="mt-3 flex flex-wrap items-center gap-2 text-xs text-gray-300">
             <button
               onClick={() => plainText && navigator.clipboard.writeText(plainText)}
               class="rounded-md p-1 text-gray-300 transition-colors hover:bg-gray-50 hover:text-gray-500"
@@ -1356,7 +1502,8 @@ function MessageBubble({ message, streaming }: { message: ChatMessage; streaming
                 <path stroke-linecap="round" stroke-linejoin="round" d="M10 15v4a3 3 0 003 3l4-9V2H5.72a2 2 0 00-1.95 1.56l-1.38 6A2 2 0 004.34 12H10zM17 2h3a2 2 0 012 2v7a2 2 0 01-2 2h-3" />
               </svg>
             </button>
-            {message.meta && <span>{formatResponseMeta(message.meta)}</span>}
+            <MessageSourceLinks sources={sources} />
+            {message.meta && <span class="ml-auto shrink-0">{formatResponseMeta(message.meta)}</span>}
           </div>
         )}
       </div>
@@ -1432,15 +1579,6 @@ function AssistantProgress({ query, planningQuery, skippedReason, sources, conte
             </div>
           ))}
         </div>
-        {sources.length > 0 && !hasAnswer && (
-          <div class="mt-2 flex flex-wrap gap-1.5">
-            {sources.slice(0, 4).map((source, idx) => (
-              <span key={`${source.url}-${idx}`} class="max-w-[220px] truncate rounded-full bg-gray-50 px-2 py-1 text-[11px] text-gray-500">
-                [{idx + 1}] {source.title}
-              </span>
-            ))}
-          </div>
-        )}
         {skippedReason && !query && sources.length === 0 && !hasAnswer && (
           <div class="mt-2 text-xs text-gray-400">{t("chat.progressSkippedReason", skippedReason)}</div>
         )}

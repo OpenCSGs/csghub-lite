@@ -55,6 +55,11 @@ func requestWantsSSE(r *http.Request) bool {
 	return strings.Contains(strings.ToLower(r.Header.Get("Accept")), "text/event-stream")
 }
 
+func requestDisablesThinking(r *http.Request) bool {
+	value := strings.TrimSpace(strings.ToLower(r.Header.Get("X-CSGHUB-Disable-Thinking")))
+	return value == "1" || value == "true"
+}
+
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
@@ -505,6 +510,9 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 			requestedDType = req.Options.DType
 		}
 	}
+	if requestDisablesThinking(r) {
+		opts.DisableThinking = true
+	}
 
 	eng, err := s.getChatEngine(r.Context(), req.Model, req.Source, requestedNumCtx, requestedNumParallel, requestedNGPULayers, requestedCacheTypeK, requestedCacheTypeV, requestedDType)
 	if err != nil {
@@ -538,7 +546,7 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("Connection", "keep-alive")
 
 			wroteChunk := false
-			messages, searchContext := s.augmentChatMessagesWithWebSearch(r.Context(), req, messages, func(v interface{}) {
+			messages, searchContext := s.augmentChatMessagesWithWebSearch(r.Context(), req, messages, eng, func(v interface{}) {
 				wroteChunk = true
 				writeSSE(w, v)
 			})
@@ -590,7 +598,7 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Connection", "keep-alive")
 
 		wroteChunk := false
-		messages, searchContext := s.augmentChatMessagesWithWebSearch(r.Context(), req, messages, func(v interface{}) {
+		messages, searchContext := s.augmentChatMessagesWithWebSearch(r.Context(), req, messages, eng, func(v interface{}) {
 			wroteChunk = true
 			writeNDJSON(w, v)
 		})
@@ -638,7 +646,7 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 			CreatedAt: time.Now(),
 		})
 	} else {
-		messages, searchContext := s.augmentChatMessagesWithWebSearch(r.Context(), req, messages, nil)
+		messages, searchContext := s.augmentChatMessagesWithWebSearch(r.Context(), req, messages, eng, nil)
 		inputTokens += estimateAnthropicTokens(searchContext)
 		response, err := eng.Chat(r.Context(), messages, opts, nil)
 		if err != nil {

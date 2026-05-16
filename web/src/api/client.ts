@@ -745,6 +745,7 @@ export function streamChat(
         "Content-Type": "application/json",
         Accept: "text/event-stream",
         "X-CSGHUB-Stream": "sse",
+        "X-CSGHUB-Disable-Thinking": "true",
       },
       body: JSON.stringify({
         model,

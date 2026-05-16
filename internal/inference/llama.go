@@ -647,9 +647,9 @@ func (e *llamaEngine) chatOnce(ctx context.Context, messages []Message, opts Opt
 	defer resp.Body.Close()
 
 	if onToken != nil {
-		return e.handleStream(resp.Body, onToken)
+		return e.handleStream(resp.Body, onToken, opts)
 	}
-	return e.handleNonStream(resp.Body)
+	return e.handleNonStream(resp.Body, opts)
 }
 
 func buildLlamaChatRequestBody(modelName string, messages []Message, opts Options, stream bool) map[string]interface{} {
@@ -666,9 +666,9 @@ func buildLlamaChatRequestBody(modelName string, messages []Message, opts Option
 	if len(opts.Stop) > 0 {
 		reqBody["stop"] = opts.Stop
 	}
-	if shouldDisableQwenThinkingByDefault(modelName) {
+	if opts.DisableThinking || shouldDisableQwenThinkingByDefault(modelName) {
 		// Qwen thinking-capable templates support `enable_thinking`; defaulting it
-		// to false reduces first-token latency in Lite chat.
+		// to false reduces first-token latency in Lite chat and web-search routing.
 		reqBody["chat_template_kwargs"] = map[string]interface{}{
 			"enable_thinking": false,
 		}
@@ -693,7 +693,7 @@ func trimOldestNonSystemMessage(messages []Message) ([]Message, bool) {
 	return trimmed, true
 }
 
-func (e *llamaEngine) handleStream(body io.Reader, onToken TokenCallback) (string, error) {
+func (e *llamaEngine) handleStream(body io.Reader, onToken TokenCallback, opts Options) (string, error) {
 	scanner := bufio.NewScanner(body)
 	var full strings.Builder
 	debugCount := 0
@@ -730,7 +730,7 @@ func (e *llamaEngine) handleStream(body io.Reader, onToken TokenCallback) (strin
 			switch {
 			case d.Content != "":
 				token = d.Content
-			case d.ReasoningContent != "":
+			case d.ReasoningContent != "" && !opts.DisableThinking:
 				token = d.ReasoningContent
 			}
 			if token != "" {
@@ -748,7 +748,7 @@ func (e *llamaEngine) handleStream(body io.Reader, onToken TokenCallback) (strin
 	return full.String(), scanner.Err()
 }
 
-func (e *llamaEngine) handleNonStream(body io.Reader) (string, error) {
+func (e *llamaEngine) handleNonStream(body io.Reader, opts Options) (string, error) {
 	var resp struct {
 		Choices []struct {
 			Message struct {
@@ -764,6 +764,12 @@ func (e *llamaEngine) handleNonStream(body io.Reader) (string, error) {
 		return "", fmt.Errorf("no choices in response")
 	}
 	msg := resp.Choices[0].Message
+	if opts.DisableThinking {
+		if msg.Content != "" {
+			return msg.Content, nil
+		}
+		return msg.ReasoningContent, nil
+	}
 	if msg.Content != "" && msg.ReasoningContent != "" {
 		if msg.Content == msg.ReasoningContent {
 			return msg.Content, nil

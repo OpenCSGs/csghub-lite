@@ -9,6 +9,9 @@ type Options struct {
 	Seed        int
 	NumCtx      int
 	Stop        []string
+	// DisableThinking forces routing-style requests to skip provider thinking
+	// modes (Qwen enable_thinking=false, GLM/Kimi/DeepSeek thinking.type=disabled).
+	DisableThinking bool
 }
 
 // DefaultOptions returns sensible defaults.

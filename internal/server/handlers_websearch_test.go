@@ -45,6 +45,19 @@ func (e *captureChatEngine) Close() error { return nil }
 
 func (e *captureChatEngine) ModelName() string { return "test/model" }
 
+func webSearchRouteJSON(action, query, reason string, confidence float64) string {
+	payload, err := json.Marshal(webSearchRoute{
+		Action:     action,
+		Query:      query,
+		Reason:     reason,
+		Confidence: confidence,
+	})
+	if err != nil {
+		panic(err)
+	}
+	return string(payload)
+}
+
 func TestHandleChatWithWebSearchSendsEventsAndInjectsContext(t *testing.T) {
 	expectedQuery := fmt.Sprintf("latest news %d", time.Now().Year())
 	origSearchWeb := searchWeb
@@ -56,8 +69,8 @@ func TestHandleChatWithWebSearchSendsEventsAndInjectsContext(t *testing.T) {
 		if len(cfg.Providers) != 0 {
 			t.Fatalf("providers = %#v, want automatic order", cfg.Providers)
 		}
-		if cfg.Quick {
-			t.Fatal("Quick = true, want mixed provider search")
+		if !cfg.Quick {
+			t.Fatal("Quick = false, want first successful provider for chat latency")
 		}
 		return websearch.SearchResponse{
 			Query:    req.Query,
@@ -157,7 +170,10 @@ func TestHandleChatWithWebSearchAlwaysSearches(t *testing.T) {
 
 	s := newTestServer(t)
 	s.cfg.WebSearch = config.WebSearchConfig{Enabled: true, MaxResults: 3, SafeSearch: 1, TimeoutSeconds: 5}
-	engine := &captureChatEngine{responses: []string{"answer"}}
+	engine := &captureChatEngine{responses: []string{
+		webSearchRouteJSON(webSearchActionSearch, "Go slice 解释", "编程问题也可搜索文档", 0.7),
+		"answer",
+	}}
 	s.engines["test/model"] = &managedEngine{engine: engine, lastUsed: time.Now(), keepAlive: DefaultKeepAlive}
 
 	body := `{"model":"test/model","source":"local","messages":[{"role":"user","content":"解释一下 Go slice"}],"stream":true,"web_search":{"enabled":true}}`
@@ -177,12 +193,55 @@ func TestHandleChatWithWebSearchAlwaysSearches(t *testing.T) {
 	}
 }
 
-func TestHandleChatSearchesBeforeAnswerWhenNotSkipped(t *testing.T) {
+func TestHandleChatSkipsWebSearchWhenRoutedToSkip(t *testing.T) {
+	searchCalled := false
+	origSearchWeb := searchWeb
+	defer func() { searchWeb = origSearchWeb }()
+	searchWeb = func(context.Context, websearch.Config, websearch.SearchRequest) (websearch.SearchResponse, error) {
+		searchCalled = true
+		return websearch.SearchResponse{}, nil
+	}
+
+	s := newTestServer(t)
+	s.cfg.WebSearch = config.WebSearchConfig{Enabled: true, MaxResults: 3, SafeSearch: 1, TimeoutSeconds: 5}
+	engine := &captureChatEngine{responses: []string{"answer"}}
+	s.engines["test/model"] = &managedEngine{engine: engine, lastUsed: time.Now(), keepAlive: DefaultKeepAlive}
+
+	body := `{"model":"test/model","source":"local","messages":[{"role":"user","content":"你好"}],"stream":true,"web_search":{"enabled":true}}`
+	req := httptest.NewRequest(http.MethodPost, "/api/chat", strings.NewReader(body))
+	req.Header.Set("Accept", "text/event-stream")
+	req.Header.Set("X-CSGHUB-Stream", "sse")
+	w := httptest.NewRecorder()
+
+	s.handleChat(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d; body=%s", w.Code, http.StatusOK, w.Body.String())
+	}
+	respBody := w.Body.String()
+	if strings.Contains(respBody, `"search_planning"`) {
+		t.Fatalf("fast-path skip should not call LLM routing:\n%s", respBody)
+	}
+	if !strings.Contains(respBody, `"action":"skip"`) || !strings.Contains(respBody, `"search_skipped"`) {
+		t.Fatalf("response missing skip events:\n%s", respBody)
+	}
+	if strings.Contains(respBody, `"searching"`) || strings.Contains(respBody, `"search_results"`) {
+		t.Fatalf("response should not search:\n%s", respBody)
+	}
+	if searchCalled {
+		t.Fatal("searchWeb should not be called when route action is skip")
+	}
+	if engine.calls != 1 {
+		t.Fatalf("engine calls = %d, want answer only", engine.calls)
+	}
+}
+
+func TestHandleChatSearchesBeforeAnswerWhenRoutedToSearch(t *testing.T) {
 	origSearchWeb := searchWeb
 	defer func() { searchWeb = origSearchWeb }()
 	searchWeb = func(context.Context, websearch.Config, websearch.SearchRequest) (websearch.SearchResponse, error) {
 		return websearch.SearchResponse{
-			Query:    "查一下 Qwen 最新版本",
+			Query:    "Qwen 最新版本",
 			Provider: websearch.ProviderBing,
 			Results: []websearch.Result{{
 				Title:   "Qwen release",
@@ -195,9 +254,7 @@ func TestHandleChatSearchesBeforeAnswerWhenNotSkipped(t *testing.T) {
 
 	s := newTestServer(t)
 	s.cfg.WebSearch = config.WebSearchConfig{Enabled: true, MaxResults: 3, SafeSearch: 1, TimeoutSeconds: 5}
-	engine := &captureChatEngine{responses: []string{
-		"answer",
-	}}
+	engine := &captureChatEngine{responses: []string{"answer"}}
 	s.engines["test/model"] = &managedEngine{engine: engine, lastUsed: time.Now(), keepAlive: DefaultKeepAlive}
 
 	body := `{"model":"test/model","source":"local","messages":[{"role":"user","content":"查一下 Qwen 最新版本"}],"stream":true,"web_search":{"enabled":true}}`
@@ -212,8 +269,8 @@ func TestHandleChatSearchesBeforeAnswerWhenNotSkipped(t *testing.T) {
 		t.Fatalf("status = %d, want %d; body=%s", w.Code, http.StatusOK, w.Body.String())
 	}
 	respBody := w.Body.String()
-	if strings.Contains(respBody, `"search_planning"`) || strings.Contains(respBody, `"search_skipped"`) {
-		t.Fatalf("response should not include search decision/skipped events:\n%s", respBody)
+	if strings.Contains(respBody, `"search_planning"`) {
+		t.Fatalf("explicit lookup should use fast-path routing without LLM:\n%s", respBody)
 	}
 	if !strings.Contains(respBody, `"searching"`) || !strings.Contains(respBody, `"search_results"`) {
 		t.Fatalf("response missing search events:\n%s", respBody)
@@ -268,10 +325,13 @@ func TestWebSearchContextMergesIntoExistingSystemMessage(t *testing.T) {
 		{Role: "user", Content: "latest model release"},
 	}
 
+	routeEngine := &captureChatEngine{responses: []string{
+		webSearchRouteJSON(webSearchActionSearch, "latest model release", "needs current facts", 0.9),
+	}}
 	got, contextText := s.augmentChatMessagesWithWebSearch(context.Background(), api.ChatRequest{
 		Messages:  []api.Message{{Role: "user", Content: "latest model release"}},
 		WebSearch: &api.WebSearchOptions{Enabled: true},
-	}, messages, nil)
+	}, messages, routeEngine, nil)
 
 	if contextText == "" {
 		t.Fatal("contextText is empty")
