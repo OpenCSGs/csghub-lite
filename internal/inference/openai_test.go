@@ -128,6 +128,9 @@ func TestOpenAIEngineChatRequestBodyMatchesCloudDefaults(t *testing.T) {
 	if got["max_tokens"] != float64(200) {
 		t.Fatalf("max_tokens = %v, want 200", got["max_tokens"])
 	}
+	if got["enable_thinking"] != false {
+		t.Fatalf("enable_thinking = %v, want false for qwen3 family", got["enable_thinking"])
+	}
 	messages, ok := got["messages"].([]interface{})
 	if !ok || len(messages) != 2 {
 		t.Fatalf("messages = %T %v, want 2 items", got["messages"], got["messages"])
@@ -303,5 +306,35 @@ func TestOpenAIEngineChatCompletionAddsDeepSeekV4ReasoningContentToToolCalls(t *
 	}
 	if value, ok := assistant["reasoning_content"]; !ok || value != "" {
 		t.Fatalf("reasoning_content = %#v, want empty string", assistant["reasoning_content"])
+	}
+}
+
+func TestOpenAICompatibleEngineDoesNotForceDisableThinkingForQwen3(t *testing.T) {
+	var got map[string]interface{}
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&got); err != nil {
+			t.Fatalf("decode request: %v", err)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{"choices":[{"message":{"content":"ok"}}]}`)
+	}))
+	defer ts.Close()
+
+	eng := NewOpenAICompatibleEngine(ts.URL, "Qwen/Qwen3-32B-Instruct", "test-token")
+	resp, err := eng.(ChatCompletionProxier).ChatCompletion(context.Background(), map[string]interface{}{
+		"model":       "Qwen/Qwen3-32B-Instruct",
+		"temperature": 0.2,
+		"messages": []map[string]interface{}{
+			{"role": "user", "content": "hi"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("ChatCompletion returned error: %v", err)
+	}
+	resp.Body.Close()
+
+	if _, ok := got["enable_thinking"]; ok {
+		t.Fatalf("enable_thinking = %#v, want omitted for openai-compatible providers", got["enable_thinking"])
 	}
 }

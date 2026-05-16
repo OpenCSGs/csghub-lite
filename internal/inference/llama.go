@@ -666,9 +666,9 @@ func buildLlamaChatRequestBody(modelName string, messages []Message, opts Option
 	if len(opts.Stop) > 0 {
 		reqBody["stop"] = opts.Stop
 	}
-	if shouldDisableQwen35Thinking(modelName) {
-		// Qwen3.5-0.8B should default to non-thinking mode; without this explicit
-		// template kwarg, llama-server can drift into a reasoning loop.
+	if shouldDisableQwenThinkingByDefault(modelName) {
+		// Qwen thinking-capable templates support `enable_thinking`; defaulting it
+		// to false reduces first-token latency in Lite chat.
 		reqBody["chat_template_kwargs"] = map[string]interface{}{
 			"enable_thinking": false,
 		}
@@ -780,12 +780,12 @@ func shouldDebugQwen35(modelName string) bool {
 	return strings.Contains(strings.ToLower(modelName), "qwen3.5")
 }
 
-func shouldDisableQwen35Thinking(modelName string) bool {
+func shouldDisableQwenThinkingByDefault(modelName string) bool {
 	modelName = strings.TrimSpace(strings.ToLower(modelName))
-	return modelName == "qwen/qwen3.5-0.8b" ||
-		modelName == "qwen3.5-0.8b" ||
-		strings.HasPrefix(modelName, "qwen/qwen3.5-0.8b:") ||
-		strings.HasPrefix(modelName, "qwen3.5-0.8b:")
+	return strings.HasPrefix(modelName, "qwen/qwen3") ||
+		strings.HasPrefix(modelName, "qwen3") ||
+		strings.HasPrefix(modelName, "qwen/qwq") ||
+		strings.HasPrefix(modelName, "qwq")
 }
 
 func firstSystemText(messages []Message) string {

@@ -18,6 +18,7 @@ type openAIEngine struct {
 	chatCompletionsURL string
 	modelName          string
 	token              string
+	disableThinking    bool
 	client             *http.Client
 }
 
@@ -28,6 +29,7 @@ func NewOpenAIEngine(baseURL, modelName, token string) Engine {
 		chatCompletionsURL: openAIChatCompletionsURL(baseURL),
 		modelName:          modelName,
 		token:              strings.TrimSpace(token),
+		disableThinking:    true,
 		client:             &http.Client{Timeout: 0},
 	}
 }
@@ -39,6 +41,7 @@ func NewOpenAICompatibleEngine(baseURL, modelName, token string) Engine {
 		chatCompletionsURL: openAICompatibleChatCompletionsURL(baseURL),
 		modelName:          modelName,
 		token:              strings.TrimSpace(token),
+		disableThinking:    false,
 		client:             &http.Client{Timeout: 0},
 	}
 }
@@ -59,7 +62,7 @@ func (e *openAIEngine) chatCompletionsEndpoint() string {
 }
 
 func (e *openAIEngine) ChatCompletion(ctx context.Context, reqBody map[string]interface{}) (*http.Response, error) {
-	reqBody = sanitizeOpenAIRequestBody(e.modelName, reqBody)
+	reqBody = sanitizeOpenAIRequestBody(e.modelName, e.disableThinking, reqBody)
 	body, err := json.Marshal(reqBody)
 	if err != nil {
 		return nil, fmt.Errorf("marshaling request: %w", err)
@@ -117,7 +120,7 @@ func (e *openAIEngine) Chat(ctx context.Context, messages []Message, opts Option
 	if len(opts.Stop) > 0 {
 		reqBody["stop"] = opts.Stop
 	}
-	reqBody = sanitizeOpenAIRequestBody(e.modelName, reqBody)
+	reqBody = sanitizeOpenAIRequestBody(e.modelName, e.disableThinking, reqBody)
 
 	body, err := json.Marshal(reqBody)
 	if err != nil {
@@ -258,7 +261,7 @@ func decodeOpenAIHTTPError(resp *http.Response) error {
 	return NewHTTPStatusError(resp.StatusCode, message)
 }
 
-func sanitizeOpenAIRequestBody(modelName string, reqBody map[string]interface{}) map[string]interface{} {
+func sanitizeOpenAIRequestBody(modelName string, disableThinking bool, reqBody map[string]interface{}) map[string]interface{} {
 	if len(reqBody) == 0 {
 		return reqBody
 	}
@@ -297,6 +300,18 @@ func sanitizeOpenAIRequestBody(modelName string, reqBody map[string]interface{})
 			out["messages"] = normalized
 		}
 	}
+	if disableThinking && openAIModelSupportsDisableThinking(modelName) {
+		target := reqBody
+		if out != nil {
+			target = out
+		}
+		if shouldSetDisableThinkingFlag(target) {
+			if out == nil {
+				out = cloneOpenAIRequestBody(reqBody)
+			}
+			out["enable_thinking"] = false
+		}
+	}
 	if out == nil {
 		return reqBody
 	}
@@ -326,6 +341,27 @@ func openAIModelRequiresToolCallReasoningContent(modelName string) bool {
 	return strings.HasPrefix(modelName, "kimi-") ||
 		strings.HasPrefix(modelName, "moonshot-") ||
 		strings.Contains(modelName, "deepseek-v4")
+}
+
+func openAIModelSupportsDisableThinking(modelName string) bool {
+	modelName = strings.TrimSpace(strings.ToLower(modelName))
+	return strings.HasPrefix(modelName, "qwen3") ||
+		strings.HasPrefix(modelName, "qwen/qwen3") ||
+		strings.HasPrefix(modelName, "qwq") ||
+		strings.HasPrefix(modelName, "qwen/qwq")
+}
+
+func shouldSetDisableThinkingFlag(reqBody map[string]interface{}) bool {
+	if reqBody == nil {
+		return false
+	}
+	if value, exists := reqBody["enable_thinking"]; exists {
+		if enabled, ok := value.(bool); ok {
+			return enabled
+		}
+		return false
+	}
+	return true
 }
 
 func normalizeToolCallReasoningContentMessages(messages interface{}) (interface{}, bool) {

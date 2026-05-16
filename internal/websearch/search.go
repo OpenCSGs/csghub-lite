@@ -19,7 +19,9 @@ const (
 	maxResponseBytes  = 2 << 20
 	maxSnippetLength  = 600
 
+	ProviderSogou      = "sogou"
 	ProviderBaidu      = "baidu"
+	ProviderQuark      = "quark"
 	ProviderBing       = "bing"
 	ProviderDuckDuckGo = "duckduckgo"
 )
@@ -66,6 +68,13 @@ type provider interface {
 	Search(context.Context, Config, SearchRequest) (SearchResponse, error)
 }
 
+type providerResult struct {
+	index int
+	name  string
+	resp  SearchResponse
+	err   error
+}
+
 func Search(ctx context.Context, cfg Config, req SearchRequest) (SearchResponse, error) {
 	query := strings.TrimSpace(req.Query)
 	if query == "" {
@@ -80,12 +89,6 @@ func Search(ctx context.Context, cfg Config, req SearchRequest) (SearchResponse,
 	defer cancel()
 
 	providers := providersForConfig(cfg)
-	type providerResult struct {
-		index int
-		name  string
-		resp  SearchResponse
-		err   error
-	}
 	resultsCh := make(chan providerResult, len(providers))
 	for i, p := range providers {
 		go func(index int, p provider) {
@@ -96,15 +99,16 @@ func Search(ctx context.Context, cfg Config, req SearchRequest) (SearchResponse,
 
 	maxResults := resolveMaxResults(cfg.MaxResults)
 	ordered := make([]providerResult, len(providers))
+	received := make([]bool, len(providers))
 	for range providers {
 		result := <-resultsCh
 		ordered[result.index] = result
-		if cfg.Quick && result.err == nil {
-			normalized := filterResultsByQueryRelevance(query, normalizeResults(result.resp.Results, maxResults))
-			if len(normalized) >= quickSearchResultThreshold(maxResults) {
+		received[result.index] = true
+		if cfg.Quick {
+			if quickResult, normalized, ok := firstQuickProviderResult(ordered, received, query, maxResults); ok {
 				return SearchResponse{
 					Query:    query,
-					Provider: result.name,
+					Provider: quickResult.name,
 					Results:  normalized,
 				}, nil
 			}
@@ -141,6 +145,22 @@ func Search(ctx context.Context, cfg Config, req SearchRequest) (SearchResponse,
 		return SearchResponse{}, ErrNoResults
 	}
 	return SearchResponse{}, fmt.Errorf("web search failed: %s", strings.Join(errs, "; "))
+}
+
+func firstQuickProviderResult(ordered []providerResult, received []bool, query string, maxResults int) (providerResult, []Result, bool) {
+	for i, result := range ordered {
+		if !received[i] {
+			return providerResult{}, nil, false
+		}
+		if result.err != nil {
+			continue
+		}
+		normalized := filterResultsByQueryRelevance(query, normalizeResults(result.resp.Results, maxResults))
+		if len(normalized) >= quickSearchResultThreshold(maxResults) {
+			return result, normalized, true
+		}
+	}
+	return providerResult{}, nil, false
 }
 
 func quickSearchResultThreshold(maxResults int) int {
@@ -310,8 +330,12 @@ func providersForConfig(cfg Config) []provider {
 		}
 		seen[name] = struct{}{}
 		switch name {
+		case ProviderSogou:
+			out = append(out, sogouProvider{})
 		case ProviderBaidu:
 			out = append(out, baiduProvider{})
+		case ProviderQuark:
+			out = append(out, quarkProvider{})
 		case ProviderBing:
 			out = append(out, bingProvider{})
 		case ProviderDuckDuckGo:
@@ -319,7 +343,7 @@ func providersForConfig(cfg Config) []provider {
 		}
 	}
 	if len(out) == 0 {
-		return []provider{bingProvider{}, duckDuckGoProvider{}, baiduProvider{}}
+		return []provider{sogouProvider{}, baiduProvider{}, quarkProvider{}, bingProvider{}, duckDuckGoProvider{}}
 	}
 	return out
 }
@@ -327,16 +351,20 @@ func providersForConfig(cfg Config) []provider {
 func defaultProviderOrder(language string) []string {
 	lower := strings.ToLower(strings.TrimSpace(language))
 	if strings.HasPrefix(lower, "zh") || lower == "" {
-		return []string{ProviderBaidu, ProviderBing, ProviderDuckDuckGo}
+		return []string{ProviderSogou, ProviderBaidu, ProviderQuark, ProviderBing, ProviderDuckDuckGo}
 	}
-	return []string{ProviderBing, ProviderDuckDuckGo, ProviderBaidu}
+	return []string{ProviderBing, ProviderDuckDuckGo, ProviderSogou, ProviderBaidu, ProviderQuark}
 }
 
 func normalizeProviderName(name string) string {
 	name = strings.ToLower(strings.TrimSpace(name))
 	switch name {
+	case "sogou", "sg":
+		return ProviderSogou
 	case "baidu", "bd":
 		return ProviderBaidu
+	case "quark", "kk", "shenma", "sm":
+		return ProviderQuark
 	case "bing", "bi":
 		return ProviderBing
 	case "duckduckgo", "ddg", "duck":

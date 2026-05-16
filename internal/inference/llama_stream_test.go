@@ -105,8 +105,20 @@ func TestBuildLlamaChatRequestBodyDisablesThinkingForQwen3508B(t *testing.T) {
 	}
 }
 
-func TestBuildLlamaChatRequestBodyLeavesOtherModelsUntouched(t *testing.T) {
+func TestBuildLlamaChatRequestBodyDisablesThinkingForQwen3Family(t *testing.T) {
 	reqBody := buildLlamaChatRequestBody("Qwen/Qwen3-0.6B-GGUF", []Message{{Role: "user", Content: "hi"}}, DefaultOptions(), false)
+
+	kwargs, ok := reqBody["chat_template_kwargs"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("chat_template_kwargs missing or wrong type: %#v", reqBody["chat_template_kwargs"])
+	}
+	if got, ok := kwargs["enable_thinking"].(bool); !ok || got {
+		t.Fatalf("enable_thinking = %#v, want false", kwargs["enable_thinking"])
+	}
+}
+
+func TestBuildLlamaChatRequestBodyLeavesLlamaModelsUntouched(t *testing.T) {
+	reqBody := buildLlamaChatRequestBody("meta-llama/Llama-3.1-8B-Instruct", []Message{{Role: "user", Content: "hi"}}, DefaultOptions(), false)
 
 	if _, ok := reqBody["chat_template_kwargs"]; ok {
 		t.Fatalf("chat_template_kwargs unexpectedly set: %#v", reqBody["chat_template_kwargs"])

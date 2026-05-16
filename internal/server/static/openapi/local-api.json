@@ -3978,7 +3978,9 @@
             "items": {
               "type": "string",
               "enum": [
+                "sogou",
                 "baidu",
+                "quark",
                 "bing",
                 "duckduckgo"
               ]

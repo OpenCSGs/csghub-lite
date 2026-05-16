@@ -56,6 +56,9 @@ func TestHandleChatWithWebSearchSendsEventsAndInjectsContext(t *testing.T) {
 		if len(cfg.Providers) != 0 {
 			t.Fatalf("providers = %#v, want automatic order", cfg.Providers)
 		}
+		if cfg.Quick {
+			t.Fatal("Quick = true, want mixed provider search")
+		}
 		return websearch.SearchResponse{
 			Query:    req.Query,
 			Provider: websearch.ProviderBing,
@@ -295,7 +298,7 @@ func TestHandleSettingsUpdateWebSearch(t *testing.T) {
 			Enabled:        true,
 			MaxResults:     7,
 			Language:       "zh-CN",
-			Providers:      []string{"baidu", "bing"},
+			Providers:      []string{"sogou", "quark", "bing"},
 			SafeSearch:     2,
 			TimeoutSeconds: 8,
 		},
@@ -316,7 +319,7 @@ func TestHandleSettingsUpdateWebSearch(t *testing.T) {
 	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
 		t.Fatalf("decode response: %v", err)
 	}
-	if !resp.WebSearch.Enabled || resp.WebSearch.MaxResults != 7 || strings.Join(resp.WebSearch.Providers, ",") != "baidu,bing" {
+	if !resp.WebSearch.Enabled || resp.WebSearch.MaxResults != 7 || strings.Join(resp.WebSearch.Providers, ",") != "sogou,quark,bing" {
 		t.Fatalf("web_search response = %#v", resp.WebSearch)
 	}
 }

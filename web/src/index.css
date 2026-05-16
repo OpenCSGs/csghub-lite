@@ -73,8 +73,9 @@
   }
 
   .chat-markdown table {
-    @apply my-3 block w-full overflow-x-auto rounded-xl border border-gray-200 text-left text-sm;
-    border-collapse: collapse;
+    @apply my-3 w-full table-auto rounded-xl border border-gray-200 text-left text-sm;
+    border-collapse: separate;
+    border-spacing: 0;
   }
 
   .chat-markdown thead {

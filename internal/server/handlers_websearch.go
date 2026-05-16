@@ -60,7 +60,6 @@ func (s *Server) augmentChatMessagesWithWebSearch(ctx context.Context, req api.C
 		SafeSearch:    cfg.SafeSearch,
 		SafeSearchSet: true,
 		Timeout:       time.Duration(cfg.TimeoutSeconds) * time.Second,
-		Quick:         true,
 	}, websearch.SearchRequest{Query: searchQuery})
 	if err != nil {
 		if emit != nil {

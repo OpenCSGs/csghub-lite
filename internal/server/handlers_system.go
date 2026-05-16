@@ -189,7 +189,7 @@ func normalizeWebSearchProviders(providers []string) []string {
 	for _, provider := range providers {
 		provider = strings.ToLower(strings.TrimSpace(provider))
 		switch provider {
-		case "baidu", "bing", "duckduckgo":
+		case "sogou", "baidu", "quark", "bing", "duckduckgo":
 		default:
 			continue
 		}

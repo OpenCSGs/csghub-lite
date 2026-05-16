@@ -36,6 +36,18 @@ func TestParseBuiltInProviderHTML(t *testing.T) {
 			body:  `<div class="result"><a class="result__a" href="/l/?uddg=https%3A%2F%2Fexample.com%2Fddg">DDG Title</a><a class="result__snippet">DDG snippet</a></div>`,
 			want:  Result{Title: "DDG Title", URL: "https://example.com/ddg", Snippet: "DDG snippet", Engine: ProviderDuckDuckGo},
 		},
+		{
+			name:  ProviderSogou,
+			parse: parseSogouResults,
+			body:  `<div class="vrwrap"><h3 class="vr-title"><a href="/link?url=token">搜狗标题</a></h3><div class="ft">搜狗摘要</div><div data-url="https://example.com/sogou"></div></div>`,
+			want:  Result{Title: "搜狗标题", URL: "https://example.com/sogou", Snippet: "搜狗摘要", Engine: ProviderSogou},
+		},
+		{
+			name:  ProviderQuark,
+			parse: parseQuarkResults,
+			body:  `<script type="application/json" id="s-data-1" data-used-by="hydrate">{"data":{"initialData":{"title":"<em>夸克</em>标题","desc":"夸克摘要","url":"https://example.com/quark"}},"extraData":{"sc":"nature_result"}}</script>`,
+			want:  Result{Title: "夸克 标题", URL: "https://example.com/quark", Snippet: "夸克摘要", Engine: ProviderQuark},
+		},
 	}
 
 	for _, tc := range cases {
@@ -91,6 +103,27 @@ func TestSearchFallsBackAcrossProviders(t *testing.T) {
 	gotHits := strings.Join(hits, ",")
 	if !strings.Contains(gotHits, "/bing") || !strings.Contains(gotHits, "/ddg") {
 		t.Fatalf("hits = %#v, want bing and ddg", hits)
+	}
+}
+
+func TestParseSogouWeatherCardSnippet(t *testing.T) {
+	doc, err := html.Parse(strings.NewReader(`
+		<div class="vrwrap">
+			<h3 class="vr-title"><a href="https://weatherol.cn/index.html?cityid1=440300">深圳天气预报_一周天气预报</a></h3>
+			<div class="desc-box">
+				<div class="w-desc" style="display:none;"><div class="temperature">24~29<i>℃</i></div><p class="w-info"><span>大雨转中雨</span><span>东南风微风</span></p></div>
+				<div class="w-desc currentDay"><div class="temperature">23~27<i>℃</i></div><p class="w-info"><span>暴雨转大雨</span><span>东风微风</span></p></div>
+			</div>
+		</div>`))
+	if err != nil {
+		t.Fatalf("parse fixture: %v", err)
+	}
+	results := normalizeResults(parseSogouResults(doc), 5)
+	if len(results) != 1 {
+		t.Fatalf("len(results) = %d, want 1: %#v", len(results), results)
+	}
+	if !strings.Contains(results[0].Snippet, "23~27") || !strings.Contains(results[0].Snippet, "暴雨转大雨") {
+		t.Fatalf("weather snippet = %q, want current weather details", results[0].Snippet)
 	}
 }
 
@@ -185,6 +218,39 @@ func TestQuickSearchReturnsBeforeSlowProvider(t *testing.T) {
 	}
 }
 
+func TestQuickSearchHonorsProviderOrder(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		switch r.URL.Path {
+		case "/bing":
+			time.Sleep(50 * time.Millisecond)
+			_, _ = w.Write([]byte(`<ol><li class="b_algo"><h2><a href="https://example.com/bing">Lite search from Bing</a></h2><p>Lite search snippet.</p></li></ol>`))
+		case "/ddg":
+			_, _ = w.Write([]byte(`<div class="result"><a class="result__a" href="https://example.com/ddg">Lite search from DDG</a><a class="result__snippet">Lite search snippet.</a></div>`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+
+	resp, err := Search(context.Background(), Config{
+		MaxResults: 1,
+		Quick:      true,
+		Providers:  []string{ProviderBing, ProviderDuckDuckGo},
+		ProviderBaseURLs: map[string]string{
+			ProviderBing:       srv.URL + "/bing",
+			ProviderDuckDuckGo: srv.URL + "/ddg",
+		},
+		Timeout: time.Second,
+	}, SearchRequest{Query: "lite search"})
+	if err != nil {
+		t.Fatalf("Search() error = %v", err)
+	}
+	if resp.Provider != ProviderBing {
+		t.Fatalf("provider = %q, want %q", resp.Provider, ProviderBing)
+	}
+}
+
 func TestSearchFiltersIrrelevantResults(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html")
@@ -255,9 +321,12 @@ func TestSearchHonorsContextCancellation(t *testing.T) {
 	}
 }
 
-func TestDefaultProviderOrderPrefersBaiduForChinese(t *testing.T) {
+func TestDefaultProviderOrderPrefersSogouForChinese(t *testing.T) {
 	got := defaultProviderOrder("zh-CN")
-	if len(got) == 0 || got[0] != ProviderBaidu {
+	if len(got) == 0 || got[0] != ProviderSogou {
 		t.Fatalf("defaultProviderOrder(zh-CN) = %#v", got)
+	}
+	if strings.Join(got, ",") != "sogou,baidu,quark,bing,duckduckgo" {
+		t.Fatalf("defaultProviderOrder(zh-CN) = %#v, want Sogou/Baidu/Quark/Bing/DuckDuckGo", got)
 	}
 }
