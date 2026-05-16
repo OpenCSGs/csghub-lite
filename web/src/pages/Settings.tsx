@@ -756,7 +756,7 @@ export function Settings() {
   };
 
   return (
-    <div class="p-8 max-w-5xl mx-auto">
+    <div class="mx-auto max-w-6xl p-8">
       <h1 class="text-2xl font-bold text-gray-900">{t("settings.title")}</h1>
       <p class="text-gray-500 text-sm mt-1 mb-6">{t("settings.subtitle")}</p>
 
@@ -1652,31 +1652,38 @@ function UsageStatisticsSection() {
         {visibleRows.length === 0 ? (
           <p class="p-4 text-sm text-gray-400">{localAPIUsageLoading.value ? "..." : t("settings.apiUsageEmpty")}</p>
         ) : (
-          <div class="overflow-x-auto">
-            <table class="min-w-full divide-y divide-gray-100 text-sm">
+          <div>
+            <table class="w-full table-fixed divide-y divide-gray-100 text-sm">
               <thead class="bg-gray-50 text-left text-xs uppercase tracking-wide text-gray-400">
                 <tr>
-                  <th class="px-4 py-3">{t("settings.apiUsageKey")}</th>
-                  <th class="px-4 py-3">{t("settings.apiUsageSource")}</th>
-                  <th class="px-4 py-3">{t("settings.apiUsageModel")}</th>
-                  <th class="px-4 py-3">{t("settings.apiUsageRequests")}</th>
-                  <th class="px-4 py-3">{t("settings.apiUsageInput")}</th>
-                  <th class="px-4 py-3">{t("settings.apiUsageOutput")}</th>
-                  <th class="px-4 py-3">{t("settings.apiUsageTotal")}</th>
-                  <th class="px-4 py-3">{t("settings.apiUsageLastUsed")}</th>
+                  <th class="w-[14%] whitespace-nowrap px-4 py-3">{t("settings.apiUsageSource")}</th>
+                  <th class="w-[28%] whitespace-nowrap px-4 py-3">{t("settings.apiUsageModel")}</th>
+                  <th class="w-[10%] whitespace-nowrap px-4 py-3">{t("settings.apiUsageRequests")}</th>
+                  <th class="w-[13%] whitespace-nowrap px-4 py-3">{t("settings.apiUsageInput")}</th>
+                  <th class="w-[13%] whitespace-nowrap px-4 py-3">{t("settings.apiUsageOutput")}</th>
+                  <th class="w-[13%] whitespace-nowrap px-4 py-3">{t("settings.apiUsageTotal")}</th>
+                  <th class="w-[15%] whitespace-nowrap px-4 py-3">{t("settings.apiUsageLastUsed")}</th>
                 </tr>
               </thead>
               <tbody class="divide-y divide-gray-100">
                 {visibleRows.map((row) => (
                   <tr key={`${row.api_key_id}:${row.source}:${row.model}`}>
-                    <td class="px-4 py-3 font-medium text-gray-900">{row.api_key_name}</td>
-                    <td class="px-4 py-3 text-gray-600">{apiUsageSourceRowLabel(row.source_type, row.source_name)}</td>
-                    <td class="px-4 py-3 text-gray-600">{row.model}</td>
-                    <td class="px-4 py-3 text-gray-600">{formatNumber(row.requests)}</td>
-                    <td class="px-4 py-3 text-gray-600">{formatNumber(row.input_tokens)}</td>
-                    <td class="px-4 py-3 text-gray-600">{formatNumber(row.output_tokens)}</td>
-                    <td class="px-4 py-3 text-gray-600">{formatNumber(row.total_tokens)}</td>
-                    <td class="px-4 py-3 text-gray-500">{formatDateTime(row.last_used_at)}</td>
+                    <td
+                      class="truncate whitespace-nowrap px-4 py-3 text-gray-600"
+                      title={apiUsageSourceRowLabel(row.source_type, row.source_name)}
+                    >
+                      {apiUsageSourceRowLabel(row.source_type, row.source_name)}
+                    </td>
+                    <td class="truncate whitespace-nowrap px-4 py-3 text-gray-600" title={row.model}>
+                      {row.model}
+                    </td>
+                    <td class="whitespace-nowrap px-4 py-3 tabular-nums text-gray-600">{formatNumber(row.requests)}</td>
+                    <td class="whitespace-nowrap px-4 py-3 tabular-nums text-gray-600">{formatNumber(row.input_tokens)}</td>
+                    <td class="whitespace-nowrap px-4 py-3 tabular-nums text-gray-600">{formatNumber(row.output_tokens)}</td>
+                    <td class="whitespace-nowrap px-4 py-3 tabular-nums text-gray-600">{formatNumber(row.total_tokens)}</td>
+                    <td class="truncate whitespace-nowrap px-4 py-3 text-gray-500" title={formatDateTime(row.last_used_at)}>
+                      {formatDateTime(row.last_used_at)}
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -1762,7 +1769,7 @@ function apiUsageSourceSummaryLabel(sourceType: string, sourceName?: string): st
 
 function apiUsageSourceRowLabel(sourceType: string, sourceName?: string): string {
   if (sourceType === "provider" && sourceName) {
-    return `${t("settings.apiUsageSourceProvider")} · ${sourceName}`;
+    return sourceName;
   }
   return apiUsageSourceSummaryLabel(sourceType);
 }
@@ -1775,7 +1782,13 @@ function formatDateTime(value?: string): string {
   if (!value) return t("settings.never");
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return t("settings.never");
-  return date.toLocaleString();
+  return new Intl.DateTimeFormat("zh-CN", {
+    month: "numeric",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).format(date);
 }
 
 function LangBtn({ code, label }: { code: Locale; label: string }) {
