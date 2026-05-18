@@ -222,8 +222,20 @@ func aiAppPublicBaseURL(r *http.Request) string {
 
 func (s *Server) enrichAIApps(ctx context.Context, apps []api.AIAppInfo) {
 	for i := range apps {
-		s.enrichAIApp(ctx, &apps[i])
+		s.enrichAIAppListItem(ctx, &apps[i])
 	}
+}
+
+func (s *Server) enrichAIAppListItem(ctx context.Context, info *api.AIAppInfo) {
+	if info == nil {
+		return
+	}
+	s.enrichAIAppRuntime(ctx, info)
+	if !info.Supported || info.Disabled {
+		return
+	}
+	s.appManager.EnrichLatestVersion(ctx, info)
+	info.ModelID = s.preferredAIAppModel(info.ID)
 }
 
 func (s *Server) enrichAIApp(ctx context.Context, info *api.AIAppInfo) {

@@ -628,15 +628,23 @@ type ThirdPartyProviderUpdateRequest struct {
 type ProviderTagModelRequest struct {
 	Model       string `json:"model"`
 	DisplayName string `json:"display_name,omitempty"`
+	Description string `json:"description,omitempty"`
 }
 
 type ProviderTagModelSelection struct {
 	Model       string `json:"model"`
 	DisplayName string `json:"display_name,omitempty"`
+	Description string `json:"description,omitempty"`
 }
 
 type ProviderTagModelsReplaceRequest struct {
 	Models []ProviderTagModelSelection `json:"models"`
+}
+
+type ProviderTagModelUpdateRequest struct {
+	Model       string  `json:"model,omitempty"`
+	DisplayName *string `json:"display_name,omitempty"`
+	Description *string `json:"description,omitempty"`
 }
 
 func (s *ProviderTagModelSelection) UnmarshalJSON(data []byte) error {
@@ -644,6 +652,7 @@ func (s *ProviderTagModelSelection) UnmarshalJSON(data []byte) error {
 	if err := json.Unmarshal(data, &model); err == nil {
 		s.Model = strings.TrimSpace(model)
 		s.DisplayName = ""
+		s.Description = ""
 		return nil
 	}
 	type alias ProviderTagModelSelection
@@ -653,6 +662,7 @@ func (s *ProviderTagModelSelection) UnmarshalJSON(data []byte) error {
 	}
 	s.Model = strings.TrimSpace(decoded.Model)
 	s.DisplayName = strings.TrimSpace(decoded.DisplayName)
+	s.Description = strings.TrimSpace(decoded.Description)
 	return nil
 }
 

@@ -18,6 +18,7 @@ type ProviderModelAllowlist struct {
 type ProviderModelSelection struct {
 	Model       string `json:"model"`
 	DisplayName string `json:"display_name,omitempty"`
+	Description string `json:"description,omitempty"`
 }
 
 var (
@@ -127,6 +128,7 @@ func AddProviderModelSelection(providerID string, selection ProviderModelSelecti
 	providerID = strings.TrimSpace(providerID)
 	selection.Model = strings.TrimSpace(selection.Model)
 	selection.DisplayName = strings.TrimSpace(selection.DisplayName)
+	selection.Description = strings.TrimSpace(selection.Description)
 	if providerID == "" || selection.Model == "" {
 		return nil
 	}
@@ -156,6 +158,41 @@ func RemoveProviderModelAllowlist(providerID, modelID string) (bool, error) {
 		return false, nil
 	}
 	return true, ReplaceProviderModelSelections(providerID, out)
+}
+
+func UpdateProviderModelSelection(providerID, modelID string, update ProviderModelSelectionUpdate) (ProviderModelSelection, bool, error) {
+	providerID = strings.TrimSpace(providerID)
+	modelID = strings.TrimSpace(modelID)
+	if providerID == "" || modelID == "" {
+		return ProviderModelSelection{}, false, nil
+	}
+
+	models := GetProviderModelSelections(providerID)
+	updated := ProviderModelSelection{}
+	found := false
+	for i := range models {
+		if models[i].Model != modelID {
+			continue
+		}
+		found = true
+		if update.DisplayName != nil {
+			models[i].DisplayName = strings.TrimSpace(*update.DisplayName)
+		}
+		if update.Description != nil {
+			models[i].Description = strings.TrimSpace(*update.Description)
+		}
+		updated = models[i]
+		break
+	}
+	if !found {
+		return ProviderModelSelection{}, false, nil
+	}
+	return updated, true, ReplaceProviderModelSelections(providerID, models)
+}
+
+type ProviderModelSelectionUpdate struct {
+	DisplayName *string
+	Description *string
 }
 
 func DeleteProviderModelAllowlist(providerID string) error {
@@ -242,6 +279,7 @@ func normalizeProviderModelSelections(models []ProviderModelSelection) []Provide
 	for _, model := range models {
 		model.Model = strings.TrimSpace(model.Model)
 		model.DisplayName = strings.TrimSpace(model.DisplayName)
+		model.Description = strings.TrimSpace(model.Description)
 		if model.Model == "" {
 			continue
 		}
@@ -275,6 +313,7 @@ func (s *ProviderModelSelection) UnmarshalJSON(data []byte) error {
 	if err := json.Unmarshal(data, &model); err == nil {
 		s.Model = strings.TrimSpace(model)
 		s.DisplayName = ""
+		s.Description = ""
 		return nil
 	}
 	type alias ProviderModelSelection
@@ -284,5 +323,6 @@ func (s *ProviderModelSelection) UnmarshalJSON(data []byte) error {
 	}
 	s.Model = strings.TrimSpace(decoded.Model)
 	s.DisplayName = strings.TrimSpace(decoded.DisplayName)
+	s.Description = strings.TrimSpace(decoded.Description)
 	return nil
 }

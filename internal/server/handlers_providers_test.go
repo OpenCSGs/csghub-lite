@@ -658,6 +658,32 @@ func TestProviderTagsManageReplaceModels(t *testing.T) {
 		t.Fatalf("renamed selected models = %#v, want Renamed A", selectedResp.Models)
 	}
 
+	req = httptest.NewRequest(http.MethodPatch, "/api/tags/manage?provider=provider1&model=a", strings.NewReader(`{"display_name":"Patched A","description":"Patched description"}`))
+	w = httptest.NewRecorder()
+	s.handleProviderTagsManageUpdate(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("update model metadata status = %d body=%s", w.Code, w.Body.String())
+	}
+	var patched api.ModelInfo
+	if err := json.NewDecoder(w.Body).Decode(&patched); err != nil {
+		t.Fatalf("decode patched model: %v", err)
+	}
+	if patched.DisplayName != "Patched A" || patched.Description != "Patched description" {
+		t.Fatalf("patched model = %#v, want custom name and description", patched)
+	}
+	req = httptest.NewRequest(http.MethodGet, "/api/tags?provider=xiaomi-plan", nil)
+	w = httptest.NewRecorder()
+	s.handleTags(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("tags patched status = %d body=%s", w.Code, w.Body.String())
+	}
+	if err := json.NewDecoder(w.Body).Decode(&selectedResp); err != nil {
+		t.Fatalf("decode patched selected tags: %v", err)
+	}
+	if len(selectedResp.Models) != 1 || selectedResp.Models[0].DisplayName != "Patched A" || selectedResp.Models[0].Description != "Patched description" {
+		t.Fatalf("patched selected models = %#v, want patched metadata", selectedResp.Models)
+	}
+
 	req = httptest.NewRequest(http.MethodPut, "/api/tags/manage?provider=provider1&category=image_generation", strings.NewReader(`{"models":["a","b"]}`))
 	w = httptest.NewRecorder()
 	s.handleProviderTagsManageReplace(w, req)

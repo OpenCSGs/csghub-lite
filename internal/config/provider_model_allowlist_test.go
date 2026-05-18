@@ -36,20 +36,29 @@ func TestProviderModelAllowlistStoresDisplayNames(t *testing.T) {
 	t.Cleanup(ResetProviderModelAllowlist)
 
 	if err := ReplaceProviderModelSelections(" provider1 ", []ProviderModelSelection{
-		{Model: " a ", DisplayName: " Renamed A "},
+		{Model: " a ", DisplayName: " Renamed A ", Description: " Custom description "},
 		{Model: "b"},
 		{Model: "a", DisplayName: "Duplicate"},
 	}); err != nil {
 		t.Fatalf("replace allowlist: %v", err)
 	}
 	got := GetProviderModelSelections("provider1")
-	if len(got) != 2 || got[0].Model != "a" || got[0].DisplayName != "Renamed A" || got[1].Model != "b" || got[1].DisplayName != "" {
+	if len(got) != 2 || got[0].Model != "a" || got[0].DisplayName != "Renamed A" || got[0].Description != "Custom description" || got[1].Model != "b" || got[1].DisplayName != "" {
 		t.Fatalf("selections = %#v, want renamed a and default b", got)
+	}
+
+	newDescription := "Updated description"
+	updated, ok, err := UpdateProviderModelSelection("provider1", "a", ProviderModelSelectionUpdate{Description: &newDescription})
+	if err != nil {
+		t.Fatalf("update selection: %v", err)
+	}
+	if !ok || updated.DisplayName != "Renamed A" || updated.Description != "Updated description" {
+		t.Fatalf("updated = %#v ok=%v, want display name preserved and description updated", updated, ok)
 	}
 
 	ResetProviderModelAllowlist()
 	got = GetProviderModelSelections("provider1")
-	if len(got) != 2 || got[0].DisplayName != "Renamed A" {
+	if len(got) != 2 || got[0].DisplayName != "Renamed A" || got[0].Description != "Updated description" {
 		t.Fatalf("loaded selections = %#v, want persisted display name", got)
 	}
 }

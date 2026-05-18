@@ -11,6 +11,7 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("GET /api/tags/manage", s.handleProviderTagsManageList)
 	mux.HandleFunc("POST /api/tags/manage", s.handleProviderTagsManageAdd)
 	mux.HandleFunc("PUT /api/tags/manage", s.handleProviderTagsManageReplace)
+	mux.HandleFunc("PATCH /api/tags/manage", s.handleProviderTagsManageUpdate)
 	mux.HandleFunc("DELETE /api/tags/manage", s.handleProviderTagsManageDelete)
 	mux.HandleFunc("GET /api/models/search", s.handleLocalModelSearch)
 	mux.HandleFunc("GET /api/models/{namespace}/{name}/manifest", s.handleModelManifest)

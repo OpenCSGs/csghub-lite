@@ -50,11 +50,16 @@ func (s *Server) handleProviderTagsManageAdd(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	model = applyProviderModelDisplayName(model, req.DisplayName)
+	model = applyProviderModelMetadata(model, config.ProviderModelSelection{
+		Model:       model.Model,
+		DisplayName: req.DisplayName,
+		Description: req.Description,
+	})
 	alreadySelected := modelIDInList(config.GetProviderModelAllowlist(provider.ID), model.Model)
 	if err := config.AddProviderModelSelection(provider.ID, config.ProviderModelSelection{
 		Model:       model.Model,
 		DisplayName: strings.TrimSpace(req.DisplayName),
+		Description: strings.TrimSpace(req.Description),
 	}); err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to save provider model: "+err.Error())
 		return
@@ -97,10 +102,15 @@ func (s *Server) handleProviderTagsManageReplace(w http.ResponseWriter, r *http.
 			writeError(w, http.StatusNotFound, "provider model not found: "+requested.Model)
 			return
 		}
-		model = applyProviderModelDisplayName(model, requested.DisplayName)
+		model = applyProviderModelMetadata(model, config.ProviderModelSelection{
+			Model:       model.Model,
+			DisplayName: requested.DisplayName,
+			Description: requested.Description,
+		})
 		selected = append(selected, config.ProviderModelSelection{
 			Model:       model.Model,
 			DisplayName: strings.TrimSpace(requested.DisplayName),
+			Description: strings.TrimSpace(requested.Description),
 		})
 		selectedModels = append(selectedModels, model)
 	}
@@ -116,6 +126,56 @@ func (s *Server) handleProviderTagsManageReplace(w http.ResponseWriter, r *http.
 		return
 	}
 	writeJSON(w, http.StatusOK, api.TagsResponse{Models: selectedModels})
+}
+
+func (s *Server) handleProviderTagsManageUpdate(w http.ResponseWriter, r *http.Request) {
+	provider, ok := s.providerFromTagsManageRequest(w, r)
+	if !ok {
+		return
+	}
+
+	var req api.ProviderTagModelUpdateRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	modelID := strings.TrimSpace(r.URL.Query().Get("model"))
+	if modelID == "" {
+		modelID = strings.TrimSpace(req.Model)
+	}
+	if modelID == "" {
+		writeError(w, http.StatusBadRequest, "model is required")
+		return
+	}
+
+	selection, found, err := config.UpdateProviderModelSelection(provider.ID, modelID, config.ProviderModelSelectionUpdate{
+		DisplayName: req.DisplayName,
+		Description: req.Description,
+	})
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to save provider model: "+err.Error())
+		return
+	}
+	if !found {
+		writeError(w, http.StatusNotFound, "provider model not selected")
+		return
+	}
+	s.invalidateThirdPartyProviderModelsCache()
+
+	model := api.ModelInfo{
+		Name:        selection.Model,
+		Model:       selection.Model,
+		Label:       selection.Model,
+		DisplayName: selection.Model,
+		Format:      "api",
+		Source:      providerSource(provider.ID),
+		Provider:    modelProviderIDFromProvider(provider),
+	}
+	if catalogModel, ok, err := providerModelFromCatalog(r, provider, selection.Model); err == nil && ok {
+		model = catalogModel
+	}
+	model = applyProviderModelMetadata(model, selection)
+	writeJSON(w, http.StatusOK, model)
 }
 
 func (s *Server) handleProviderTagsManageDelete(w http.ResponseWriter, r *http.Request) {
@@ -206,6 +266,7 @@ func normalizeProviderTagModelSelections(models []api.ProviderTagModelSelection)
 	for _, model := range models {
 		model.Model = strings.TrimSpace(model.Model)
 		model.DisplayName = strings.TrimSpace(model.DisplayName)
+		model.Description = strings.TrimSpace(model.Description)
 		if model.Model == "" {
 			continue
 		}
@@ -218,15 +279,24 @@ func normalizeProviderTagModelSelections(models []api.ProviderTagModelSelection)
 	return out
 }
 
-func applyProviderModelDisplayName(model api.ModelInfo, displayName string) api.ModelInfo {
-	displayName = strings.TrimSpace(displayName)
-	if displayName == "" {
-		return model
+func applyProviderModelMetadata(model api.ModelInfo, selection config.ProviderModelSelection) api.ModelInfo {
+	displayName := strings.TrimSpace(selection.DisplayName)
+	if displayName != "" {
+		model.Name = displayName
+		model.DisplayName = displayName
+		model.Label = displayName
 	}
-	model.Name = displayName
-	model.DisplayName = displayName
-	model.Label = displayName
+	if description := strings.TrimSpace(selection.Description); description != "" {
+		model.Description = description
+	}
 	return model
+}
+
+func modelProviderIDFromProvider(provider config.ThirdPartyProvider) string {
+	if name := normalizeModelProvider(provider.Name); name != "" {
+		return name
+	}
+	return normalizeModelProvider(provider.ID)
 }
 
 func modelIDInList(models []string, modelID string) bool {

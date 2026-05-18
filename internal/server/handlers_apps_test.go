@@ -15,7 +15,7 @@ import (
 	"github.com/opencsgs/csghub-lite/pkg/api"
 )
 
-func TestHandleAppsIncludesPreferredModelID(t *testing.T) {
+func TestHandleAppsIncludesPreferredModelIDWithoutResolvingModels(t *testing.T) {
 	cfg := &config.Config{
 		ModelDir:   t.TempDir(),
 		ListenAddr: ":11435",
@@ -68,7 +68,7 @@ func TestHandleAppsIncludesPreferredModelID(t *testing.T) {
 	}
 }
 
-func TestHandleAppsIncludesDefaultModelIDWithoutPreference(t *testing.T) {
+func TestHandleAppsDoesNotResolveDefaultModelIDWithoutPreference(t *testing.T) {
 	cfg := &config.Config{
 		ModelDir:             t.TempDir(),
 		ListenAddr:           ":11435",
@@ -102,8 +102,8 @@ func TestHandleAppsIncludesDefaultModelIDWithoutPreference(t *testing.T) {
 	}
 
 	info := findAIAppInfo(t, resp.Apps, "claude-code")
-	if info.ModelID != "Qwen/Qwen3.5-2B" {
-		t.Fatalf("claude-code model_id = %q, want default local model", info.ModelID)
+	if info.ModelID != "" {
+		t.Fatalf("claude-code model_id = %q, want empty without saved preference", info.ModelID)
 	}
 }
 

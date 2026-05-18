@@ -343,6 +343,61 @@
           }
         }
       },
+      "patch": {
+        "tags": [
+          "Models"
+        ],
+        "summary": "Update selected provider model metadata",
+        "description": "Updates metadata for a selected third-party provider model without changing the selected model list. Use an empty string to clear an overridden field.",
+        "operationId": "updateProviderTagModel",
+        "parameters": [
+          {
+            "name": "provider",
+            "in": "query",
+            "required": true,
+            "description": "Third-party provider ID or configured provider name.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "model",
+            "in": "query",
+            "description": "Provider model ID to update. May be supplied in the request body instead.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProviderTagModelUpdateRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated provider model metadata.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModelInfo"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      },
       "delete": {
         "tags": [
           "Models"
@@ -3473,6 +3528,28 @@
           "display_name": {
             "type": "string",
             "description": "Optional custom display name shown in model lists. When omitted, the provider default name is used."
+          },
+          "description": {
+            "type": "string",
+            "description": "Optional custom model description shown in model metadata. When omitted, the provider default description is used."
+          }
+        }
+      },
+      "ProviderTagModelUpdateRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "model": {
+            "type": "string",
+            "description": "Provider model ID to update when the `model` query parameter is omitted."
+          },
+          "display_name": {
+            "type": "string",
+            "description": "Custom display name. Send an empty string to clear the override."
+          },
+          "description": {
+            "type": "string",
+            "description": "Custom model description. Send an empty string to clear the override."
           }
         }
       },
