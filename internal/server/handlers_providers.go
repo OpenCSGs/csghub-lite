@@ -117,6 +117,10 @@ func (s *Server) handleProviderCreate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	providers := config.GetProviders()
+	if providerNameExists(providers, name, "") {
+		writeError(w, http.StatusBadRequest, "provider name already exists")
+		return
+	}
 	newProvider := config.ThirdPartyProvider{
 		ID:       config.GenerateProviderID(),
 		Name:     name,
@@ -183,6 +187,10 @@ func (s *Server) handleProviderUpdate(w http.ResponseWriter, r *http.Request) {
 			}
 			if req.Enabled != nil {
 				candidate.Enabled = *req.Enabled
+			}
+			if providerNameExists(providers, candidate.Name, id) {
+				writeError(w, http.StatusBadRequest, "provider name already exists")
+				return
 			}
 			candidate.BaseURL = normalizeThirdPartyProviderBaseURL(candidate)
 			if candidate.Enabled {
@@ -257,6 +265,22 @@ func (s *Server) handleProviderDelete(w http.ResponseWriter, r *http.Request) {
 	s.invalidateThirdPartyProviderModelsCache()
 
 	writeJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
+}
+
+func providerNameExists(providers []config.ThirdPartyProvider, name, excludeID string) bool {
+	name = normalizeModelProvider(name)
+	if name == "" {
+		return false
+	}
+	for _, provider := range providers {
+		if strings.TrimSpace(provider.ID) == strings.TrimSpace(excludeID) {
+			continue
+		}
+		if normalizeModelProvider(provider.Name) == name {
+			return true
+		}
+	}
+	return false
 }
 
 func boolDefault(value *bool, fallback bool) bool {

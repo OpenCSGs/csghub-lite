@@ -52,6 +52,21 @@ func pipelineTagsForCategory(category string) (map[string]struct{}, bool) {
 	return nil, false
 }
 
+func categoryForPipelineTag(pipelineTag string) string {
+	pipelineTag = strings.ToLower(strings.TrimSpace(pipelineTag))
+	if pipelineTag == "" {
+		return ""
+	}
+	for _, group := range supportedPipelineTagGroups {
+		for _, tag := range group.Tags {
+			if tag == pipelineTag {
+				return group.Category
+			}
+		}
+	}
+	return ""
+}
+
 func filterModelsByPipelineCategory(models []api.ModelInfo, category string) ([]api.ModelInfo, bool) {
 	tags, ok := pipelineTagsForCategory(category)
 	if !ok {

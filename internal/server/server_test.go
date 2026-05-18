@@ -452,6 +452,12 @@ func TestHandleTags_WithModels(t *testing.T) {
 	if resp.Models[0].Name != "test/model" {
 		t.Errorf("model name = %q, want %q", resp.Models[0].Name, "test/model")
 	}
+	if resp.Models[0].Provider != "local" {
+		t.Errorf("provider = %q, want local", resp.Models[0].Provider)
+	}
+	if resp.Models[0].Category != "language_model" {
+		t.Errorf("category = %q, want language_model", resp.Models[0].Category)
+	}
 }
 
 func TestHandlePipelineTags(t *testing.T) {

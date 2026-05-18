@@ -110,7 +110,7 @@
           {
             "name": "provider",
             "in": "query",
-            "description": "Filter models by normalized provider ID. Local models use `local`; all CSGHub cloud models use `csghub`; third-party provider models use the configured provider name.",
+            "description": "Filter models by normalized provider name. Local models use `local`; all CSGHub cloud models use `csghub`; third-party provider models use the configured provider name, not the generated provider ID.",
             "schema": {
               "type": "string"
             }
@@ -4632,7 +4632,11 @@
           },
           "provider": {
             "type": "string",
-            "description": "Normalized provider ID for filtering `/api/tags`, such as `local`, `csghub`, or a third-party provider name."
+            "description": "Normalized provider name for filtering `/api/tags`, such as `local`, `csghub`, or a third-party provider name."
+          },
+          "category": {
+            "type": "string",
+            "description": "csghub-lite category derived from the model pipeline tag."
           },
           "pipeline_tag": {
             "type": "string"

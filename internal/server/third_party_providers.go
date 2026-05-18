@@ -228,6 +228,7 @@ func listOpenAICompatibleProviderModels(ctx context.Context, provider config.Thi
 			Format:           "api",
 			Source:           providerSource(provider.ID),
 			Provider:         modelProvider,
+			Category:         categoryForPipelineTag(pipelineTag),
 			PipelineTag:      pipelineTag,
 			InputModalities:  inputModalities,
 			OutputModalities: outputModalities,

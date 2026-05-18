@@ -212,6 +212,7 @@ type ModelInfo struct {
 	DisplayName      string        `json:"display_name,omitempty"`
 	Source           string        `json:"source,omitempty"`
 	Provider         string        `json:"provider,omitempty"`
+	Category         string        `json:"category,omitempty"`
 	PipelineTag      string        `json:"pipeline_tag,omitempty"`
 	InputModalities  []string      `json:"input_modalities,omitempty"`
 	OutputModalities []string      `json:"output_modalities,omitempty"`

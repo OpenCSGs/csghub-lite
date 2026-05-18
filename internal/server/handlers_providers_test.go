@@ -93,6 +93,42 @@ func TestProviderCreateRejectsInvalidConfigWithoutSaving(t *testing.T) {
 	}
 }
 
+func TestProviderCreateRejectsDuplicateName(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	config.ResetProviders()
+	config.ResetProviderModelAllowlist()
+	t.Cleanup(config.ResetProviders)
+	t.Cleanup(config.ResetProviderModelAllowlist)
+
+	s := newTestServer(t)
+	if err := config.SaveProviders([]config.ThirdPartyProvider{{
+		ID:      "provider1",
+		Name:    "Xiaomi Plan",
+		BaseURL: "http://example.invalid/v1",
+		APIKey:  "secret",
+		Enabled: false,
+	}}); err != nil {
+		t.Fatalf("save providers: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/providers", strings.NewReader(`{
+		"name": "xiaomi plan",
+		"base_url": "http://example.invalid/v1",
+		"api_key": "secret",
+		"enabled": false
+	}`))
+	w := httptest.NewRecorder()
+	s.handleProviderCreate(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d body=%s", w.Code, w.Body.String())
+	}
+	if providers := config.GetProviders(); len(providers) != 1 {
+		t.Fatalf("providers len = %d, want 1", len(providers))
+	}
+}
+
 func TestListOpenAICompatibleProviderModels(t *testing.T) {
 	var authHeader string
 	apiServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -359,6 +395,7 @@ func TestThirdPartyModelProviderUsesConfiguredName(t *testing.T) {
 		Models []struct {
 			Model    string `json:"model"`
 			Provider string `json:"provider"`
+			Category string `json:"category"`
 		} `json:"models"`
 	}
 	if err := json.NewDecoder(w.Body).Decode(&tagsResp); err != nil {
@@ -366,6 +403,9 @@ func TestThirdPartyModelProviderUsesConfiguredName(t *testing.T) {
 	}
 	if len(tagsResp.Models) != 1 || tagsResp.Models[0].Model != "mi-model" || tagsResp.Models[0].Provider != "xiaomi-plan" {
 		t.Fatalf("models = %#v, want xiaomi-plan model", tagsResp.Models)
+	}
+	if tagsResp.Models[0].Category != "language_model" {
+		t.Fatalf("category = %q, want language_model", tagsResp.Models[0].Category)
 	}
 
 	req = httptest.NewRequest(http.MethodGet, "/api/tags?provider=openai", nil)
@@ -379,6 +419,19 @@ func TestThirdPartyModelProviderUsesConfiguredName(t *testing.T) {
 	}
 	if len(tagsResp.Models) != 0 {
 		t.Fatalf("openai-compatible type should not be exposed as model provider: %#v", tagsResp.Models)
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/api/tags?provider=provider1", nil)
+	w = httptest.NewRecorder()
+	s.handleTags(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("provider id filter status = %d body=%s", w.Code, w.Body.String())
+	}
+	if err := json.NewDecoder(w.Body).Decode(&tagsResp); err != nil {
+		t.Fatalf("decode provider id filtered tags: %v", err)
+	}
+	if len(tagsResp.Models) != 0 {
+		t.Fatalf("provider id should not match configured provider name: %#v", tagsResp.Models)
 	}
 }
 

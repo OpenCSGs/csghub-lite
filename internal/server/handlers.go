@@ -84,6 +84,9 @@ func (s *Server) handleTags(w http.ResponseWriter, r *http.Request) {
 			if info.Provider == "" {
 				info.Provider = modelProviderID(info)
 			}
+			if info.Category == "" {
+				info.Category = categoryForPipelineTag(info.PipelineTag)
+			}
 			filtered = append(filtered, info)
 		}
 		infos = filtered
@@ -91,6 +94,9 @@ func (s *Server) handleTags(w http.ResponseWriter, r *http.Request) {
 		for i := range infos {
 			if infos[i].Provider == "" {
 				infos[i].Provider = modelProviderID(infos[i])
+			}
+			if infos[i].Category == "" {
+				infos[i].Category = categoryForPipelineTag(infos[i].PipelineTag)
 			}
 		}
 	}

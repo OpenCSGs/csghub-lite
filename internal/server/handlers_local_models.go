@@ -123,6 +123,7 @@ func (s *Server) localModelInfo(item *model.LocalModel) api.ModelInfo {
 		DisplayName:   modelID,
 		Source:        "local",
 		Provider:      "local",
+		Category:      categoryForPipelineTag(pipelineTag),
 		PipelineTag:   pipelineTag,
 		HasMMProj:     hasMMProj,
 		ContextWindow: contextWindow,

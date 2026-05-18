@@ -44,7 +44,7 @@ func modelProviderAliases(info api.ModelInfo) []string {
 		return []string{localModelProvider}
 	}
 	if providerID := providerIDFromSource(info.Source); providerID != "" {
-		values := []string{info.Provider, providerID}
+		values := []string{info.Provider}
 		if provider, ok := getThirdPartyProvider(providerID); ok {
 			values = append(values, provider.Name)
 		}
