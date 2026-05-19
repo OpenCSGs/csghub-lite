@@ -23,6 +23,7 @@ import {
   getProviderManageTags,
   getProviderSelectedTags,
   replaceProviderManageTags,
+  updateProviderManageTag,
   getLocalAPIKeys,
   updateLocalAPIKeySettings,
   createLocalAPIKey,
@@ -93,6 +94,15 @@ const providerModelsLoading = signal(false);
 const providerModelsSaving = signal(false);
 const providerModelsError = signal("");
 const providerSelectedModels = signal<Record<string, ModelInfo[]>>({});
+const isProviderModelEditOpen = signal(false);
+const providerModelEditProvider = signal<ThirdPartyProvider | null>(null);
+const providerModelEditCurrentID = signal("");
+const providerModelEditID = signal("");
+const providerModelEditDisplayName = signal("");
+const providerModelEditDescription = signal("");
+const providerModelEditPlaceholder = signal("");
+const providerModelEditError = signal("");
+const providerModelEditSaving = signal(false);
 const providersChangedEvent = "csghub:providers-changed";
 type SettingsTab = "system" | "apiKeys" | "usage";
 type UsagePeriod = "week" | "month" | "year";
@@ -479,6 +489,72 @@ function closeProviderDialog() {
   providerModelDisplayNames.value = {};
   providerModelsError.value = "";
   providerFormError.value = "";
+}
+
+function openProviderModelEditDialog(provider: ThirdPartyProvider, model: ModelInfo) {
+  providerModelEditProvider.value = provider;
+  providerModelEditCurrentID.value = model.model;
+  providerModelEditID.value = model.model;
+  providerModelEditDisplayName.value = "";
+  providerModelEditDescription.value = "";
+  providerModelEditPlaceholder.value = providerModelLabel(model);
+  providerModelEditError.value = "";
+  isProviderModelEditOpen.value = true;
+}
+
+function closeProviderModelEditDialog() {
+  if (providerModelEditSaving.value) return;
+  isProviderModelEditOpen.value = false;
+  providerModelEditProvider.value = null;
+  providerModelEditCurrentID.value = "";
+  providerModelEditID.value = "";
+  providerModelEditDisplayName.value = "";
+  providerModelEditDescription.value = "";
+  providerModelEditPlaceholder.value = "";
+  providerModelEditError.value = "";
+}
+
+async function saveProviderModelEdit() {
+  const provider = providerModelEditProvider.value;
+  const currentID = providerModelEditCurrentID.value.trim();
+  const nextID = providerModelEditID.value.trim();
+  if (!provider || !currentID) return;
+  if (!nextID) {
+    providerModelEditError.value = t("settings.providerModelIDRequired");
+    return;
+  }
+
+  providerModelEditSaving.value = true;
+  providerModelEditError.value = "";
+  try {
+    const payload: { model?: string; display_name?: string; description?: string } = {};
+    if (nextID !== currentID) {
+      payload.model = nextID;
+    }
+    const displayName = providerModelEditDisplayName.value.trim();
+    const description = providerModelEditDescription.value.trim();
+    if (displayName) {
+      payload.display_name = displayName;
+    }
+    if (description) {
+      payload.description = description;
+    }
+    if (Object.keys(payload).length === 0) {
+      closeProviderModelEditDialog();
+      return;
+    }
+    await updateProviderManageTag(provider.id, currentID, payload);
+    await fetchProviders();
+    notifyProvidersChanged();
+    providerModelEditSaving.value = false;
+    closeProviderModelEditDialog();
+  } catch (err: any) {
+    providerModelEditError.value = err?.message || t("settings.providerModelUpdateFailed");
+  } finally {
+    if (providerModelEditSaving.value) {
+      providerModelEditSaving.value = false;
+    }
+  }
 }
 
 async function loadProviderDialogModels(provider: ThirdPartyProvider) {
@@ -1466,20 +1542,32 @@ export function Settings() {
                       {(providerSelectedModels.value[provider.id] || []).length === 0 ? (
                         <span class="text-xs text-gray-400">{t("settings.providerModelsNoneSelected")}</span>
                       ) : (
-                        <div class="grid grid-cols-2 gap-1.5">
-                          {(providerSelectedModels.value[provider.id] || []).slice(0, 4).map((model) => (
+                        <div class="grid max-h-40 grid-cols-2 gap-1.5 overflow-y-auto pr-1">
+                          {(providerSelectedModels.value[provider.id] || []).map((model) => (
                             <div key={model.model} class="min-w-0 rounded-md bg-indigo-50 px-2 py-1">
-                              <p class="truncate text-xs font-medium text-indigo-700">{providerModelLabel(model)}</p>
+                              <div class="flex min-w-0 items-start justify-between gap-2">
+                                <div class="min-w-0">
+                                  <p class="truncate text-xs font-medium text-indigo-700">{providerModelLabel(model)}</p>
+                                  <p class="truncate text-[11px] text-indigo-500">{model.model}</p>
+                                </div>
+                                <button
+                                  type="button"
+                                  onClick={() => openProviderModelEditDialog(provider, model)}
+                                  title={t("settings.providerModelEdit")}
+                                  aria-label={t("settings.providerModelEdit")}
+                                  class="shrink-0 rounded border border-indigo-100 bg-white/70 p-1 text-indigo-700 hover:bg-white transition-colors"
+                                >
+                                  <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931z" />
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 7.125L16.875 4.5" />
+                                  </svg>
+                                </button>
+                              </div>
                               <div class="mt-0.5">
                                 <ProviderModelModalityBadges model={model} showOutputs compact />
                               </div>
                             </div>
                           ))}
-                          {(providerSelectedModels.value[provider.id] || []).length > 4 && (
-                            <p class="col-span-2 text-xs text-gray-500">
-                              {t("settings.providerModelsMore", (providerSelectedModels.value[provider.id] || []).length - 4)}
-                            </p>
-                          )}
                         </div>
                       )}
                     </div>
@@ -1634,6 +1722,20 @@ export function Settings() {
           }
         }}
         onChangeEnabled={(value) => (providerFormEnabled.value = value)}
+      />
+      <ProviderModelEditDialog
+        open={isProviderModelEditOpen.value}
+        modelID={providerModelEditID.value}
+        displayName={providerModelEditDisplayName.value}
+        description={providerModelEditDescription.value}
+        displayNamePlaceholder={providerModelEditPlaceholder.value}
+        error={providerModelEditError.value}
+        saving={providerModelEditSaving.value}
+        onClose={closeProviderModelEditDialog}
+        onSave={() => void saveProviderModelEdit()}
+        onChangeModelID={(value) => (providerModelEditID.value = value)}
+        onChangeDisplayName={(value) => (providerModelEditDisplayName.value = value)}
+        onChangeDescription={(value) => (providerModelEditDescription.value = value)}
       />
       <UpgradeDialog
         open={upgradeDialogOpen.value}
@@ -2311,6 +2413,98 @@ function ProviderDialog({
             class="rounded-lg bg-indigo-600 px-4 py-2 text-sm text-white hover:bg-indigo-700 disabled:opacity-60 transition-colors"
           >
             {saving || modelsSaving ? "..." : step === "models" ? t("settings.providerModelsSave") : t("settings.providerSaveNext")}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ProviderModelEditDialog({
+  open,
+  modelID,
+  displayName,
+  description,
+  displayNamePlaceholder,
+  error,
+  saving,
+  onClose,
+  onSave,
+  onChangeModelID,
+  onChangeDisplayName,
+  onChangeDescription,
+}: {
+  open: boolean;
+  modelID: string;
+  displayName: string;
+  description: string;
+  displayNamePlaceholder: string;
+  error: string;
+  saving: boolean;
+  onClose: () => void;
+  onSave: () => void;
+  onChangeModelID: (value: string) => void;
+  onChangeDisplayName: (value: string) => void;
+  onChangeDescription: (value: string) => void;
+}) {
+  if (!open) return null;
+  return (
+    <div class="fixed inset-0 z-50 flex items-center justify-center bg-gray-900/40 px-4" onClick={onClose}>
+      <div class="w-full max-w-md rounded-2xl bg-white shadow-2xl" onClick={(e) => e.stopPropagation()}>
+        <div class="border-b border-gray-100 px-6 py-5">
+          <h2 class="text-lg font-semibold text-gray-900">{t("settings.providerModelEditTitle")}</h2>
+          <p class="mt-1 text-sm text-gray-500">{t("settings.providerModelEditDesc")}</p>
+        </div>
+        <div class="space-y-4 px-6 py-5">
+          <div>
+            <label class="mb-1 block text-sm font-medium text-gray-700">{t("settings.providerModelID")}</label>
+            <input
+              class="w-full rounded-lg border border-gray-200 px-3 py-2.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              value={modelID}
+              onInput={(e) => onChangeModelID((e.target as HTMLInputElement).value)}
+              placeholder="my-model"
+              disabled={saving}
+            />
+          </div>
+          <div>
+            <label class="mb-1 block text-sm font-medium text-gray-700">{t("settings.providerModelDisplayName")}</label>
+            <input
+              class="w-full rounded-lg border border-gray-200 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              value={displayName}
+              onInput={(e) => onChangeDisplayName((e.target as HTMLInputElement).value)}
+              placeholder={displayNamePlaceholder || t("settings.providerModelDisplayNamePlaceholder")}
+              disabled={saving}
+            />
+            <p class="mt-1 text-xs text-gray-400">{t("settings.providerModelOptionalFieldHint")}</p>
+          </div>
+          <div>
+            <label class="mb-1 block text-sm font-medium text-gray-700">{t("settings.providerModelDescription")}</label>
+            <textarea
+              class="min-h-20 w-full rounded-lg border border-gray-200 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              value={description}
+              onInput={(e) => onChangeDescription((e.target as HTMLTextAreaElement).value)}
+              placeholder={t("settings.providerModelDescriptionPlaceholder")}
+              disabled={saving}
+            />
+          </div>
+          {error && <p class="text-sm text-red-600">{error}</p>}
+        </div>
+        <div class="flex justify-end gap-3 border-t border-gray-100 px-6 py-4">
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={saving}
+            class="rounded-lg border border-gray-200 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-60 transition-colors"
+          >
+            {t("upgrade.cancel")}
+          </button>
+          <button
+            type="button"
+            onClick={onSave}
+            disabled={saving}
+            class="rounded-lg bg-indigo-600 px-4 py-2 text-sm text-white hover:bg-indigo-700 disabled:opacity-60 transition-colors"
+          >
+            {saving ? "..." : t("settings.providerModelSave")}
           </button>
         </div>
       </div>

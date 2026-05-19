@@ -229,6 +229,13 @@ export interface LocalAPIUsageSourceTotal {
 export interface ProviderTagModelSelection {
   model: string;
   display_name?: string;
+  description?: string;
+}
+
+export interface ProviderTagModelUpdateRequest {
+  model?: string;
+  display_name?: string;
+  description?: string;
 }
 
 export interface LocalAPIUsageSummarySeries {
@@ -454,6 +461,15 @@ export async function addProviderManageTag(provider: string, model: string): Pro
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ model }),
+  });
+}
+
+export async function updateProviderManageTag(provider: string, currentModel: string, req: ProviderTagModelUpdateRequest): Promise<ModelInfo> {
+  const query = new URLSearchParams({ provider, model: currentModel });
+  return fetchJSON<ModelInfo>(`/api/tags/manage?${query}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(req),
   });
 }
 

@@ -141,7 +141,7 @@ func (s *Server) listSelectedThirdPartyProviderModels(ctx context.Context) []api
 		}
 		selected := make(map[string]config.ProviderModelSelection, len(selections))
 		for _, selection := range selections {
-			modelID := strings.TrimSpace(selection.Model)
+			modelID := providerModelOriginalID(selection)
 			if modelID != "" {
 				selected[modelID] = selection
 			}
@@ -165,15 +165,7 @@ func (s *Server) listSelectedThirdPartyProviderModels(ctx context.Context) []api
 			continue
 		}
 		if selection, ok := selected[strings.TrimSpace(model.Model)]; ok {
-			if displayName := strings.TrimSpace(selection.DisplayName); displayName != "" {
-				model.Name = displayName
-				model.DisplayName = displayName
-				model.Label = displayName
-			}
-			if description := strings.TrimSpace(selection.Description); description != "" {
-				model.Description = description
-			}
-			out = append(out, model)
+			out = append(out, applyProviderModelMetadata(model, selection))
 		}
 	}
 	return out
@@ -285,5 +277,17 @@ func newThirdPartyProviderEngine(source, modelID string) (inference.Engine, erro
 	if baseURL == "" || apiKey == "" {
 		return nil, inference.NewHTTPStatusError(http.StatusBadRequest, "third-party provider is missing base URL or API key")
 	}
-	return inference.NewOpenAICompatibleEngine(baseURL, modelID, apiKey), nil
+	return inference.NewOpenAICompatibleEngine(baseURL, providerOriginalModelID(provider.ID, modelID), apiKey), nil
+}
+
+func providerOriginalModelID(providerID, modelID string) string {
+	modelID = strings.TrimSpace(modelID)
+	for _, selection := range config.GetProviderModelSelections(providerID) {
+		if strings.TrimSpace(selection.Model) == modelID {
+			if original := providerModelOriginalID(selection); original != "" {
+				return original
+			}
+		}
+	}
+	return modelID
 }

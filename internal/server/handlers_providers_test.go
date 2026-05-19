@@ -637,6 +637,12 @@ func TestProviderTagsManageReplaceModels(t *testing.T) {
 	if len(got) != 2 || got[0] != "a" || got[1] != "b" {
 		t.Fatalf("allowlist = %#v, want a,b", got)
 	}
+	req = httptest.NewRequest(http.MethodPatch, "/api/tags/manage?provider=provider1&model=a", strings.NewReader(`{"model":"b"}`))
+	w = httptest.NewRecorder()
+	s.handleProviderTagsManageUpdate(w, req)
+	if w.Code != http.StatusConflict {
+		t.Fatalf("duplicate update status = %d body=%s, want conflict", w.Code, w.Body.String())
+	}
 
 	req = httptest.NewRequest(http.MethodPut, "/api/tags/manage?provider=provider1", strings.NewReader(`{"models":[{"model":"a","display_name":"Renamed A"}]}`))
 	w = httptest.NewRecorder()
@@ -684,6 +690,49 @@ func TestProviderTagsManageReplaceModels(t *testing.T) {
 		t.Fatalf("patched selected models = %#v, want patched metadata", selectedResp.Models)
 	}
 
+	req = httptest.NewRequest(http.MethodPatch, "/api/tags/manage?provider=provider1&model=a", strings.NewReader(`{"model":"alias-a"}`))
+	w = httptest.NewRecorder()
+	s.handleProviderTagsManageUpdate(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("update model id status = %d body=%s", w.Code, w.Body.String())
+	}
+	if err := json.NewDecoder(w.Body).Decode(&patched); err != nil {
+		t.Fatalf("decode model id patch: %v", err)
+	}
+	if patched.Model != "alias-a" || patched.DisplayName != "Patched A" {
+		t.Fatalf("model id patch = %#v, want alias-a with patched metadata", patched)
+	}
+	req = httptest.NewRequest(http.MethodGet, "/api/tags?provider=xiaomi-plan", nil)
+	w = httptest.NewRecorder()
+	s.handleTags(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("tags model id status = %d body=%s", w.Code, w.Body.String())
+	}
+	if err := json.NewDecoder(w.Body).Decode(&selectedResp); err != nil {
+		t.Fatalf("decode model id selected tags: %v", err)
+	}
+	if len(selectedResp.Models) != 1 || selectedResp.Models[0].Model != "alias-a" {
+		t.Fatalf("aliased selected models = %#v, want alias-a", selectedResp.Models)
+	}
+	req = httptest.NewRequest(http.MethodPost, "/api/tags/manage?provider=provider1", strings.NewReader(`{"model":"a"}`))
+	w = httptest.NewRecorder()
+	s.handleProviderTagsManageAdd(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("add existing original status = %d body=%s", w.Code, w.Body.String())
+	}
+	req = httptest.NewRequest(http.MethodGet, "/api/tags?provider=xiaomi-plan", nil)
+	w = httptest.NewRecorder()
+	s.handleTags(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("tags after duplicate original add status = %d body=%s", w.Code, w.Body.String())
+	}
+	if err := json.NewDecoder(w.Body).Decode(&selectedResp); err != nil {
+		t.Fatalf("decode duplicate original selected tags: %v", err)
+	}
+	if len(selectedResp.Models) != 1 || selectedResp.Models[0].Model != "alias-a" {
+		t.Fatalf("duplicate original selected models = %#v, want only alias-a", selectedResp.Models)
+	}
+
 	req = httptest.NewRequest(http.MethodPut, "/api/tags/manage?provider=provider1&category=image_generation", strings.NewReader(`{"models":["a","b"]}`))
 	w = httptest.NewRecorder()
 	s.handleProviderTagsManageReplace(w, req)
@@ -696,6 +745,73 @@ func TestProviderTagsManageReplaceModels(t *testing.T) {
 	}
 	if len(resp.Models) != 1 || resp.Models[0].Model != "b" {
 		t.Fatalf("replace filtered models = %#v, want b", resp.Models)
+	}
+}
+
+func TestProviderModelAliasForwardsOriginalModelID(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	config.ResetProviders()
+	config.ResetProviderModelAllowlist()
+	t.Cleanup(config.ResetProviders)
+	t.Cleanup(config.ResetProviderModelAllowlist)
+
+	upstreamModel := ""
+	apiServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/v1/models":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"data": []map[string]string{{"id": "a", "task": "text-generation"}},
+			})
+		case "/v1/chat/completions":
+			var body struct {
+				Model string `json:"model"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				t.Fatalf("decode upstream chat body: %v", err)
+			}
+			upstreamModel = body.Model
+			_, _ = fmt.Fprint(w, `{"choices":[{"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}]}`)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer apiServer.Close()
+
+	s := newTestServer(t)
+	if err := config.SaveProviders([]config.ThirdPartyProvider{{
+		ID:      "provider1",
+		Name:    "xiaomi-plan",
+		BaseURL: apiServer.URL + "/v1",
+		APIKey:  "secret",
+		Enabled: true,
+	}}); err != nil {
+		t.Fatalf("save providers: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/tags/manage?provider=provider1", strings.NewReader(`{"model":"a"}`))
+	w := httptest.NewRecorder()
+	s.handleProviderTagsManageAdd(w, req)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("add status = %d body=%s", w.Code, w.Body.String())
+	}
+	req = httptest.NewRequest(http.MethodPatch, "/api/tags/manage?provider=provider1&model=a", strings.NewReader(`{"model":"alias-a"}`))
+	w = httptest.NewRecorder()
+	s.handleProviderTagsManageUpdate(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("alias status = %d body=%s", w.Code, w.Body.String())
+	}
+
+	req = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(`{"model":"alias-a","messages":[{"role":"user","content":"hi"}]}`))
+	w = httptest.NewRecorder()
+	s.handleOpenAIChatCompletions(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("chat status = %d body=%s", w.Code, w.Body.String())
+	}
+	if upstreamModel != "a" {
+		t.Fatalf("upstream model = %q, want original model a", upstreamModel)
 	}
 }
 

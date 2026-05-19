@@ -38,29 +38,38 @@ func TestProviderModelAllowlistStoresDisplayNames(t *testing.T) {
 	if err := ReplaceProviderModelSelections(" provider1 ", []ProviderModelSelection{
 		{Model: " a ", DisplayName: " Renamed A ", Description: " Custom description "},
 		{Model: "b"},
+		{Model: "c", OriginalModel: "a"},
 		{Model: "a", DisplayName: "Duplicate"},
 	}); err != nil {
 		t.Fatalf("replace allowlist: %v", err)
 	}
 	got := GetProviderModelSelections("provider1")
-	if len(got) != 2 || got[0].Model != "a" || got[0].DisplayName != "Renamed A" || got[0].Description != "Custom description" || got[1].Model != "b" || got[1].DisplayName != "" {
+	if len(got) != 2 || got[0].Model != "a" || got[0].OriginalModel != "a" || got[0].DisplayName != "Renamed A" || got[0].Description != "Custom description" || got[1].Model != "b" || got[1].OriginalModel != "b" || got[1].DisplayName != "" {
 		t.Fatalf("selections = %#v, want renamed a and default b", got)
 	}
 
+	newModel := "renamed-a"
 	newDescription := "Updated description"
-	updated, ok, err := UpdateProviderModelSelection("provider1", "a", ProviderModelSelectionUpdate{Description: &newDescription})
+	updated, ok, err := UpdateProviderModelSelection("provider1", "a", ProviderModelSelectionUpdate{Model: &newModel, Description: &newDescription})
 	if err != nil {
 		t.Fatalf("update selection: %v", err)
 	}
-	if !ok || updated.DisplayName != "Renamed A" || updated.Description != "Updated description" {
-		t.Fatalf("updated = %#v ok=%v, want display name preserved and description updated", updated, ok)
+	if !ok || updated.Model != "renamed-a" || updated.OriginalModel != "a" || updated.DisplayName != "Renamed A" || updated.Description != "Updated description" {
+		t.Fatalf("updated = %#v ok=%v, want public id changed with original preserved", updated, ok)
+	}
+	if _, _, err := UpdateProviderModelSelection("provider1", "renamed-a", ProviderModelSelectionUpdate{Model: stringPtr("b")}); err != ErrProviderModelSelectionDuplicate {
+		t.Fatalf("duplicate update error = %v, want ErrProviderModelSelectionDuplicate", err)
 	}
 
 	ResetProviderModelAllowlist()
 	got = GetProviderModelSelections("provider1")
-	if len(got) != 2 || got[0].DisplayName != "Renamed A" || got[0].Description != "Updated description" {
+	if len(got) != 2 || got[0].Model != "renamed-a" || got[0].OriginalModel != "a" || got[0].DisplayName != "Renamed A" || got[0].Description != "Updated description" {
 		t.Fatalf("loaded selections = %#v, want persisted display name", got)
 	}
+}
+
+func stringPtr(value string) *string {
+	return &value
 }
 
 func TestProviderModelAllowlistRemoveAndDelete(t *testing.T) {

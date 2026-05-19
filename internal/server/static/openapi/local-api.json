@@ -348,7 +348,7 @@
           "Models"
         ],
         "summary": "Update selected provider model metadata",
-        "description": "Updates metadata for a selected third-party provider model without changing the selected model list. Use an empty string to clear an overridden field.",
+        "description": "Updates metadata for a selected third-party provider model and can change the client-visible model ID. The original provider model ID is preserved internally for upstream inference calls. Use an empty string to clear an overridden display name or description.",
         "operationId": "updateProviderTagModel",
         "parameters": [
           {
@@ -363,7 +363,7 @@
           {
             "name": "model",
             "in": "query",
-            "description": "Provider model ID to update. May be supplied in the request body instead.",
+            "description": "Current client-visible provider model ID to update. Required when changing the model ID; the request body `model` value is the new client-visible ID.",
             "schema": {
               "type": "string"
             }
@@ -395,6 +395,9 @@
           },
           "404": {
             "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
           }
         }
       },
@@ -3296,11 +3299,17 @@
         "type": "object",
         "additionalProperties": false,
         "required": [
-          "error"
+          "error",
+          "errorCode"
         ],
         "properties": {
           "error": {
             "type": "string"
+          },
+          "errorCode": {
+            "type": "integer",
+            "format": "int32",
+            "example": 400
           }
         }
       },
@@ -3531,7 +3540,8 @@
         ],
         "properties": {
           "model": {
-            "type": "string"
+            "type": "string",
+            "description": "Provider catalog model ID to select. This becomes the initial client-visible model ID and is retained internally as the original upstream model ID."
           },
           "display_name": {
             "type": "string",
@@ -3549,7 +3559,7 @@
         "properties": {
           "model": {
             "type": "string",
-            "description": "Provider model ID to update when the `model` query parameter is omitted."
+            "description": "New client-visible model ID. When the `model` query parameter is omitted, this value is used only to locate the existing model for metadata-only legacy requests."
           },
           "display_name": {
             "type": "string",
@@ -5935,9 +5945,15 @@
         "type": "object",
         "additionalProperties": false,
         "required": [
-          "error"
+          "error",
+          "errorCode"
         ],
         "properties": {
+          "errorCode": {
+            "type": "integer",
+            "format": "int32",
+            "example": 500
+          },
           "error": {
             "$ref": "#/components/schemas/OpenAIError"
           }
@@ -6820,7 +6836,8 @@
         "additionalProperties": false,
         "required": [
           "type",
-          "error"
+          "error",
+          "errorCode"
         ],
         "properties": {
           "type": {
@@ -6828,6 +6845,11 @@
             "enum": [
               "error"
             ]
+          },
+          "errorCode": {
+            "type": "integer",
+            "format": "int32",
+            "example": 500
           },
           "error": {
             "$ref": "#/components/schemas/AnthropicErrorObject"

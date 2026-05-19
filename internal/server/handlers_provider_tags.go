@@ -2,6 +2,7 @@ package server
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strings"
 
@@ -50,16 +51,23 @@ func (s *Server) handleProviderTagsManageAdd(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
+	if existing, ok := providerModelSelectionByOriginal(provider.ID, model.Model); ok {
+		model = applyProviderModelMetadata(model, existing)
+		writeJSON(w, http.StatusOK, model)
+		return
+	}
 	model = applyProviderModelMetadata(model, config.ProviderModelSelection{
-		Model:       model.Model,
-		DisplayName: req.DisplayName,
-		Description: req.Description,
+		Model:         model.Model,
+		OriginalModel: model.Model,
+		DisplayName:   req.DisplayName,
+		Description:   req.Description,
 	})
 	alreadySelected := modelIDInList(config.GetProviderModelAllowlist(provider.ID), model.Model)
 	if err := config.AddProviderModelSelection(provider.ID, config.ProviderModelSelection{
-		Model:       model.Model,
-		DisplayName: strings.TrimSpace(req.DisplayName),
-		Description: strings.TrimSpace(req.Description),
+		Model:         model.Model,
+		OriginalModel: model.Model,
+		DisplayName:   strings.TrimSpace(req.DisplayName),
+		Description:   strings.TrimSpace(req.Description),
 	}); err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to save provider model: "+err.Error())
 		return
@@ -103,14 +111,16 @@ func (s *Server) handleProviderTagsManageReplace(w http.ResponseWriter, r *http.
 			return
 		}
 		model = applyProviderModelMetadata(model, config.ProviderModelSelection{
-			Model:       model.Model,
-			DisplayName: requested.DisplayName,
-			Description: requested.Description,
+			Model:         model.Model,
+			OriginalModel: model.Model,
+			DisplayName:   requested.DisplayName,
+			Description:   requested.Description,
 		})
 		selected = append(selected, config.ProviderModelSelection{
-			Model:       model.Model,
-			DisplayName: strings.TrimSpace(requested.DisplayName),
-			Description: strings.TrimSpace(requested.Description),
+			Model:         model.Model,
+			OriginalModel: model.Model,
+			DisplayName:   strings.TrimSpace(requested.DisplayName),
+			Description:   strings.TrimSpace(requested.Description),
 		})
 		selectedModels = append(selectedModels, model)
 	}
@@ -140,8 +150,8 @@ func (s *Server) handleProviderTagsManageUpdate(w http.ResponseWriter, r *http.R
 		return
 	}
 	modelID := strings.TrimSpace(r.URL.Query().Get("model"))
-	if modelID == "" {
-		modelID = strings.TrimSpace(req.Model)
+	if modelID == "" && req.Model != nil {
+		modelID = strings.TrimSpace(*req.Model)
 	}
 	if modelID == "" {
 		writeError(w, http.StatusBadRequest, "model is required")
@@ -149,10 +159,15 @@ func (s *Server) handleProviderTagsManageUpdate(w http.ResponseWriter, r *http.R
 	}
 
 	selection, found, err := config.UpdateProviderModelSelection(provider.ID, modelID, config.ProviderModelSelectionUpdate{
+		Model:       req.Model,
 		DisplayName: req.DisplayName,
 		Description: req.Description,
 	})
 	if err != nil {
+		if errors.Is(err, config.ErrProviderModelSelectionDuplicate) {
+			writeError(w, http.StatusConflict, err.Error())
+			return
+		}
 		writeError(w, http.StatusInternalServerError, "failed to save provider model: "+err.Error())
 		return
 	}
@@ -171,7 +186,7 @@ func (s *Server) handleProviderTagsManageUpdate(w http.ResponseWriter, r *http.R
 		Source:      providerSource(provider.ID),
 		Provider:    modelProviderIDFromProvider(provider),
 	}
-	if catalogModel, ok, err := providerModelFromCatalog(r, provider, selection.Model); err == nil && ok {
+	if catalogModel, ok, err := providerModelFromCatalog(r, provider, providerModelOriginalID(selection)); err == nil && ok {
 		model = catalogModel
 	}
 	model = applyProviderModelMetadata(model, selection)
@@ -280,6 +295,16 @@ func normalizeProviderTagModelSelections(models []api.ProviderTagModelSelection)
 }
 
 func applyProviderModelMetadata(model api.ModelInfo, selection config.ProviderModelSelection) api.ModelInfo {
+	publicModel := strings.TrimSpace(selection.Model)
+	originalModel := providerModelOriginalID(selection)
+	if publicModel != "" {
+		model.Model = publicModel
+		if publicModel != originalModel {
+			model.Name = publicModel
+			model.DisplayName = publicModel
+			model.Label = publicModel
+		}
+	}
 	displayName := strings.TrimSpace(selection.DisplayName)
 	if displayName != "" {
 		model.Name = displayName
@@ -290,6 +315,26 @@ func applyProviderModelMetadata(model api.ModelInfo, selection config.ProviderMo
 		model.Description = description
 	}
 	return model
+}
+
+func providerModelOriginalID(selection config.ProviderModelSelection) string {
+	if original := strings.TrimSpace(selection.OriginalModel); original != "" {
+		return original
+	}
+	return strings.TrimSpace(selection.Model)
+}
+
+func providerModelSelectionByOriginal(providerID, modelID string) (config.ProviderModelSelection, bool) {
+	modelID = strings.TrimSpace(modelID)
+	if modelID == "" {
+		return config.ProviderModelSelection{}, false
+	}
+	for _, selection := range config.GetProviderModelSelections(providerID) {
+		if providerModelOriginalID(selection) == modelID {
+			return selection, true
+		}
+	}
+	return config.ProviderModelSelection{}, false
 }
 
 func modelProviderIDFromProvider(provider config.ThirdPartyProvider) string {

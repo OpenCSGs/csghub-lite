@@ -2,6 +2,7 @@ package config
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -16,10 +17,13 @@ type ProviderModelAllowlist struct {
 }
 
 type ProviderModelSelection struct {
-	Model       string `json:"model"`
-	DisplayName string `json:"display_name,omitempty"`
-	Description string `json:"description,omitempty"`
+	Model         string `json:"model"`
+	OriginalModel string `json:"original_model,omitempty"`
+	DisplayName   string `json:"display_name,omitempty"`
+	Description   string `json:"description,omitempty"`
 }
+
+var ErrProviderModelSelectionDuplicate = errors.New("provider model id already exists")
 
 var (
 	providerModelAllowlist     ProviderModelAllowlist
@@ -127,6 +131,10 @@ func AddProviderModelAllowlist(providerID, modelID string) error {
 func AddProviderModelSelection(providerID string, selection ProviderModelSelection) error {
 	providerID = strings.TrimSpace(providerID)
 	selection.Model = strings.TrimSpace(selection.Model)
+	selection.OriginalModel = strings.TrimSpace(selection.OriginalModel)
+	if selection.OriginalModel == "" {
+		selection.OriginalModel = selection.Model
+	}
 	selection.DisplayName = strings.TrimSpace(selection.DisplayName)
 	selection.Description = strings.TrimSpace(selection.Description)
 	if providerID == "" || selection.Model == "" {
@@ -175,6 +183,17 @@ func UpdateProviderModelSelection(providerID, modelID string, update ProviderMod
 			continue
 		}
 		found = true
+		if update.Model != nil {
+			nextModel := strings.TrimSpace(*update.Model)
+			if nextModel != "" && nextModel != models[i].Model {
+				for j := range models {
+					if i != j && models[j].Model == nextModel {
+						return ProviderModelSelection{}, true, ErrProviderModelSelectionDuplicate
+					}
+				}
+				models[i].Model = nextModel
+			}
+		}
 		if update.DisplayName != nil {
 			models[i].DisplayName = strings.TrimSpace(*update.DisplayName)
 		}
@@ -191,6 +210,7 @@ func UpdateProviderModelSelection(providerID, modelID string, update ProviderMod
 }
 
 type ProviderModelSelectionUpdate struct {
+	Model       *string
 	DisplayName *string
 	Description *string
 }
@@ -276,8 +296,13 @@ func normalizeModelIDList(models []string) []string {
 func normalizeProviderModelSelections(models []ProviderModelSelection) []ProviderModelSelection {
 	out := make([]ProviderModelSelection, 0, len(models))
 	seen := map[string]struct{}{}
+	seenOriginal := map[string]struct{}{}
 	for _, model := range models {
 		model.Model = strings.TrimSpace(model.Model)
+		model.OriginalModel = strings.TrimSpace(model.OriginalModel)
+		if model.OriginalModel == "" {
+			model.OriginalModel = model.Model
+		}
 		model.DisplayName = strings.TrimSpace(model.DisplayName)
 		model.Description = strings.TrimSpace(model.Description)
 		if model.Model == "" {
@@ -286,7 +311,11 @@ func normalizeProviderModelSelections(models []ProviderModelSelection) []Provide
 		if _, ok := seen[model.Model]; ok {
 			continue
 		}
+		if _, ok := seenOriginal[model.OriginalModel]; ok {
+			continue
+		}
 		seen[model.Model] = struct{}{}
+		seenOriginal[model.OriginalModel] = struct{}{}
 		out = append(out, model)
 	}
 	return out
@@ -312,6 +341,7 @@ func (s *ProviderModelSelection) UnmarshalJSON(data []byte) error {
 	var model string
 	if err := json.Unmarshal(data, &model); err == nil {
 		s.Model = strings.TrimSpace(model)
+		s.OriginalModel = s.Model
 		s.DisplayName = ""
 		s.Description = ""
 		return nil
@@ -322,6 +352,10 @@ func (s *ProviderModelSelection) UnmarshalJSON(data []byte) error {
 		return err
 	}
 	s.Model = strings.TrimSpace(decoded.Model)
+	s.OriginalModel = strings.TrimSpace(decoded.OriginalModel)
+	if s.OriginalModel == "" {
+		s.OriginalModel = s.Model
+	}
 	s.DisplayName = strings.TrimSpace(decoded.DisplayName)
 	s.Description = strings.TrimSpace(decoded.Description)
 	return nil

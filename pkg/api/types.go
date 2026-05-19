@@ -643,7 +643,7 @@ type ProviderTagModelsReplaceRequest struct {
 }
 
 type ProviderTagModelUpdateRequest struct {
-	Model       string  `json:"model,omitempty"`
+	Model       *string `json:"model,omitempty"`
 	DisplayName *string `json:"display_name,omitempty"`
 	Description *string `json:"description,omitempty"`
 }
