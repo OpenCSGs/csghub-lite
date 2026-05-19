@@ -89,11 +89,14 @@ func TestHandleSettingsDirectories_RejectsFiles(t *testing.T) {
 		t.Fatalf("status = %d, want %d", w.Code, http.StatusBadRequest)
 	}
 
-	var resp map[string]string
+	var resp apiErrorResponse
 	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
 		t.Fatalf("decode response: %v", err)
 	}
-	if !strings.Contains(resp["error"], "not a directory") {
-		t.Fatalf("error = %q, want not a directory", resp["error"])
+	if resp.ErrorCode != http.StatusBadRequest {
+		t.Fatalf("errorCode = %d, want %d", resp.ErrorCode, http.StatusBadRequest)
+	}
+	if !strings.Contains(resp.Error, "not a directory") {
+		t.Fatalf("error = %q, want not a directory", resp.Error)
 	}
 }

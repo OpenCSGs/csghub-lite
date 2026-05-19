@@ -197,11 +197,14 @@ func TestHandleLocalModelSearch_InvalidPaginationParams(t *testing.T) {
 				t.Fatalf("status = %d, want %d", w.Code, http.StatusBadRequest)
 			}
 
-			var resp map[string]string
+			var resp apiErrorResponse
 			if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
 				t.Fatalf("decode error response: %v", err)
 			}
-			if strings.TrimSpace(resp["error"]) == "" {
+			if resp.ErrorCode != http.StatusBadRequest {
+				t.Fatalf("errorCode = %d, want %d", resp.ErrorCode, http.StatusBadRequest)
+			}
+			if strings.TrimSpace(resp.Error) == "" {
 				t.Fatal("error message is empty")
 			}
 		})

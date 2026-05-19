@@ -160,7 +160,7 @@ func (s *Server) handleAnthropicMessagesProxy(
 			w.Header().Set("Content-Type", "text/event-stream")
 			w.Header().Set("Cache-Control", "no-cache")
 			w.Header().Set("Connection", "keep-alive")
-			writeAnthropicSSE(w, "error", anthropicErrorPayloadWithType("api_error", message))
+			writeAnthropicSSE(w, "error", anthropicErrorPayloadWithStatus(http.StatusInternalServerError, "api_error", message))
 			return
 		}
 		writeAnthropicErrorWithType(w, http.StatusInternalServerError, "api_error", message)
@@ -176,7 +176,7 @@ func (s *Server) handleAnthropicMessagesProxy(
 			w.Header().Set("Content-Type", "text/event-stream")
 			w.Header().Set("Cache-Control", "no-cache")
 			w.Header().Set("Connection", "keep-alive")
-			writeAnthropicSSE(w, "error", anthropicErrorPayloadWithType("api_error", err.Error()))
+			writeAnthropicSSE(w, "error", anthropicErrorPayloadWithStatus(http.StatusInternalServerError, "api_error", err.Error()))
 			return
 		}
 		writeAnthropicErrorWithType(w, http.StatusInternalServerError, "api_error", err.Error())
@@ -238,7 +238,7 @@ func (s *Server) handleAnthropicMessagesWithTools(
 			w.Header().Set("Content-Type", "text/event-stream")
 			w.Header().Set("Cache-Control", "no-cache")
 			w.Header().Set("Connection", "keep-alive")
-			writeAnthropicSSE(w, "error", anthropicErrorPayloadWithType("api_error", message))
+			writeAnthropicSSE(w, "error", anthropicErrorPayloadWithStatus(http.StatusInternalServerError, "api_error", message))
 			return
 		}
 		writeAnthropicErrorWithType(w, http.StatusInternalServerError, "api_error", message)
@@ -256,7 +256,7 @@ func (s *Server) handleAnthropicMessagesWithTools(
 			w.Header().Set("Content-Type", "text/event-stream")
 			w.Header().Set("Cache-Control", "no-cache")
 			w.Header().Set("Connection", "keep-alive")
-			writeAnthropicSSE(w, "error", anthropicErrorPayloadWithType("api_error", err.Error()))
+			writeAnthropicSSE(w, "error", anthropicErrorPayloadWithStatus(http.StatusInternalServerError, "api_error", err.Error()))
 			return
 		}
 		writeAnthropicErrorWithType(w, http.StatusInternalServerError, "api_error", err.Error())
@@ -951,16 +951,19 @@ func writeAnthropicInferenceError(w http.ResponseWriter, err error) {
 func writeAnthropicErrorWithType(w http.ResponseWriter, status int, errType, msg string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(anthropicErrorPayloadWithType(errType, msg))
+	_ = json.NewEncoder(w).Encode(anthropicErrorPayloadWithStatus(status, errType, msg))
 }
 
 func anthropicErrorPayload(msg string) map[string]interface{} {
-	return anthropicErrorPayloadWithType("invalid_request_error", msg)
+	return anthropicErrorPayloadWithStatus(http.StatusBadRequest, "invalid_request_error", msg)
 }
 
 func anthropicErrorPayloadFromInferenceError(err error) map[string]interface{} {
 	status := inference.HTTPStatusCode(err)
-	return anthropicErrorPayloadWithType(anthropicErrorTypeForStatus(status), inference.HTTPErrorMessage(err))
+	if status == 0 {
+		status = http.StatusInternalServerError
+	}
+	return anthropicErrorPayloadWithStatus(status, anthropicErrorTypeForStatus(status), inference.HTTPErrorMessage(err))
 }
 
 func anthropicErrorTypeForStatus(status int) string {
@@ -979,8 +982,13 @@ func anthropicErrorTypeForStatus(status int) string {
 }
 
 func anthropicErrorPayloadWithType(errType, msg string) map[string]interface{} {
+	return anthropicErrorPayloadWithStatus(http.StatusInternalServerError, errType, msg)
+}
+
+func anthropicErrorPayloadWithStatus(status int, errType, msg string) map[string]interface{} {
 	return map[string]interface{}{
-		"type": "error",
+		"type":      "error",
+		"errorCode": status,
 		"error": map[string]interface{}{
 			"type":    errType,
 			"message": msg,

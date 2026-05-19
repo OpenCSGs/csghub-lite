@@ -120,7 +120,7 @@ func (s *Server) handleOpenAIChatCompletions(w http.ResponseWriter, r *http.Requ
 
 		_, err := eng.Chat(r.Context(), messages, opts, onToken)
 		if err != nil {
-			writeSSE(w, map[string]string{"error": err.Error()})
+			writeSSE(w, apiErrorResponse{Error: err.Error(), ErrorCode: openAIInferenceStatus(err)})
 			return
 		}
 		s.recordAPIUsage(r, req.Model, req.Source, inputTokens, estimateAnthropicTokens(full.String()))
@@ -252,7 +252,7 @@ func (s *Server) handleOpenAIChatCompletionsWithTools(
 			w.Header().Set("Content-Type", "text/event-stream")
 			w.Header().Set("Cache-Control", "no-cache")
 			w.Header().Set("Connection", "keep-alive")
-			writeSSE(w, map[string]string{"error": err.Error()})
+			writeSSE(w, apiErrorResponse{Error: err.Error(), ErrorCode: openAIInferenceStatus(err)})
 			return
 		}
 		writeOpenAIInferenceError(w, err)
@@ -266,7 +266,7 @@ func (s *Server) handleOpenAIChatCompletionsWithTools(
 			w.Header().Set("Content-Type", "text/event-stream")
 			w.Header().Set("Cache-Control", "no-cache")
 			w.Header().Set("Connection", "keep-alive")
-			writeSSE(w, map[string]string{"error": "decoding tool response: " + err.Error()})
+			writeSSE(w, apiErrorResponse{Error: "decoding tool response: " + err.Error(), ErrorCode: http.StatusInternalServerError})
 			return
 		}
 		writeOpenAIError(w, http.StatusInternalServerError, "server_error", "decoding tool response: "+err.Error())
@@ -302,7 +302,7 @@ func (s *Server) handleOpenAIChatCompletionsWithTools(
 	w.Header().Set("Connection", "keep-alive")
 
 	if len(openAIResp.Choices) == 0 {
-		writeSSE(w, map[string]string{"error": "no choices in tool response"})
+		writeSSE(w, apiErrorResponse{Error: "no choices in tool response", ErrorCode: http.StatusInternalServerError})
 		return
 	}
 
@@ -403,10 +403,7 @@ func (s *Server) handleOpenAIModels(w http.ResponseWriter, r *http.Request) {
 }
 
 func writeOpenAIInferenceError(w http.ResponseWriter, err error) {
-	status := inference.HTTPStatusCode(err)
-	if status == 0 {
-		status = http.StatusInternalServerError
-	}
+	status := openAIInferenceStatus(err)
 
 	errType := "server_error"
 	switch status {
@@ -427,11 +424,20 @@ func writeOpenAIError(w http.ResponseWriter, status int, errType, msg string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	json.NewEncoder(w).Encode(map[string]interface{}{
+		"errorCode": status,
 		"error": map[string]interface{}{
 			"message": msg,
 			"type":    errType,
 		},
 	})
+}
+
+func openAIInferenceStatus(err error) int {
+	status := inference.HTTPStatusCode(err)
+	if status == 0 {
+		return http.StatusInternalServerError
+	}
+	return status
 }
 
 func appendOpenAIModel(data []api.OpenAIModel, seen map[string]struct{}, modelID string, createdAt time.Time) []api.OpenAIModel {

@@ -616,7 +616,8 @@ func TestHandleOpenAIChatCompletionsCloudWithoutTokenReturnsUnauthorized(t *test
 	}
 
 	var resp struct {
-		Error struct {
+		ErrorCode int `json:"errorCode"`
+		Error     struct {
 			Message string `json:"message"`
 			Type    string `json:"type"`
 		} `json:"error"`
@@ -626,6 +627,9 @@ func TestHandleOpenAIChatCompletionsCloudWithoutTokenReturnsUnauthorized(t *test
 	}
 	if resp.Error.Type != "authentication_error" {
 		t.Fatalf("error type = %q, want authentication_error", resp.Error.Type)
+	}
+	if resp.ErrorCode != http.StatusUnauthorized {
+		t.Fatalf("errorCode = %d, want %d", resp.ErrorCode, http.StatusUnauthorized)
 	}
 	if !strings.Contains(resp.Error.Message, "Cloud login required") {
 		t.Fatalf("error message = %q, want Cloud login required", resp.Error.Message)
@@ -649,7 +653,8 @@ func TestHandleOpenAIResponsesCloudWithoutTokenReturnsUnauthorized(t *testing.T)
 	}
 
 	var resp struct {
-		Error struct {
+		ErrorCode int `json:"errorCode"`
+		Error     struct {
 			Message string `json:"message"`
 			Type    string `json:"type"`
 		} `json:"error"`
@@ -659,6 +664,9 @@ func TestHandleOpenAIResponsesCloudWithoutTokenReturnsUnauthorized(t *testing.T)
 	}
 	if resp.Error.Type != "authentication_error" {
 		t.Fatalf("error type = %q, want authentication_error", resp.Error.Type)
+	}
+	if resp.ErrorCode != http.StatusUnauthorized {
+		t.Fatalf("errorCode = %d, want %d", resp.ErrorCode, http.StatusUnauthorized)
 	}
 	if !strings.Contains(resp.Error.Message, "Cloud login required") {
 		t.Fatalf("error message = %q, want Cloud login required", resp.Error.Message)

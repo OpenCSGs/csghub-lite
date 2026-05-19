@@ -3296,11 +3296,17 @@
         "type": "object",
         "additionalProperties": false,
         "required": [
-          "error"
+          "error",
+          "errorCode"
         ],
         "properties": {
           "error": {
             "type": "string"
+          },
+          "errorCode": {
+            "type": "integer",
+            "format": "int32",
+            "example": 400
           }
         }
       },
@@ -5935,9 +5941,15 @@
         "type": "object",
         "additionalProperties": false,
         "required": [
-          "error"
+          "error",
+          "errorCode"
         ],
         "properties": {
+          "errorCode": {
+            "type": "integer",
+            "format": "int32",
+            "example": 500
+          },
           "error": {
             "$ref": "#/components/schemas/OpenAIError"
           }
@@ -6820,7 +6832,8 @@
         "additionalProperties": false,
         "required": [
           "type",
-          "error"
+          "error",
+          "errorCode"
         ],
         "properties": {
           "type": {
@@ -6828,6 +6841,11 @@
             "enum": [
               "error"
             ]
+          },
+          "errorCode": {
+            "type": "integer",
+            "format": "int32",
+            "example": 500
           },
           "error": {
             "$ref": "#/components/schemas/AnthropicErrorObject"

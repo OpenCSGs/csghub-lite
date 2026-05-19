@@ -740,12 +740,15 @@ func TestHandleChat_CloudWithoutTokenReturnsUnauthorized(t *testing.T) {
 		t.Fatalf("status = %d, want %d", w.Code, http.StatusUnauthorized)
 	}
 
-	var resp map[string]string
+	var resp apiErrorResponse
 	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
 		t.Fatalf("decode error: %v", err)
 	}
-	if !strings.Contains(resp["error"], "Cloud login required") {
-		t.Fatalf("error = %q, want Cloud login required", resp["error"])
+	if resp.ErrorCode != http.StatusUnauthorized {
+		t.Fatalf("errorCode = %d, want %d", resp.ErrorCode, http.StatusUnauthorized)
+	}
+	if !strings.Contains(resp.Error, "Cloud login required") {
+		t.Fatalf("error = %q, want Cloud login required", resp.Error)
 	}
 }
 

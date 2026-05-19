@@ -20,8 +20,13 @@ func writeJSON(w http.ResponseWriter, status int, v interface{}) {
 	json.NewEncoder(w).Encode(v)
 }
 
+type apiErrorResponse struct {
+	Error     string `json:"error"`
+	ErrorCode int    `json:"errorCode"`
+}
+
 func writeError(w http.ResponseWriter, status int, msg string) {
-	writeJSON(w, status, map[string]string{"error": msg})
+	writeJSON(w, status, apiErrorResponse{Error: msg, ErrorCode: status})
 }
 
 func writeInferenceError(w http.ResponseWriter, err error) {
