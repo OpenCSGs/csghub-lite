@@ -95,7 +95,7 @@ const providerModelsError = signal("");
 const providerSelectedModels = signal<Record<string, ModelInfo[]>>({});
 const providersChangedEvent = "csghub:providers-changed";
 type SettingsTab = "system" | "apiKeys" | "usage";
-type UsagePeriod = "week" | "month" | "year" | "all";
+type UsagePeriod = "week" | "month" | "year";
 
 const activeSettingsTab = signal<SettingsTab>("system");
 const localAPIKeys = signal<LocalAPIKeysResponse | null>(null);
@@ -108,7 +108,8 @@ const localAPIKeyDeleting = signal("");
 const localAPIUsage = signal<LocalAPIUsageResponse | null>(null);
 const localAPIUsageLoading = signal(false);
 const localAPIUsageError = signal("");
-const localAPIUsagePeriod = signal<UsagePeriod>("all");
+const localAPIUsagePeriod = signal<UsagePeriod>("week");
+const localAPIUsageProvider = signal("");
 let localAPIUsageRequestID = 0;
 const copiedBaseURL = signal("");
 const webSearchEnabled = signal(false);
@@ -261,12 +262,12 @@ async function fetchLocalAPIKeys() {
   }
 }
 
-async function fetchLocalAPIUsage(period: UsagePeriod = localAPIUsagePeriod.value) {
+async function fetchLocalAPIUsage(period: UsagePeriod = localAPIUsagePeriod.value, provider: string = localAPIUsageProvider.value) {
   const requestID = ++localAPIUsageRequestID;
   localAPIUsageLoading.value = true;
   localAPIUsageError.value = "";
   try {
-    const usage = await getLocalAPIUsage(period);
+    const usage = await getLocalAPIUsage(period, provider);
     if (requestID !== localAPIUsageRequestID) return;
     localAPIUsage.value = usage;
   } catch (err: any) {
@@ -861,6 +862,11 @@ function copySettingsSnippet(value: string) {
 function selectLocalAPIUsagePeriod(period: UsagePeriod) {
   localAPIUsagePeriod.value = period;
   void fetchLocalAPIUsage(period);
+}
+
+function selectLocalAPIUsageProvider(provider: string) {
+  localAPIUsageProvider.value = provider;
+  void fetchLocalAPIUsage(localAPIUsagePeriod.value, provider);
 }
 
 export function Settings() {
@@ -1831,38 +1837,59 @@ function UsageStatisticsSection() {
   const usage = localAPIUsage.value;
   const rows = usage?.rows || [];
   const summary = usage?.total_summary;
+  const providerOptions = providers.value
+    .map((provider) => provider.name.trim())
+    .filter((name, index, names) => name && names.indexOf(name) === index);
   return (
     <div class="mb-10">
-      <div class="flex items-center justify-between gap-3 mb-4">
+      <div class="flex flex-wrap items-start justify-between gap-3 mb-4">
         <div>
           <h2 class="font-semibold text-gray-900">{t("settings.apiUsage")}</h2>
           <p class="mt-1 text-sm text-gray-500">{t("settings.apiUsageDesc")}</p>
         </div>
-        <button
-          type="button"
-          onClick={() => void fetchLocalAPIUsage()}
-          disabled={localAPIUsageLoading.value}
-          class="px-4 py-2 border border-gray-200 rounded-lg text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-60 disabled:cursor-not-allowed transition-colors"
-        >
-          {localAPIUsageLoading.value ? "..." : t("settings.apiUsageRefresh")}
-        </button>
+        <div class="flex flex-wrap items-center justify-end gap-3">
+          <label class="flex items-center gap-2 text-xs text-gray-500">
+            <span>{t("settings.apiUsageProviderFilter")}</span>
+            <select
+              value={localAPIUsageProvider.value}
+              onChange={(event) => selectLocalAPIUsageProvider((event.currentTarget as HTMLSelectElement).value)}
+              disabled={localAPIUsageLoading.value}
+              class="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-700 outline-none transition-colors focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100 disabled:opacity-60"
+            >
+              <option value="">{t("settings.apiUsageProviderAll")}</option>
+              {providerOptions.map((name) => (
+                <option key={name} value={name}>{name}</option>
+              ))}
+            </select>
+          </label>
+          <button
+            type="button"
+            onClick={() => void fetchLocalAPIUsage()}
+            disabled={localAPIUsageLoading.value}
+            class="px-4 py-2 border border-gray-200 rounded-lg text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-60 disabled:cursor-not-allowed transition-colors"
+          >
+            {localAPIUsageLoading.value ? "..." : t("settings.apiUsageRefresh")}
+          </button>
+        </div>
       </div>
       <div class="mb-5 flex flex-wrap gap-2">
         <UsagePeriodButton period="week" label={t("settings.apiUsagePeriodWeek")} />
         <UsagePeriodButton period="month" label={t("settings.apiUsagePeriodMonth")} />
         <UsagePeriodButton period="year" label={t("settings.apiUsagePeriodYear")} />
-        <UsagePeriodButton period="all" label={t("settings.apiUsagePeriodAll")} />
       </div>
-      <div class="grid gap-4 md:grid-cols-3">
+      <div class="grid gap-4 md:grid-cols-4">
         <UsageCard label={t("settings.apiUsageCumulative")} value={formatNumber(lastSummaryValue(summary, 0, usage?.totals.total_tokens || 0))} tone="orange" />
         <UsageCard label={t("settings.apiUsageLocalModels")} value={formatNumber(lastSummaryValue(summary, 1, usage?.totals.local_tokens || 0))} tone="green" />
         <UsageCard label={t("settings.apiUsageCloudModels")} value={formatNumber(lastSummaryValue(summary, 2, usage?.totals.cloud_tokens || 0))} tone="purple" />
+        <UsageCard label={t("settings.apiUsageTotalHistory")} value={formatNumber(usage?.total_history || 0)} tone="blue" />
       </div>
       <UsageSummaryChart summary={summary} />
       {localAPIUsageError.value && <p class="mt-3 text-sm text-red-600">{localAPIUsageError.value}</p>}
-      <div class="mt-6 mb-3 flex items-center justify-between gap-3">
-        <h3 class="text-sm font-semibold text-gray-900">{t("settings.apiUsageBreakdown")}</h3>
-        <span class="text-xs text-gray-400">{t("settings.apiUsageRequests")}: {formatNumber(usage?.totals.requests || 0)}</span>
+      <div class="mt-6 mb-3 flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h3 class="text-sm font-semibold text-gray-900">{t("settings.apiUsageBreakdown")}</h3>
+          <span class="text-xs text-gray-400">{t("settings.apiUsageRequests")}: {formatNumber(usage?.totals.requests || 0)}</span>
+        </div>
       </div>
       <div class="overflow-hidden rounded-xl border border-gray-200 bg-white">
         {rows.length === 0 ? (
@@ -1928,11 +1955,12 @@ function UsagePeriodButton({ period, label }: { period: UsagePeriod; label: stri
   );
 }
 
-function UsageCard({ label, value, tone }: { label: string; value: string; tone: "orange" | "green" | "purple" }) {
+function UsageCard({ label, value, tone }: { label: string; value: string; tone: "orange" | "green" | "purple" | "blue" }) {
   const toneClasses = {
     orange: "text-orange-500 bg-orange-50 border-orange-100",
     green: "text-emerald-500 bg-emerald-50 border-emerald-100",
     purple: "text-violet-500 bg-violet-50 border-violet-100",
+    blue: "text-sky-500 bg-sky-50 border-sky-100",
   }[tone];
   return (
     <div class="rounded-2xl border border-gray-100 bg-white p-5 shadow-sm">

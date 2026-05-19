@@ -426,6 +426,7 @@ type APIUsageResponse struct {
 	Period       string                `json:"period"`
 	From         *time.Time            `json:"from,omitempty"`
 	Totals       APIUsageTotals        `json:"totals"`
+	TotalHistory int64                 `json:"total_history"`
 	TotalSummary APIUsageTotalSummary  `json:"total_summary"`
 	SourceTotals []APIUsageSourceTotal `json:"source_totals"`
 	Rows         []APIUsageRow         `json:"rows"`

@@ -234,8 +234,9 @@ type APIUsageState struct {
 }
 
 type APIUsageListOptions struct {
-	Since *time.Time
-	Until *time.Time
+	Since    *time.Time
+	Until    *time.Time
+	Provider string
 }
 
 type APIUsageStore struct {
@@ -455,6 +456,9 @@ func aggregateAPIUsageEvents(events []APIUsageEventRecord, options APIUsageListO
 		if !apiUsageTimeInRange(event.CreatedAt, options) {
 			continue
 		}
+		if !apiUsageProviderMatches(event.Source, event.SourceName, options) {
+			continue
+		}
 		upsertAPIUsageRecord(&state, event)
 	}
 	return state.Records
@@ -509,7 +513,7 @@ func latestNonEmpty(current, next string) string {
 func filterAPIUsageRecords(records []APIUsageRecord, options APIUsageListOptions) []APIUsageRecord {
 	out := make([]APIUsageRecord, 0, len(records))
 	for _, record := range records {
-		if apiUsageTimeInRange(record.LastUsedAt, options) {
+		if apiUsageTimeInRange(record.LastUsedAt, options) && apiUsageProviderMatches(record.Source, record.SourceName, options) {
 			out = append(out, record)
 		}
 	}
@@ -519,11 +523,27 @@ func filterAPIUsageRecords(records []APIUsageRecord, options APIUsageListOptions
 func filterAPIUsageEvents(events []APIUsageEventRecord, options APIUsageListOptions) []APIUsageEventRecord {
 	out := make([]APIUsageEventRecord, 0, len(events))
 	for _, event := range events {
-		if apiUsageTimeInRange(event.CreatedAt, options) {
+		if apiUsageTimeInRange(event.CreatedAt, options) && apiUsageProviderMatches(event.Source, event.SourceName, options) {
 			out = append(out, event)
 		}
 	}
 	return out
+}
+
+func apiUsageProviderMatches(source, sourceName string, options APIUsageListOptions) bool {
+	provider := strings.TrimSpace(options.Provider)
+	if provider == "" {
+		return true
+	}
+	source = strings.TrimSpace(source)
+	sourceName = strings.TrimSpace(sourceName)
+	if strings.EqualFold(sourceName, provider) || strings.EqualFold(source, provider) {
+		return true
+	}
+	if strings.HasPrefix(strings.ToLower(source), "provider:") {
+		return strings.EqualFold(strings.TrimSpace(source[len("provider:"):]), provider)
+	}
+	return false
 }
 
 func apiUsageTimeInRange(value time.Time, options APIUsageListOptions) bool {

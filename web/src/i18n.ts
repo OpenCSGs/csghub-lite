@@ -429,7 +429,6 @@ const en: Record<string, string> = {
   "settings.apiUsagePeriodWeek": "Last 7 days",
   "settings.apiUsagePeriodMonth": "Last 30 days",
   "settings.apiUsagePeriodYear": "Last 12 months",
-  "settings.apiUsagePeriodAll": "All time",
   "settings.apiUsageRequests": "Requests",
   "settings.apiUsageInput": "Input Tokens",
   "settings.apiUsageOutput": "Output Tokens",
@@ -448,7 +447,10 @@ const en: Record<string, string> = {
   "settings.apiUsageCumulative": "Cumulative Consumption",
   "settings.apiUsageLocalModels": "Local Models",
   "settings.apiUsageCloudModels": "Cloud Models",
+  "settings.apiUsageTotalHistory": "Historical Total",
   "settings.apiUsageBreakdown": "Model Breakdown",
+  "settings.apiUsageProviderFilter": "Provider",
+  "settings.apiUsageProviderAll": "All Providers",
 
   // Library
   "lib.title": "Models",
@@ -1103,7 +1105,6 @@ const zh: Record<string, string> = {
   "settings.apiUsagePeriodWeek": "最近 7 天",
   "settings.apiUsagePeriodMonth": "最近 30 天",
   "settings.apiUsagePeriodYear": "最近 12 个月",
-  "settings.apiUsagePeriodAll": "全部时间",
   "settings.apiUsageRequests": "请求数",
   "settings.apiUsageInput": "输入 Tokens",
   "settings.apiUsageOutput": "输出 Tokens",
@@ -1122,7 +1123,10 @@ const zh: Record<string, string> = {
   "settings.apiUsageCumulative": "累计消耗",
   "settings.apiUsageLocalModels": "本地模型",
   "settings.apiUsageCloudModels": "云端模型",
+  "settings.apiUsageTotalHistory": "历史总计",
   "settings.apiUsageBreakdown": "模型明细",
+  "settings.apiUsageProviderFilter": "Provider",
+  "settings.apiUsageProviderAll": "全部 Provider",
 
   // Library
   "lib.title": "模型库",

@@ -91,7 +91,9 @@ func (s *Server) handleAPIUsage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	period, since := apiUsagePeriod(r)
-	options := config.APIUsageListOptions{}
+	options := config.APIUsageListOptions{
+		Provider: strings.TrimSpace(r.URL.Query().Get("provider")),
+	}
 	if since != nil {
 		options.Since = since
 	}
@@ -100,9 +102,15 @@ func (s *Server) handleAPIUsage(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "failed to load API usage")
 		return
 	}
+	historyState, err := s.apiUsage.List(config.APIUsageListOptions{Provider: options.Provider})
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to load API usage")
+		return
+	}
 	resp := api.APIUsageResponse{
 		Period:       period,
-		TotalSummary: s.apiUsageTotalSummary(r.Context(), state.Events),
+		TotalHistory: apiUsageTotalTokens(historyState.Records),
+		TotalSummary: s.apiUsageTotalSummary(r.Context(), state.Events, since),
 		Rows:         make([]api.APIUsageRow, 0, len(state.Records)),
 		SourceTotals: make([]api.APIUsageSourceTotal, 0, 4),
 	}
@@ -126,7 +134,15 @@ func (s *Server) handleAPIUsage(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, resp)
 }
 
-func (s *Server) apiUsageTotalSummary(ctx context.Context, events []config.APIUsageEventRecord) api.APIUsageTotalSummary {
+func apiUsageTotalTokens(records []config.APIUsageRecord) int64 {
+	var total int64
+	for _, record := range records {
+		total += record.TotalTokens
+	}
+	return total
+}
+
+func (s *Server) apiUsageTotalSummary(ctx context.Context, events []config.APIUsageEventRecord, since *time.Time) api.APIUsageTotalSummary {
 	summary := api.APIUsageTotalSummary{
 		XAxis: make([]string, 0),
 		Series: []api.APIUsageSummarySeries{
@@ -134,9 +150,6 @@ func (s *Server) apiUsageTotalSummary(ctx context.Context, events []config.APIUs
 			{Name: "本地模型", Type: "line", Data: make([]int64, 0)},
 			{Name: "云端模型", Type: "line", Data: make([]int64, 0)},
 		},
-	}
-	if len(events) == 0 {
-		return summary
 	}
 
 	daily := map[string]struct {
@@ -148,7 +161,7 @@ func (s *Server) apiUsageTotalSummary(ctx context.Context, events []config.APIUs
 		if event.CreatedAt.IsZero() {
 			continue
 		}
-		day := time.Date(event.CreatedAt.UTC().Year(), event.CreatedAt.UTC().Month(), event.CreatedAt.UTC().Day(), 0, 0, 0, 0, time.UTC)
+		day := apiUsageDay(event.CreatedAt)
 		if firstDay.IsZero() || day.Before(firstDay) {
 			firstDay = day
 		}
@@ -169,7 +182,12 @@ func (s *Server) apiUsageTotalSummary(ctx context.Context, events []config.APIUs
 		}
 		daily[key] = totals
 	}
-	if firstDay.IsZero() || lastDay.IsZero() {
+
+	if since != nil {
+		firstDay = apiUsageDay(*since)
+		lastDay = apiUsageDay(time.Now().UTC())
+	}
+	if firstDay.IsZero() || lastDay.IsZero() || lastDay.Before(firstDay) {
 		return summary
 	}
 
@@ -187,23 +205,33 @@ func (s *Server) apiUsageTotalSummary(ctx context.Context, events []config.APIUs
 	return summary
 }
 
+func apiUsageDay(value time.Time) time.Time {
+	if value.IsZero() {
+		return time.Time{}
+	}
+	value = value.UTC()
+	return time.Date(value.Year(), value.Month(), value.Day(), 0, 0, 0, 0, time.UTC)
+}
+
 func apiUsagePeriod(r *http.Request) (string, *time.Time) {
 	period := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("period")))
 	now := time.Now().UTC()
 	switch period {
 	case "week":
-		since := now.AddDate(0, 0, -7)
+		since := now.AddDate(0, 0, -6)
 		return period, &since
 	case "month":
-		since := now.AddDate(0, -1, 0)
+		since := now.AddDate(0, 0, -29)
 		return period, &since
 	case "year":
-		since := now.AddDate(-1, 0, 0)
+		since := now.AddDate(0, 0, -364)
 		return period, &since
-	case "all", "":
-		return "all", nil
+	case "":
+		since := now.AddDate(0, 0, -6)
+		return "week", &since
 	default:
-		return "all", nil
+		since := now.AddDate(0, 0, -6)
+		return "week", &since
 	}
 }
 

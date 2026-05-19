@@ -150,10 +150,14 @@ func TestAPIUsageAggregatesByKeyAndModel(t *testing.T) {
 	if resp.Totals.LocalTokens != 17 || resp.Totals.CloudTokens != 0 {
 		t.Fatalf("unexpected source token totals: %#v", resp.Totals)
 	}
-	if len(resp.TotalSummary.XAxis) != 1 || len(resp.TotalSummary.Series) != 3 {
+	if resp.TotalHistory != 17 {
+		t.Fatalf("total_history = %d, want 17", resp.TotalHistory)
+	}
+	if len(resp.TotalSummary.XAxis) != 7 || len(resp.TotalSummary.Series) != 3 {
 		t.Fatalf("unexpected total summary shape: %#v", resp.TotalSummary)
 	}
-	if resp.TotalSummary.Series[0].Data[0] != 17 || resp.TotalSummary.Series[1].Data[0] != 17 || resp.TotalSummary.Series[2].Data[0] != 0 {
+	last := len(resp.TotalSummary.Series[0].Data) - 1
+	if resp.TotalSummary.Series[0].Data[last] != 17 || resp.TotalSummary.Series[1].Data[last] != 17 || resp.TotalSummary.Series[2].Data[last] != 0 {
 		t.Fatalf("unexpected total summary values: %#v", resp.TotalSummary)
 	}
 	if len(resp.Rows) != 1 || resp.Rows[0].APIKeyName != "client" || resp.Rows[0].Model != "test/model" {
@@ -247,6 +251,63 @@ func TestAPIUsageSourceTotalsKeepThirdPartyProvidersSeparate(t *testing.T) {
 	}
 }
 
+func TestAPIUsageFiltersByProvider(t *testing.T) {
+	s := newTestServer(t)
+	record, _, err := s.apiKeys.Create("client")
+	if err != nil {
+		t.Fatalf("create key: %v", err)
+	}
+	for _, event := range []config.APIUsageEvent{
+		{
+			APIKeyID:     record.ID,
+			APIKeyName:   record.Name,
+			Model:        "model-a",
+			Source:       "provider:a",
+			SourceType:   "provider",
+			SourceName:   "Provider A",
+			InputTokens:  1,
+			OutputTokens: 2,
+		},
+		{
+			APIKeyID:     record.ID,
+			APIKeyName:   record.Name,
+			Model:        "model-b",
+			Source:       "provider:b",
+			SourceType:   "provider",
+			SourceName:   "Provider B",
+			InputTokens:  3,
+			OutputTokens: 4,
+		},
+	} {
+		if err := s.apiUsage.Add(event); err != nil {
+			t.Fatalf("add usage: %v", err)
+		}
+	}
+
+	w := httptest.NewRecorder()
+	s.handleAPIUsage(w, httptest.NewRequest(http.MethodGet, "/api/api-usage?provider=provider+a", nil))
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s, want 200", w.Code, w.Body.String())
+	}
+	var resp api.APIUsageResponse
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode usage: %v", err)
+	}
+	if resp.Totals.TotalTokens != 3 || resp.Totals.CloudTokens != 3 || len(resp.Rows) != 1 || resp.Rows[0].SourceName != "Provider A" {
+		t.Fatalf("unexpected filtered usage: %#v", resp)
+	}
+	if resp.TotalHistory != 3 {
+		t.Fatalf("total_history = %d, want 3", resp.TotalHistory)
+	}
+	last := len(resp.TotalSummary.Series[0].Data) - 1
+	if len(resp.TotalSummary.XAxis) != 7 || resp.TotalSummary.Series[0].Data[last] != 3 {
+		t.Fatalf("unexpected filtered total summary: %#v", resp.TotalSummary)
+	}
+	if len(resp.SourceTotals) != 1 || resp.SourceTotals[0].SourceName != "Provider A" || resp.SourceTotals[0].TotalTokens != 3 {
+		t.Fatalf("unexpected filtered source totals: %#v", resp.SourceTotals)
+	}
+}
+
 func TestAPIUsageFiltersByPeriod(t *testing.T) {
 	s := newTestServer(t)
 	record, _, err := s.apiKeys.Create("client")
@@ -296,10 +357,70 @@ func TestAPIUsageFiltersByPeriod(t *testing.T) {
 	if resp.Totals.TotalTokens != 7 || resp.Totals.CloudTokens != 7 || len(resp.Rows) != 1 || resp.Rows[0].Model != "new/model" {
 		t.Fatalf("unexpected weekly usage: %#v", resp)
 	}
-	if len(resp.TotalSummary.XAxis) != 1 || resp.TotalSummary.Series[0].Data[0] != 7 || resp.TotalSummary.Series[2].Data[0] != 7 {
+	if resp.TotalHistory != 157 {
+		t.Fatalf("total_history = %d, want 157", resp.TotalHistory)
+	}
+	if len(resp.TotalSummary.XAxis) != 7 {
+		t.Fatalf("weekly total summary xAxis = %#v, want 7 days", resp.TotalSummary.XAxis)
+	}
+	if resp.TotalSummary.XAxis[0] != apiUsageDay(*resp.From).Format("2006-01-02") {
+		t.Fatalf("weekly total summary starts at %q, want from day %q", resp.TotalSummary.XAxis[0], apiUsageDay(*resp.From).Format("2006-01-02"))
+	}
+	if got := resp.TotalSummary.Series[0].Data[0]; got != 0 {
+		t.Fatalf("weekly total summary first cumulative value = %d, want 0", got)
+	}
+	last := len(resp.TotalSummary.Series[0].Data) - 1
+	if resp.TotalSummary.Series[0].Data[last] != 7 || resp.TotalSummary.Series[2].Data[last] != 7 {
 		t.Fatalf("unexpected weekly total summary: %#v", resp.TotalSummary)
 	}
 	if len(resp.SourceTotals) != 1 || resp.SourceTotals[0].SourceType != "provider" {
 		t.Fatalf("unexpected weekly source totals: %#v", resp.SourceTotals)
+	}
+}
+
+func TestAPIUsagePeriodDateRanges(t *testing.T) {
+	for _, tc := range []struct {
+		period string
+		days   int
+	}{
+		{period: "week", days: 7},
+		{period: "month", days: 30},
+		{period: "year", days: 365},
+	} {
+		t.Run(tc.period, func(t *testing.T) {
+			s := newTestServer(t)
+			w := httptest.NewRecorder()
+			s.handleAPIUsage(w, httptest.NewRequest(http.MethodGet, "/api/api-usage?period="+tc.period, nil))
+			if w.Code != http.StatusOK {
+				t.Fatalf("status = %d body=%s, want 200", w.Code, w.Body.String())
+			}
+			var resp api.APIUsageResponse
+			if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+				t.Fatalf("decode usage: %v", err)
+			}
+			if len(resp.TotalSummary.XAxis) != tc.days {
+				t.Fatalf("xAxis length = %d, want %d: %#v", len(resp.TotalSummary.XAxis), tc.days, resp.TotalSummary.XAxis)
+			}
+		})
+	}
+}
+
+func TestAPIUsageDefaultsToWeekPeriod(t *testing.T) {
+	s := newTestServer(t)
+
+	w := httptest.NewRecorder()
+	s.handleAPIUsage(w, httptest.NewRequest(http.MethodGet, "/api/api-usage", nil))
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s, want 200", w.Code, w.Body.String())
+	}
+	var resp api.APIUsageResponse
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode usage: %v", err)
+	}
+	if resp.Period != "week" || resp.From == nil {
+		t.Fatalf("period = %q from=%v, want default week with from", resp.Period, resp.From)
+	}
+	if len(resp.TotalSummary.XAxis) != 7 {
+		t.Fatalf("default total summary xAxis = %#v, want filled weekly range", resp.TotalSummary.XAxis)
 	}
 }

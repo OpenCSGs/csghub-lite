@@ -1791,17 +1791,25 @@
           {
             "name": "period",
             "in": "query",
-            "description": "Usage time range. `week`, `month`, and `year` are rolling windows; `all` returns all recorded usage.",
+            "description": "Usage time range. `week`, `month`, and `year` are rolling windows.",
             "required": false,
             "schema": {
               "type": "string",
               "enum": [
                 "week",
                 "month",
-                "year",
-                "all"
+                "year"
               ],
-              "default": "all"
+              "default": "week"
+            }
+          },
+          {
+            "name": "provider",
+            "in": "query",
+            "description": "Optional provider name filter. Matches the recorded provider display name case-insensitively.",
+            "required": false,
+            "schema": {
+              "type": "string"
             }
           }
         ],
@@ -3974,6 +3982,7 @@
         "required": [
           "period",
           "totals",
+          "total_history",
           "total_summary",
           "source_totals",
           "rows"
@@ -3984,8 +3993,7 @@
             "enum": [
               "week",
               "month",
-              "year",
-              "all"
+              "year"
             ]
           },
           "from": {
@@ -3994,6 +4002,11 @@
           },
           "totals": {
             "$ref": "#/components/schemas/APIUsageTotals"
+          },
+          "total_history": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Historical total tokens for the selected provider filter, independent of the selected period."
           },
           "total_summary": {
             "$ref": "#/components/schemas/APIUsageTotalSummary"

@@ -246,6 +246,7 @@ export interface LocalAPIUsageResponse {
   period: string;
   from?: string;
   totals: LocalAPIUsageTotals;
+  total_history: number;
   total_summary: LocalAPIUsageTotalSummary;
   source_totals: LocalAPIUsageSourceTotal[];
   rows: LocalAPIUsageRow[];
@@ -544,8 +545,11 @@ export async function deleteLocalAPIKey(id: string): Promise<void> {
   });
 }
 
-export async function getLocalAPIUsage(period?: string): Promise<LocalAPIUsageResponse> {
-  const query = period ? `?${new URLSearchParams({ period })}` : "";
+export async function getLocalAPIUsage(period?: string, provider?: string): Promise<LocalAPIUsageResponse> {
+  const params = new URLSearchParams();
+  if (period) params.set("period", period);
+  if (provider) params.set("provider", provider);
+  const query = params.toString() ? `?${params}` : "";
   return fetchJSON<LocalAPIUsageResponse>(`/api/api-usage${query}`);
 }
 
