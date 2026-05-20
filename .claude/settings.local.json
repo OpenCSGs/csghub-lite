@@ -30,7 +30,15 @@
       "WebSearch",
       "Bash(gh run *)",
       "Bash(scripts/push.sh *)",
-      "Bash(go run *)"
+      "Bash(go run *)",
+      "Bash(npx tsc *)",
+      "Bash(ps *)",
+      "Bash(rm -rf /Users/james/git/csghub-lite/internal/server/static/*)",
+      "Bash(cp -r /Users/james/git/csghub-lite/web/dist/* /Users/james/git/csghub-lite/internal/server/static/)",
+      "Bash(kill 40445)",
+      "Bash(make package *)",
+      "Bash(gh release *)",
+      "Bash(glab --version)"
     ]
   }
 }
