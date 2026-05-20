@@ -563,6 +563,80 @@
         }
       }
     },
+    "/api/models/upload": {
+      "post": {
+        "tags": [
+          "Models"
+        ],
+        "summary": "Upload a local model",
+        "description": "Imports a local model from multipart form data. Use `mode=archive` for a single `.zip`, `.tar`, `.tar.gz`, or `.tgz` file; use `mode=files` or `mode=directory` with one or more files and matching `paths` values.",
+        "operationId": "uploadModel",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "files"
+                ],
+                "properties": {
+                  "model": {
+                    "type": "string",
+                    "description": "Optional target model ID in `namespace/name` form. Defaults to `local/<filename>` when omitted."
+                  },
+                  "mode": {
+                    "type": "string",
+                    "enum": [
+                      "archive",
+                      "directory",
+                      "files"
+                    ],
+                    "default": "files"
+                  },
+                  "overwrite": {
+                    "type": "boolean",
+                    "default": false
+                  },
+                  "paths": {
+                    "type": "array",
+                    "description": "Relative paths corresponding to uploaded files. Folder uploads should provide browser-relative paths.",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "files": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "format": "binary"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The imported local model.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModelUploadResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      }
+    },
     "/api/models/{namespace}/{name}/files/{path...}": {
       "get": {
         "tags": [
@@ -2876,6 +2950,57 @@
         }
       }
     },
+    "/v1/embeddings": {
+      "post": {
+        "tags": [
+          "Compatibility"
+        ],
+        "summary": "OpenAI-compatible embeddings",
+        "description": "Compatibility layer for OpenAI Embeddings. Local models are served through llama-server in embedding mode.",
+        "operationId": "openAIEmbeddings",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OpenAIEmbeddingsRequest"
+              },
+              "example": {
+                "model": "BAAI/bge-m3",
+                "input": [
+                  "hello world"
+                ],
+                "encoding_format": "float"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Embedding vectors for the supplied input.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OpenAIEmbeddingsResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/OpenAIBadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/OpenAIUnauthorized"
+          },
+          "429": {
+            "$ref": "#/components/responses/OpenAITooManyRequests"
+          },
+          "500": {
+            "$ref": "#/components/responses/OpenAIInternalError"
+          }
+        }
+      }
+    },
     "/v1/models": {
       "get": {
         "tags": [
@@ -5053,6 +5178,33 @@
           }
         }
       },
+      "ModelUploadResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "status",
+          "model",
+          "details",
+          "files"
+        ],
+        "properties": {
+          "status": {
+            "type": "string"
+          },
+          "model": {
+            "type": "string"
+          },
+          "details": {
+            "$ref": "#/components/schemas/ModelInfo"
+          },
+          "files": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ModelFileEntry"
+            }
+          }
+        }
+      },
       "DatasetPullRequest": {
         "type": "object",
         "additionalProperties": false,
@@ -6003,6 +6155,132 @@
           },
           "total_tokens": {
             "type": "integer"
+          }
+        }
+      },
+      "OpenAIEmbeddingsRequest": {
+        "type": "object",
+        "required": [
+          "model",
+          "input"
+        ],
+        "properties": {
+          "model": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string",
+            "description": "Model source such as local, cloud, or provider:<id>."
+          },
+          "input": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              {
+                "type": "array",
+                "items": {
+                  "type": "integer"
+                }
+              },
+              {
+                "type": "array",
+                "items": {
+                  "type": "array",
+                  "items": {
+                    "type": "integer"
+                  }
+                }
+              }
+            ]
+          },
+          "encoding_format": {
+            "type": "string",
+            "enum": [
+              "float",
+              "base64"
+            ]
+          },
+          "dimensions": {
+            "type": "integer"
+          },
+          "user": {
+            "type": "string"
+          },
+          "num_ctx": {
+            "type": "integer",
+            "description": "csghub-lite local runtime override for llama-server context length."
+          },
+          "n_gpu_layers": {
+            "type": "integer",
+            "description": "csghub-lite local runtime override for llama-server GPU offload."
+          },
+          "dtype": {
+            "type": "string",
+            "description": "csghub-lite local SafeTensors to GGUF conversion dtype."
+          }
+        }
+      },
+      "OpenAIEmbeddingObject": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "object",
+          "embedding",
+          "index"
+        ],
+        "properties": {
+          "object": {
+            "type": "string"
+          },
+          "embedding": {
+            "oneOf": [
+              {
+                "type": "array",
+                "items": {
+                  "type": "number"
+                }
+              },
+              {
+                "type": "string"
+              }
+            ]
+          },
+          "index": {
+            "type": "integer"
+          }
+        }
+      },
+      "OpenAIEmbeddingsResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "object",
+          "data",
+          "model",
+          "usage"
+        ],
+        "properties": {
+          "object": {
+            "type": "string"
+          },
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/OpenAIEmbeddingObject"
+            }
+          },
+          "model": {
+            "type": "string"
+          },
+          "usage": {
+            "$ref": "#/components/schemas/OpenAIUsage"
           }
         }
       },

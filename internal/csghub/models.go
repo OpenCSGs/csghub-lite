@@ -60,13 +60,81 @@ func (c *Client) GetModel(ctx context.Context, namespace, name string) (*Model, 
 
 // GetModelTree returns the file tree for a model repository.
 func (c *Client) GetModelTree(ctx context.Context, namespace, name string) ([]RepoFile, error) {
+	return c.getModelTreeRecursive(ctx, namespace, name, "")
+}
+
+func (c *Client) getModelTreePage(ctx context.Context, namespace, name, treePath string) ([]RepoFile, error) {
 	path := fmt.Sprintf("/api/v1/models/%s/%s/tree", namespace, name)
+	if treePath != "" {
+		q := url.Values{}
+		q.Set("path", treePath)
+		path += "?" + q.Encode()
+	}
 
 	var resp APIResponse[[]RepoFile]
 	if err := c.getJSON(ctx, path, &resp); err != nil {
 		return nil, fmt.Errorf("getting file tree for %s/%s: %w", namespace, name, err)
 	}
 	return resp.Data, nil
+}
+
+func (c *Client) getModelTreeRecursive(ctx context.Context, namespace, name, treePath string) ([]RepoFile, error) {
+	root, err := c.getModelTreePage(ctx, namespace, name, treePath)
+	if err != nil {
+		return nil, err
+	}
+
+	out := make([]RepoFile, 0, len(root))
+	queue := make([]string, 0)
+	seenDirs := make(map[string]struct{})
+	for _, entry := range root {
+		out = append(out, entry)
+		if entry.Type != "dir" {
+			continue
+		}
+		dirPath := entry.Path
+		if dirPath == "" {
+			dirPath = entry.Name
+		}
+		if dirPath == "" {
+			continue
+		}
+		if _, ok := seenDirs[dirPath]; ok {
+			continue
+		}
+		seenDirs[dirPath] = struct{}{}
+		queue = append(queue, dirPath)
+	}
+
+	for len(queue) > 0 {
+		dirPath := queue[0]
+		queue = queue[1:]
+
+		children, err := c.getModelTreePage(ctx, namespace, name, dirPath)
+		if err != nil {
+			return nil, err
+		}
+		for _, entry := range children {
+			out = append(out, entry)
+			if entry.Type != "dir" {
+				continue
+			}
+			childPath := entry.Path
+			if childPath == "" {
+				childPath = entry.Name
+			}
+			if childPath == "" {
+				continue
+			}
+			if _, ok := seenDirs[childPath]; ok {
+				continue
+			}
+			seenDirs[childPath] = struct{}{}
+			queue = append(queue, childPath)
+		}
+	}
+
+	return out, nil
 }
 
 // SearchModels searches for models by keyword.

@@ -7,6 +7,7 @@ type Format string
 const (
 	FormatGGUF        Format = "gguf"
 	FormatSafeTensors Format = "safetensors"
+	FormatPyTorch     Format = "pytorch"
 	FormatUnknown     Format = "unknown"
 )
 

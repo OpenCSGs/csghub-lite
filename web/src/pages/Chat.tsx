@@ -294,6 +294,161 @@ function MarkdownContent({ text }: { text: string }) {
   return <div class="chat-markdown" dangerouslySetInnerHTML={{ __html: markdown.render(text) }} />;
 }
 
+interface EmbeddingChatObject {
+  object?: string;
+  embedding: number[] | string;
+  index: number;
+}
+
+interface EmbeddingChatResponse {
+  object?: string;
+  model?: string;
+  data: EmbeddingChatObject[];
+  usage?: {
+    prompt_tokens?: number;
+    total_tokens?: number;
+  };
+}
+
+function parseEmbeddingChatResponse(text: string): EmbeddingChatResponse | null {
+  try {
+    const parsed = JSON.parse(text) as Partial<EmbeddingChatResponse>;
+    if (!parsed || !Array.isArray(parsed.data)) return null;
+    const data = parsed.data.filter((item): item is EmbeddingChatObject => {
+      if (!item || typeof item !== "object") return false;
+      const candidate = item as Partial<EmbeddingChatObject>;
+      return typeof candidate.index === "number" && (Array.isArray(candidate.embedding) || typeof candidate.embedding === "string");
+    });
+    if (data.length === 0) return null;
+    return { ...parsed, data } as EmbeddingChatResponse;
+  } catch {
+    return null;
+  }
+}
+
+function embeddingDimension(embedding: number[] | string): string {
+  if (Array.isArray(embedding)) return String(embedding.length);
+  return t("chat.embeddingEncoded");
+}
+
+const EMBEDDING_ROWS_PER_COLUMN = 19;
+const EMBEDDING_MAX_COLUMNS = 4;
+
+function formatEmbeddingGridNumber(value: number): string {
+  return Number.isFinite(value) ? Number(value).toFixed(3) : String(value);
+}
+
+function embeddingColumnOffsets(length: number): number[] {
+  if (length <= EMBEDDING_ROWS_PER_COLUMN) return [0];
+  const columns =
+    length < 256 ? 2 : length < 1024 ? 2 : length < 2048 ? 3 : EMBEDDING_MAX_COLUMNS;
+  const segmentSize = Math.floor(length / columns);
+  return Array.from({ length: columns }, (_, column) => column * segmentSize);
+}
+
+function embeddingMaxAbs(values: number[]): number {
+  let max = 0;
+  for (const value of values) {
+    if (Number.isFinite(value)) max = Math.max(max, Math.abs(value));
+  }
+  return max;
+}
+
+function embeddingValueStyle(value: number, maxAbs: number): Record<string, string> {
+  if (maxAbs <= 0 || !Number.isFinite(value)) return {};
+  const ratio = Math.abs(value) / maxAbs;
+  if (ratio < 0.35) return {};
+  const alpha = Math.min(0.55, 0.12 + ratio * 0.43);
+  if (value > 0) return { backgroundColor: `rgba(34, 197, 94, ${alpha})` };
+  return { backgroundColor: `rgba(251, 113, 133, ${alpha})` };
+}
+
+function EmbeddingVectorGrid({ embedding }: { embedding: number[] | string }) {
+  if (typeof embedding === "string") {
+    return (
+      <div class="rounded-lg border border-gray-100 bg-gray-50/50 px-3 py-2 text-xs">
+        <div class="font-medium text-gray-500">{t("chat.embeddingEncoded")}</div>
+        <div class="mt-1 font-mono text-[11px] break-all text-gray-700">{embedding}</div>
+      </div>
+    );
+  }
+
+  const maxAbs = embeddingMaxAbs(embedding);
+  const offsets = embeddingColumnOffsets(embedding.length);
+
+  return (
+    <div
+      class="grid gap-x-6 gap-y-0"
+      style={{ gridTemplateColumns: `repeat(${offsets.length}, minmax(0, 1fr))` }}
+    >
+      {offsets.map((start) => (
+        <div class="min-w-[7.5rem]" key={start}>
+          {Array.from({ length: EMBEDDING_ROWS_PER_COLUMN }, (_, row) => {
+            const index = start + row;
+            if (index >= embedding.length) return null;
+            const value = embedding[index];
+            return (
+              <div class="flex items-stretch" key={index}>
+                <span class="w-11 shrink-0 py-0.5 pl-0.5 font-mono text-[11px] tabular-nums text-gray-400">
+                  {index}
+                </span>
+                <span
+                  class="min-w-0 flex-1 rounded-sm py-0.5 pr-1 font-mono text-xs tabular-nums text-gray-900"
+                  style={embeddingValueStyle(value, maxAbs)}
+                >
+                  {formatEmbeddingGridNumber(value)}
+                </span>
+              </div>
+            );
+          })}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function EmbeddingDataTable({ response }: { response: EmbeddingChatResponse }) {
+  const multi = response.data.length > 1;
+  return (
+    <div class="overflow-hidden rounded-xl border border-gray-200 bg-white">
+      <div class="flex flex-wrap items-center justify-between gap-2 border-b border-gray-100 px-4 py-3">
+        <div>
+          <div class="text-sm font-semibold text-gray-900">{t("chat.embeddingData")}</div>
+          {response.model && <div class="mt-0.5 font-mono text-xs text-gray-500">{response.model}</div>}
+        </div>
+        {response.usage && (
+          <div class="text-xs text-gray-500">
+            {t("chat.embeddingUsage", String(response.usage.prompt_tokens ?? 0), String(response.usage.total_tokens ?? response.usage.prompt_tokens ?? 0))}
+          </div>
+        )}
+      </div>
+      <div class="divide-y divide-gray-100">
+        {response.data.map((item) => (
+          <div class="px-4 py-3" key={item.index}>
+            {multi && (
+              <div class="mb-2 flex flex-wrap gap-x-3 gap-y-0.5 font-mono text-[11px] text-gray-500">
+                <span>
+                  {t("chat.embeddingIndex")} {item.index}
+                </span>
+                <span>{item.object || "embedding"}</span>
+                <span>
+                  {t("chat.embeddingDimensions")} {embeddingDimension(item.embedding)}
+                </span>
+              </div>
+            )}
+            {!multi && Array.isArray(item.embedding) && (
+              <div class="mb-2 font-mono text-[11px] text-gray-500">
+                {t("chat.embeddingDimensions")} {item.embedding.length}
+              </div>
+            )}
+            <EmbeddingVectorGrid embedding={item.embedding} />
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function thinkingPreview(text: string): string {
   const lines = text
     .split(/\r?\n/)
@@ -1415,6 +1570,10 @@ function MessageBubble({ message, streaming }: { message: ChatMessage; streaming
   const renderContent = () => {
     if (typeof content === "string") {
       if (!isUser) {
+        const embeddingResponse = parseEmbeddingChatResponse(content);
+        if (embeddingResponse) {
+          return <EmbeddingDataTable response={embeddingResponse} />;
+        }
         const parsed = parseReasoningText(content);
         if (parsed.hasThinking) {
           if (!parsed.thinkingOpen) {

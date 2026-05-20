@@ -14,6 +14,7 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("PATCH /api/tags/manage", s.handleProviderTagsManageUpdate)
 	mux.HandleFunc("DELETE /api/tags/manage", s.handleProviderTagsManageDelete)
 	mux.HandleFunc("GET /api/models/search", s.handleLocalModelSearch)
+	mux.HandleFunc("POST /api/models/upload", s.handleModelUpload)
 	mux.HandleFunc("GET /api/models/{namespace}/{name}/manifest", s.handleModelManifest)
 	mux.HandleFunc("GET /api/models/{namespace}/{name}/files/{path...}", s.handleModelFile)
 	mux.HandleFunc("GET /api/ps", s.handlePs)
@@ -35,6 +36,7 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("DELETE /api/datasets/delete", s.handleDatasetDelete)
 
 	mux.HandleFunc("POST /v1/chat/completions", s.handleOpenAIChatCompletions)
+	mux.HandleFunc("POST /v1/embeddings", s.handleOpenAIEmbeddings)
 	mux.HandleFunc("GET /v1/models", s.handleModels)
 	mux.HandleFunc("GET /v1/responses", s.handleOpenAIResponsesUnsupported)
 	mux.HandleFunc("POST /v1/responses", s.handleOpenAIResponses)

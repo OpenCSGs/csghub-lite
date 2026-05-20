@@ -216,6 +216,30 @@ func (s *Server) getChatEngine(ctx context.Context, modelID, source string, numC
 	return nil, err
 }
 
+func (s *Server) getEmbeddingEngine(ctx context.Context, modelID, source string, numCtx, nGPULayers int, dtype string) (inference.Engine, error) {
+	source = strings.TrimSpace(source)
+	normalizedSource := strings.ToLower(source)
+	if providerIDFromSource(source) != "" {
+		return newThirdPartyProviderEngine(source, modelID)
+	}
+	if normalizedSource == "cloud" {
+		return s.newCloudEngine(ctx, modelID)
+	}
+
+	eng, err := s.getOrLoadEmbeddingEngineWithOpts(modelID, numCtx, nGPULayers, dtype)
+	if err == nil {
+		return eng, nil
+	}
+	if normalizedSource == "local" {
+		return nil, err
+	}
+
+	if providerSource := s.thirdPartyProviderSourceForModel(ctx, modelID); providerSource != "" {
+		return newThirdPartyProviderEngine(providerSource, modelID)
+	}
+	return nil, err
+}
+
 func (s *Server) thirdPartyProviderSourceForModel(ctx context.Context, modelID string) string {
 	modelID = strings.TrimSpace(modelID)
 	if modelID == "" {

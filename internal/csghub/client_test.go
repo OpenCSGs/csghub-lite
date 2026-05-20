@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"testing"
 )
 
@@ -101,5 +102,58 @@ func TestDownloadHTTPClient(t *testing.T) {
 	client := c.DownloadHTTPClient()
 	if client.Timeout != 0 {
 		t.Errorf("Timeout = %v, want 0 (no timeout)", client.Timeout)
+	}
+}
+
+func TestGetModelTreeRecursesIntoDirectories(t *testing.T) {
+	var paths []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		paths = append(paths, r.URL.String())
+		if r.URL.Path != "/api/v1/models/BAAI/bge-m3/tree" {
+			http.NotFound(w, r)
+			return
+		}
+
+		var data []RepoFile
+		switch r.URL.Query().Get("path") {
+		case "":
+			data = []RepoFile{
+				{Type: "dir", Path: "1_Pooling", Name: "1_Pooling"},
+				{Type: "file", Path: "config.json", Name: "config.json"},
+			}
+		case "1_Pooling":
+			data = []RepoFile{
+				{Type: "file", Path: "1_Pooling/config.json", Name: "config.json"},
+			}
+		default:
+			http.NotFound(w, r)
+			return
+		}
+
+		_ = json.NewEncoder(w).Encode(APIResponse[[]RepoFile]{Msg: "OK", Data: data})
+	}))
+	defer server.Close()
+
+	c := NewClient(server.URL, "")
+	got, err := c.GetModelTree(context.Background(), "BAAI", "bge-m3")
+	if err != nil {
+		t.Fatalf("GetModelTree() error = %v", err)
+	}
+
+	var gotPaths []string
+	for _, item := range got {
+		gotPaths = append(gotPaths, item.Path)
+	}
+	wantPaths := []string{"1_Pooling", "config.json", "1_Pooling/config.json"}
+	if !reflect.DeepEqual(gotPaths, wantPaths) {
+		t.Fatalf("paths = %#v, want %#v", gotPaths, wantPaths)
+	}
+
+	wantRequests := []string{
+		"/api/v1/models/BAAI/bge-m3/tree",
+		"/api/v1/models/BAAI/bge-m3/tree?path=1_Pooling",
+	}
+	if !reflect.DeepEqual(paths, wantRequests) {
+		t.Fatalf("requests = %#v, want %#v", paths, wantRequests)
 	}
 }

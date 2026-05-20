@@ -132,6 +132,27 @@ func (s *Server) localModelInfo(item *model.LocalModel) api.ModelInfo {
 	}
 }
 
+func (s *Server) modelUsesEmbeddingEngine(modelID string) bool {
+	lm, err := s.manager.Get(modelID)
+	if err != nil || lm == nil {
+		return false
+	}
+	pipelineTag := strings.TrimSpace(lm.PipelineTag)
+	if dir, err := s.manager.ModelPath(modelID); err == nil && pipelineTag == "" {
+		pipelineTag = model.DetectPipelineTag(dir)
+	}
+	return isEmbeddingPipelineTag(pipelineTag)
+}
+
+func isEmbeddingPipelineTag(pipelineTag string) bool {
+	switch strings.ToLower(strings.TrimSpace(pipelineTag)) {
+	case "feature-extraction", "sentence-similarity", "text-embedding", "embedding":
+		return true
+	default:
+		return false
+	}
+}
+
 func (s *Server) localModelContextWindow(modelID, modelDir string) int64 {
 	s.mu.RLock()
 	if me, ok := s.engines[modelID]; ok && me.numCtx > 0 {

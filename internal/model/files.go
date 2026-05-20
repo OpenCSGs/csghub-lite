@@ -42,6 +42,9 @@ func normalizeLocalModel(m *LocalModel) {
 	if len(files) > 0 {
 		m.Files = files
 	}
+	if m.Format == "" || m.Format == FormatUnknown {
+		m.Format = DetectFormat(m.Files)
+	}
 }
 
 func EnsureLocalModelFiles(modelDir string, m *LocalModel) (bool, error) {

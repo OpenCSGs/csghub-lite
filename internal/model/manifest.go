@@ -24,9 +24,20 @@ var visionArchitectures = map[string]bool{
 	"Gemma3ForConditionalGeneration":     true,
 }
 
-// DetectPipelineTag reads config.json in modelDir and returns "image-text-to-text"
-// for vision models, "text-generation" for text-only models.
+var embeddingArchitectures = map[string]bool{
+	"BertModel":       true,
+	"NomicBertModel":  true,
+	"RobertaModel":    true,
+	"XLMRobertaModel": true,
+}
+
+// DetectPipelineTag reads config.json in modelDir and returns a local pipeline
+// tag for routing. Sentence-transformers repositories are treated as embedding
+// models even when the hub metadata was not persisted in older manifests.
 func DetectPipelineTag(modelDir string) string {
+	if _, err := os.Stat(filepath.Join(modelDir, "modules.json")); err == nil {
+		return "feature-extraction"
+	}
 	data, err := os.ReadFile(filepath.Join(modelDir, "config.json"))
 	if err != nil {
 		return "text-generation"
@@ -40,6 +51,9 @@ func DetectPipelineTag(modelDir string) string {
 	for _, arch := range cfg.Architectures {
 		if visionArchitectures[arch] {
 			return "image-text-to-text"
+		}
+		if embeddingArchitectures[arch] {
+			return "feature-extraction"
 		}
 	}
 	return "text-generation"
@@ -103,6 +117,12 @@ func DetectFormat(files []string) Format {
 			return FormatSafeTensors
 		}
 	}
+	for _, f := range files {
+		lower := strings.ToLower(f)
+		if strings.HasSuffix(lower, ".bin") {
+			return FormatPyTorch
+		}
+	}
 	return FormatUnknown
 }
 
@@ -122,10 +142,15 @@ func FindModelFile(modelDir string) (string, Format, error) {
 		best := ggufpick.BestWeightGGUFRelPath(ggufRel)
 		return filepath.Join(modelDir, best), FormatGGUF, nil
 	}
-	// Then SafeTensors
+	// Then HuggingFace weights that the bundled llama.cpp converter can handle.
 	for _, e := range entries {
 		if !e.IsDir() && strings.HasSuffix(strings.ToLower(e.Name()), ".safetensors") {
 			return filepath.Join(modelDir, e.Name()), FormatSafeTensors, nil
+		}
+	}
+	for _, e := range entries {
+		if !e.IsDir() && strings.HasSuffix(strings.ToLower(e.Name()), ".bin") {
+			return filepath.Join(modelDir, e.Name()), FormatPyTorch, nil
 		}
 	}
 	return "", FormatUnknown, os.ErrNotExist

@@ -26,7 +26,7 @@ const (
 	pythonCPUOnlyTorchIndexURL    = "https://mirrors.aliyun.com/pytorch-wheels/cpu"
 	pythonCPUOnlyTorchFallbackURL = "https://download.pytorch.org/whl/cpu"
 	pythonCPUOnlyTorchInstallArgs = pythonPackageIndexArgs + " --find-links " + pythonCPUOnlyTorchIndexURL + " torch"
-	pythonDepsInstallArgs         = "safetensors transformers sentencepiece"
+	pythonDepsInstallArgs         = "safetensors transformers sentencepiece protobuf"
 	regionCN                      = "CN"
 	regionINTL                    = "INTL"
 	llamaCppGitHubRepo            = "https://github.com/ggml-org/llama.cpp"
@@ -344,7 +344,7 @@ func checkPythonDeps(python string) string {
 }
 
 func requiredPythonModules() []string {
-	return []string{"torch", "safetensors", "transformers", "sentencepiece"}
+	return []string{"torch", "safetensors", "transformers", "sentencepiece", "google.protobuf"}
 }
 
 func ensureConverterScript() (string, error) {
@@ -521,6 +521,10 @@ func ConvertPython(modelDir string, progress ProgressFunc, dtype string) (string
 		log.Printf("CONVERT: prepared matching gguf-py from %s", sourceName)
 	}
 
+	if err := ensureSentenceTransformerPoolingConfig(modelDir); err != nil {
+		return "", converterErrorf("preparing SentenceTransformers pooling config: %v", err)
+	}
+
 	outputName := generateOutputName(modelDir, effectiveDType)
 	outputPath := filepath.Join(modelDir, outputName)
 
@@ -576,6 +580,113 @@ func hasVisionConfig(modelDir string) bool {
 	return len(cfg.VisionConfig) > 0
 }
 
+type sentenceTransformerModule struct {
+	Path string `json:"path"`
+	Type string `json:"type"`
+}
+
+func ensureSentenceTransformerPoolingConfig(modelDir string) error {
+	modulePath := filepath.Join(modelDir, "modules.json")
+	data, err := os.ReadFile(modulePath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+
+	var modules []sentenceTransformerModule
+	if err := json.Unmarshal(data, &modules); err != nil {
+		return nil
+	}
+
+	poolingPath := ""
+	for _, module := range modules {
+		if strings.HasSuffix(strings.TrimSpace(module.Type), "Pooling") {
+			poolingPath = strings.TrimSpace(module.Path)
+			break
+		}
+	}
+	if poolingPath == "" {
+		return nil
+	}
+
+	relPath, ok := cleanSentenceTransformerModulePath(poolingPath)
+	if !ok {
+		return fmt.Errorf("invalid pooling module path %q", poolingPath)
+	}
+	configPath := filepath.Join(modelDir, relPath, "config.json")
+	if _, err := os.Stat(configPath); err == nil {
+		return nil
+	} else if !os.IsNotExist(err) {
+		return err
+	}
+
+	if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
+		return err
+	}
+	config := sentenceTransformerPoolingConfig(inferSentenceTransformerPooling(modelDir))
+	data, err = json.MarshalIndent(config, "", "  ")
+	if err != nil {
+		return err
+	}
+	data = append(data, '\n')
+	return os.WriteFile(configPath, data, 0o644)
+}
+
+func cleanSentenceTransformerModulePath(raw string) (string, bool) {
+	normalized := filepath.Clean(filepath.FromSlash(strings.TrimSpace(raw)))
+	if normalized == "." || normalized == "" || filepath.IsAbs(normalized) {
+		return "", false
+	}
+	if normalized == ".." || strings.HasPrefix(normalized, ".."+string(os.PathSeparator)) {
+		return "", false
+	}
+	return normalized, true
+}
+
+func inferSentenceTransformerPooling(modelDir string) string {
+	normalized := normalizeEmbeddingModelName(filepath.Base(modelDir))
+	switch {
+	case strings.Contains(normalized, "qwen3embedding"),
+		strings.Contains(normalized, "gteqwen"):
+		return "lasttoken"
+	case strings.Contains(normalized, "bge"),
+		strings.Contains(normalized, "gtelargeenv15"),
+		strings.Contains(normalized, "gtebaseenv15"),
+		strings.Contains(normalized, "gtesmallenv15"):
+		return "cls"
+	default:
+		return "mean"
+	}
+}
+
+func normalizeEmbeddingModelName(modelName string) string {
+	modelName = strings.ToLower(strings.TrimSpace(modelName))
+	replacer := strings.NewReplacer(
+		"/", "",
+		"-", "",
+		"_", "",
+		".", "",
+		" ", "",
+	)
+	return replacer.Replace(modelName)
+}
+
+func sentenceTransformerPoolingConfig(pooling string) map[string]interface{} {
+	pooling = strings.ToLower(strings.TrimSpace(pooling))
+	return map[string]interface{}{
+		"pooling_mode":                      pooling,
+		"pooling_mode_cls_token":            pooling == "cls",
+		"pooling_mode_mean_tokens":          pooling == "mean",
+		"pooling_mode_max_tokens":           false,
+		"pooling_mode_mean_sqrt_len_tokens": false,
+		"pooling_mode_weightedmean_tokens":  false,
+		"pooling_mode_lasttoken":            pooling == "lasttoken",
+		"include_prompt":                    true,
+	}
+}
+
 // PythonConverterAvailable returns true if python3 and the required
 // dependencies are available for running the official converter.
 func PythonConverterAvailable() bool {
@@ -625,7 +736,7 @@ func ensureManagedPythonEnv(basePython string, progress ProgressFunc) (string, s
 		},
 		{
 			progress: "Installing model conversion Python packages",
-			args:     []string{"-m", "pip", "install", "--upgrade", "--index-url", pythonPackageIndexURL, "safetensors", "transformers", "sentencepiece"},
+			args:     []string{"-m", "pip", "install", "--upgrade", "--index-url", pythonPackageIndexURL, "safetensors", "transformers", "sentencepiece", "protobuf"},
 		},
 	}
 	for _, step := range steps {
@@ -863,6 +974,12 @@ func repairPlanForConverterFailure(combined string) converterRepairPlan {
 	if strings.Contains(lower, "no module named 'sentencepiece'") ||
 		strings.Contains(lower, "no module named \"sentencepiece\"") {
 		add("sentencepiece")
+	}
+	if strings.Contains(lower, "no module named 'google'") ||
+		strings.Contains(lower, "no module named \"google\"") ||
+		strings.Contains(lower, "no module named 'google.protobuf'") ||
+		strings.Contains(lower, "no module named \"google.protobuf\"") {
+		add("protobuf")
 	}
 
 	return plan

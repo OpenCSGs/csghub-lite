@@ -16,6 +16,7 @@ import (
 type openAIEngine struct {
 	baseURL            string
 	chatCompletionsURL string
+	embeddingsURL      string
 	modelName          string
 	token              string
 	disableThinking    bool
@@ -27,6 +28,7 @@ func NewOpenAIEngine(baseURL, modelName, token string) Engine {
 	return &openAIEngine{
 		baseURL:            baseURL,
 		chatCompletionsURL: openAIChatCompletionsURL(baseURL),
+		embeddingsURL:      openAIEmbeddingsURL(baseURL),
 		modelName:          modelName,
 		token:              strings.TrimSpace(token),
 		disableThinking:    true,
@@ -39,6 +41,7 @@ func NewOpenAICompatibleEngine(baseURL, modelName, token string) Engine {
 	return &openAIEngine{
 		baseURL:            baseURL,
 		chatCompletionsURL: openAICompatibleChatCompletionsURL(baseURL),
+		embeddingsURL:      openAICompatibleEmbeddingsURL(baseURL),
 		modelName:          modelName,
 		token:              strings.TrimSpace(token),
 		disableThinking:    false,
@@ -50,8 +53,16 @@ func openAIChatCompletionsURL(baseURL string) string {
 	return strings.TrimRight(baseURL, "/") + "/v1/chat/completions"
 }
 
+func openAIEmbeddingsURL(baseURL string) string {
+	return strings.TrimRight(baseURL, "/") + "/v1/embeddings"
+}
+
 func openAICompatibleChatCompletionsURL(baseURL string) string {
 	return strings.TrimRight(baseURL, "/") + "/chat/completions"
+}
+
+func openAICompatibleEmbeddingsURL(baseURL string) string {
+	return strings.TrimRight(baseURL, "/") + "/embeddings"
 }
 
 func (e *openAIEngine) chatCompletionsEndpoint() string {
@@ -59,6 +70,13 @@ func (e *openAIEngine) chatCompletionsEndpoint() string {
 		return e.chatCompletionsURL
 	}
 	return openAIChatCompletionsURL(e.baseURL)
+}
+
+func (e *openAIEngine) embeddingsEndpoint() string {
+	if strings.TrimSpace(e.embeddingsURL) != "" {
+		return e.embeddingsURL
+	}
+	return openAIEmbeddingsURL(e.baseURL)
 }
 
 func (e *openAIEngine) ChatCompletion(ctx context.Context, reqBody map[string]interface{}) (*http.Response, error) {
@@ -89,6 +107,37 @@ func (e *openAIEngine) ChatCompletion(ctx context.Context, reqBody map[string]in
 	resp, err := e.client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("chat completion request failed: %w", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		defer resp.Body.Close()
+		return nil, decodeOpenAIHTTPError(resp)
+	}
+	return resp, nil
+}
+
+func (e *openAIEngine) Embeddings(ctx context.Context, reqBody map[string]interface{}) (*http.Response, error) {
+	if reqBody == nil {
+		reqBody = map[string]interface{}{}
+	}
+	reqBody["model"] = e.modelName
+	body, err := json.Marshal(reqBody)
+	if err != nil {
+		return nil, fmt.Errorf("marshaling request: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, e.embeddingsEndpoint(), bytes.NewReader(body))
+	if err != nil {
+		return nil, fmt.Errorf("creating request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json")
+	if e.token != "" {
+		req.Header.Set("Authorization", "Bearer "+e.token)
+	}
+
+	resp, err := e.client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("embeddings request failed: %w", err)
 	}
 	if resp.StatusCode != http.StatusOK {
 		defer resp.Body.Close()

@@ -1,7 +1,7 @@
-import { useEffect } from "preact/hooks";
+import { useEffect, useRef } from "preact/hooks";
 import { computed, signal } from "@preact/signals";
-import { deleteModel, getPs, loadModel, searchLocalModels } from "../api/client";
-import type { LoadModelOptions, ModelInfo, RunningModel } from "../api/client";
+import { deleteModel, getPs, loadModel, searchLocalModels, uploadLocalModel } from "../api/client";
+import type { LoadModelOptions, LocalModelUploadFile, ModelInfo, RunningModel } from "../api/client";
 import { locale, t } from "../i18n";
 import { DownloadTableCell } from "../components/DownloadProgressPanel";
 import { getDownloadTask, getDownloadTasks, hasActiveDownload, clearDownloadTask, pauseDownload, startDownload } from "../downloads";
@@ -22,6 +22,7 @@ type ModelTableRow = {
   task?: DownloadTask;
   downloadOnly: boolean;
 };
+type UploadMode = "archive" | "directory" | "files";
 
 const RUN_PARAMS_STORAGE_KEY = "csghub-lite-run-params";
 const CACHE_TYPE_OPTIONS = ["f32", "f16", "bf16", "q8_0", "q4_0", "q4_1", "iq4_nl", "q5_0", "q5_1"];
@@ -40,6 +41,14 @@ const libraryError = signal<string>("");
 const runDialogModel = signal<ModelInfo | null>(null);
 const runDialogError = signal<string>("");
 const runParams = signal<RunModelParams>(loadSavedRunParams());
+const uploadDialogOpen = signal(false);
+const uploadModelID = signal("");
+const uploadMode = signal<UploadMode>("files");
+const uploadFiles = signal<LocalModelUploadFile[]>([]);
+const uploadOverwrite = signal(false);
+const uploadProgress = signal(0);
+const uploadError = signal("");
+const uploadBusy = signal(false);
 
 let loadModelsRequestID = 0;
 
@@ -159,6 +168,94 @@ function modelRows(models: ModelInfo[]): ModelTableRow[] {
   return rows;
 }
 
+function uploadPathForFile(file: File): string {
+  return ((file as any).webkitRelativePath || file.name || "").replace(/\\/g, "/");
+}
+
+function isArchivePath(path: string): boolean {
+  const lower = path.toLowerCase();
+  return lower.endsWith(".zip") || lower.endsWith(".tar") || lower.endsWith(".tar.gz") || lower.endsWith(".tgz");
+}
+
+function deriveUploadModelID(path: string): string {
+  const base = (path.split("/").filter(Boolean).pop() || "uploaded-model")
+    .replace(/\.(tar\.gz|tgz|zip|tar|gguf|safetensors|bin)$/i, "")
+    .replace(/[^A-Za-z0-9._-]+/g, "-")
+    .replace(/^[-._]+|[-._]+$/g, "");
+  return `local/${base || "uploaded-model"}`;
+}
+
+function setUploadSelection(files: LocalModelUploadFile[], mode: UploadMode) {
+  uploadFiles.value = files;
+  uploadMode.value = mode;
+  uploadProgress.value = 0;
+  uploadError.value = "";
+  if (!uploadModelID.value.trim() && files.length > 0) {
+    uploadModelID.value = deriveUploadModelID(files[0].path || files[0].file.name);
+  }
+}
+
+function filesFromInput(list: FileList | null): LocalModelUploadFile[] {
+  return Array.from(list || []).map((file) => ({
+    file,
+    path: uploadPathForFile(file),
+  }));
+}
+
+async function filesFromDrop(event: DragEvent): Promise<LocalModelUploadFile[]> {
+  const items = Array.from(event.dataTransfer?.items || []);
+  const entries = items
+    .map((item: any) => (typeof item.webkitGetAsEntry === "function" ? item.webkitGetAsEntry() : null))
+    .filter(Boolean);
+  if (entries.length === 0) {
+    return filesFromInput(event.dataTransfer?.files || null);
+  }
+  const result: LocalModelUploadFile[] = [];
+  for (const entry of entries) {
+    result.push(...(await filesFromEntry(entry, "")));
+  }
+  return result;
+}
+
+function filesFromEntry(entry: any, parentPath: string): Promise<LocalModelUploadFile[]> {
+  const entryPath = parentPath ? `${parentPath}/${entry.name}` : entry.name;
+  if (entry.isFile) {
+    return new Promise((resolve, reject) => {
+      entry.file(
+        (file: File) => resolve([{ file, path: entryPath }]),
+        (err: any) => reject(err)
+      );
+    });
+  }
+  if (!entry.isDirectory) return Promise.resolve([]);
+  const reader = entry.createReader();
+  const entries: any[] = [];
+  return new Promise((resolve, reject) => {
+    const readBatch = () => {
+      reader.readEntries(
+        async (batch: any[]) => {
+          if (!batch.length) {
+            try {
+              const files: LocalModelUploadFile[] = [];
+              for (const child of entries) {
+                files.push(...(await filesFromEntry(child, entryPath)));
+              }
+              resolve(files);
+            } catch (err) {
+              reject(err);
+            }
+            return;
+          }
+          entries.push(...batch);
+          readBatch();
+        },
+        (err: any) => reject(err)
+      );
+    };
+    readBatch();
+  });
+}
+
 async function loadModels() {
   const requestID = ++loadModelsRequestID;
   modelsLoading.value = true;
@@ -204,6 +301,8 @@ function loadRunningModels() {
 
 export function Library() {
   void locale.value;
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const folderInputRef = useRef<HTMLInputElement>(null);
   const completedDownloadsKey = getDownloadTasks("model")
     .filter((task) => task.status === "success" && task.completedAt)
     .map((task) => `${task.name}:${task.completedAt}`)
@@ -257,6 +356,52 @@ export function Library() {
     loadProgress.value = "";
   };
 
+  const openUploadDialog = () => {
+    if (hasActiveDownload.value || uploadBusy.value) return;
+    uploadDialogOpen.value = true;
+    uploadError.value = "";
+    uploadProgress.value = 0;
+  };
+
+  const closeUploadDialog = () => {
+    if (uploadBusy.value) return;
+    uploadDialogOpen.value = false;
+    uploadFiles.value = [];
+    uploadError.value = "";
+    uploadProgress.value = 0;
+  };
+
+  const selectUploadFiles = (files: LocalModelUploadFile[], fallbackMode: UploadMode) => {
+    const mode = files.length === 1 && isArchivePath(files[0].path || files[0].file.name) ? "archive" : fallbackMode;
+    setUploadSelection(files, mode);
+  };
+
+  const submitUpload = async () => {
+    if (uploadBusy.value || uploadFiles.value.length === 0) return;
+    uploadBusy.value = true;
+    uploadError.value = "";
+    uploadProgress.value = 0;
+    try {
+      await uploadLocalModel(
+        {
+          model: uploadModelID.value.trim(),
+          mode: uploadMode.value,
+          overwrite: uploadOverwrite.value,
+          files: uploadFiles.value,
+        },
+        (percent) => (uploadProgress.value = percent)
+      );
+      uploadDialogOpen.value = false;
+      uploadFiles.value = [];
+      uploadProgress.value = 0;
+      await loadModels();
+    } catch (e: any) {
+      uploadError.value = e?.message || t("lib.uploadFailed");
+    } finally {
+      uploadBusy.value = false;
+    }
+  };
+
   const openRunDialog = (model: ModelInfo) => {
     if (hasActiveDownload.value) return;
     runParams.value = loadSavedRunParams();
@@ -304,6 +449,7 @@ export function Library() {
   const isRunning = (name: string) => runningModels.value.some((m) => m.name === name);
   const hasActiveFilters = searchQuery.value.trim().length > 0 || formatFilter.value !== "all";
   const downloading = hasActiveDownload.value;
+  const uploadDisabled = downloading || uploadBusy.value;
   const rows = modelRows(filtered.value);
 
   return (
@@ -313,6 +459,13 @@ export function Library() {
           <h1 class="text-2xl font-bold text-gray-900">{t("lib.title")}</h1>
           <p class="text-gray-500 text-sm mt-1">{t("lib.subtitle")}</p>
         </div>
+        <button
+          onClick={openUploadDialog}
+          disabled={uploadDisabled}
+          class="inline-flex items-center justify-center px-4 py-2 text-sm rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          {t("lib.upload")}
+        </button>
       </div>
 
       {libraryError.value && (
@@ -332,7 +485,7 @@ export function Library() {
           </svg>
           <input
             type="text"
-            disabled={downloading}
+            disabled={uploadDisabled}
             value={searchQuery.value}
             onInput={(e) => (searchQuery.value = (e.currentTarget as HTMLInputElement).value)}
             placeholder={t("lib.search")}
@@ -347,7 +500,7 @@ export function Library() {
             <button
               key={f}
               onClick={() => (formatFilter.value = f)}
-              disabled={downloading}
+              disabled={uploadDisabled}
               class={`px-4 py-1.5 text-sm font-medium rounded-md capitalize transition-colors ${
                 formatFilter.value === f
                   ? "bg-white text-gray-900 shadow-sm"
@@ -485,6 +638,181 @@ export function Library() {
           onSubmit={submitRunDialog}
         />
       )}
+      {uploadDialogOpen.value && (
+        <UploadModelDialog
+          modelID={uploadModelID.value}
+          files={uploadFiles.value}
+          mode={uploadMode.value}
+          overwrite={uploadOverwrite.value}
+          progress={uploadProgress.value}
+          error={uploadError.value}
+          busy={uploadBusy.value}
+          fileInputRef={fileInputRef}
+          folderInputRef={folderInputRef}
+          onModelIDChange={(value) => (uploadModelID.value = value)}
+          onOverwriteChange={(value) => (uploadOverwrite.value = value)}
+          onPickFiles={() => fileInputRef.current?.click()}
+          onPickFolder={() => folderInputRef.current?.click()}
+          onFilesSelected={selectUploadFiles}
+          onDropFiles={(files) => selectUploadFiles(files, "directory")}
+          onCancel={closeUploadDialog}
+          onSubmit={submitUpload}
+        />
+      )}
+    </div>
+  );
+}
+
+function UploadModelDialog({
+  modelID,
+  files,
+  mode,
+  overwrite,
+  progress,
+  error,
+  busy,
+  fileInputRef,
+  folderInputRef,
+  onModelIDChange,
+  onOverwriteChange,
+  onPickFiles,
+  onPickFolder,
+  onFilesSelected,
+  onDropFiles,
+  onCancel,
+  onSubmit,
+}: {
+  modelID: string;
+  files: LocalModelUploadFile[];
+  mode: UploadMode;
+  overwrite: boolean;
+  progress: number;
+  error: string;
+  busy: boolean;
+  fileInputRef: any;
+  folderInputRef: any;
+  onModelIDChange: (value: string) => void;
+  onOverwriteChange: (value: boolean) => void;
+  onPickFiles: () => void;
+  onPickFolder: () => void;
+  onFilesSelected: (files: LocalModelUploadFile[], mode: UploadMode) => void;
+  onDropFiles: (files: LocalModelUploadFile[]) => void;
+  onCancel: () => void;
+  onSubmit: () => void;
+}) {
+  const totalBytes = files.reduce((sum, item) => sum + item.file.size, 0);
+  const modeLabel = mode === "archive" ? t("lib.uploadModeArchive") : mode === "directory" ? t("lib.uploadModeDirectory") : t("lib.uploadModeFiles");
+  return (
+    <div class="fixed inset-0 z-50 flex items-center justify-center bg-gray-900/40 px-4">
+      <form
+        class="w-full max-w-2xl bg-white rounded-2xl shadow-xl border border-gray-200 overflow-hidden"
+        onSubmit={(e) => {
+          e.preventDefault();
+          onSubmit();
+        }}
+      >
+        <div class="px-6 py-5 border-b border-gray-100">
+          <h2 class="text-lg font-semibold text-gray-900">{t("lib.uploadTitle")}</h2>
+          <p class="text-sm text-gray-500 mt-1">{t("lib.uploadDesc")}</p>
+        </div>
+
+        <div class="px-6 py-5 space-y-4">
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">{t("lib.uploadModelID")}</label>
+            <input
+              type="text"
+              value={modelID}
+              disabled={busy}
+              onInput={(e) => onModelIDChange((e.currentTarget as HTMLInputElement).value)}
+              placeholder="local/my-model"
+              class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent disabled:bg-gray-100"
+            />
+            <p class="text-xs text-gray-400 mt-1">{t("lib.uploadModelIDHint")}</p>
+          </div>
+
+          <div
+            class="border-2 border-dashed border-gray-200 rounded-xl px-5 py-8 text-center bg-gray-50"
+            onDragOver={(e) => {
+              e.preventDefault();
+              if (e.dataTransfer) e.dataTransfer.dropEffect = "copy";
+            }}
+            onDrop={(e) => {
+              e.preventDefault();
+              if (busy) return;
+              filesFromDrop(e).then(onDropFiles).catch((err: any) => (uploadError.value = err?.message || t("lib.uploadReadFailed")));
+            }}
+          >
+            <p class="text-sm font-medium text-gray-700">{t("lib.uploadDropTitle")}</p>
+            <p class="text-xs text-gray-500 mt-1">{t("lib.uploadDropDesc")}</p>
+            <div class="mt-4 flex justify-center gap-3 flex-wrap">
+              <button type="button" disabled={busy} onClick={onPickFiles} class="px-4 py-2 text-sm rounded-lg border border-gray-200 bg-white text-gray-700 hover:bg-gray-50 disabled:opacity-50">
+                {t("lib.uploadPickFiles")}
+              </button>
+              <button type="button" disabled={busy} onClick={onPickFolder} class="px-4 py-2 text-sm rounded-lg border border-gray-200 bg-white text-gray-700 hover:bg-gray-50 disabled:opacity-50">
+                {t("lib.uploadPickFolder")}
+              </button>
+            </div>
+            <input
+              ref={fileInputRef}
+              type="file"
+              multiple
+              class="hidden"
+              accept=".zip,.tar,.gz,.tgz,.gguf,.safetensors,.bin"
+              onChange={(e) => onFilesSelected(filesFromInput((e.currentTarget as HTMLInputElement).files), "files")}
+            />
+            <input
+              ref={folderInputRef}
+              type="file"
+              multiple
+              class="hidden"
+              {...({ webkitdirectory: "true" } as any)}
+              onChange={(e) => onFilesSelected(filesFromInput((e.currentTarget as HTMLInputElement).files), "directory")}
+            />
+          </div>
+
+          <div class="rounded-lg border border-gray-100 bg-white px-4 py-3 text-sm">
+            <div class="flex items-center justify-between gap-3">
+              <span class="font-medium text-gray-700">{files.length ? t("lib.uploadSelected", files.length, fmtSize(totalBytes)) : t("lib.uploadNoFiles")}</span>
+              {files.length > 0 && <span class="text-xs text-gray-400">{modeLabel}</span>}
+            </div>
+            {files.length > 0 && (
+              <div class="mt-2 max-h-24 overflow-auto text-xs text-gray-500 space-y-1">
+                {files.slice(0, 8).map((item) => (
+                  <div key={item.path} class="truncate">
+                    {item.path}
+                  </div>
+                ))}
+                {files.length > 8 && <div>{t("lib.uploadMoreFiles", files.length - 8)}</div>}
+              </div>
+            )}
+          </div>
+
+          <label class="flex items-center gap-2 text-sm text-gray-600">
+            <input type="checkbox" checked={overwrite} disabled={busy} onChange={(e) => onOverwriteChange((e.currentTarget as HTMLInputElement).checked)} />
+            {t("lib.uploadOverwrite")}
+          </label>
+
+          {busy && (
+            <div>
+              <div class="h-2 rounded-full bg-gray-100 overflow-hidden">
+                <div class="h-full bg-indigo-600 transition-all" style={{ width: `${Math.max(2, progress)}%` }} />
+              </div>
+              <p class="text-xs text-gray-500 mt-1">{t("lib.uploadProgress", progress)}</p>
+            </div>
+          )}
+
+          {error && <div class="text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{error}</div>}
+        </div>
+
+        <div class="px-6 py-4 bg-gray-50 border-t border-gray-100 flex justify-end gap-3">
+          <button type="button" onClick={onCancel} disabled={busy} class="px-4 py-2 text-sm rounded-lg border border-gray-200 text-gray-600 hover:bg-white disabled:opacity-50">
+            {t("lib.runParamCancel")}
+          </button>
+          <button type="submit" disabled={busy || files.length === 0 || !modelID.trim()} class="px-4 py-2 text-sm rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-50">
+            {busy ? t("lib.uploading") : t("lib.uploadSubmit")}
+          </button>
+        </div>
+      </form>
     </div>
   );
 }

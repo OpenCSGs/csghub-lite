@@ -67,6 +67,35 @@ func (e *remoteEngine) ChatCompletion(ctx context.Context, reqBody map[string]in
 	return resp, nil
 }
 
+func (e *remoteEngine) Embeddings(ctx context.Context, reqBody map[string]interface{}) (*http.Response, error) {
+	if reqBody == nil {
+		reqBody = map[string]interface{}{}
+	}
+	reqBody["model"] = e.modelName
+	body, err := json.Marshal(reqBody)
+	if err != nil {
+		return nil, fmt.Errorf("marshaling request: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, e.baseURL+"/v1/embeddings", bytes.NewReader(body))
+	if err != nil {
+		return nil, fmt.Errorf("creating request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json")
+
+	resp, err := e.client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("embeddings request failed: %w", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		defer resp.Body.Close()
+		errBody, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		return nil, fmt.Errorf("server error %d: %s", resp.StatusCode, string(errBody))
+	}
+	return resp, nil
+}
+
 func (e *remoteEngine) Generate(ctx context.Context, prompt string, opts Options, onToken TokenCallback) (string, error) {
 	messages := []Message{
 		{Role: "user", Content: prompt},

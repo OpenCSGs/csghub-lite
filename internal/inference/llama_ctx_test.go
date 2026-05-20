@@ -47,6 +47,42 @@ func TestResolveNumParallelFallsBackToSingleSlot(t *testing.T) {
 	}
 }
 
+func TestResolveEmbeddingPoolingUsesBGECLS(t *testing.T) {
+	if got := ResolveEmbeddingPooling("BAAI/bge-m3"); got != "cls" {
+		t.Fatalf("ResolveEmbeddingPooling returned %q, want cls", got)
+	}
+}
+
+func TestResolveEmbeddingPoolingForCommonFamilies(t *testing.T) {
+	tests := []struct {
+		model string
+		want  string
+	}{
+		{"Qwen/Qwen3-Embedding-8B", "last"},
+		{"Qwen/Qwen3-Embedding-0.6B", "last"},
+		{"Alibaba-NLP/gte-Qwen2-7B-instruct", "last"},
+		{"Alibaba-NLP/gte-large-en-v1.5", "cls"},
+		{"intfloat/multilingual-e5-large-instruct", "mean"},
+		{"nomic-ai/nomic-embed-text-v1.5", "mean"},
+		{"jinaai/jina-embeddings-v2-base-en", "mean"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.model, func(t *testing.T) {
+			if got := ResolveEmbeddingPooling(tt.model); got != tt.want {
+				t.Fatalf("ResolveEmbeddingPooling(%q) = %q, want %q", tt.model, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestResolveEmbeddingPoolingUsesEnvOverride(t *testing.T) {
+	t.Setenv("CSGHUB_LITE_LLAMA_EMBEDDING_POOLING", "mean")
+	if got := ResolveEmbeddingPooling("BAAI/bge-m3"); got != "mean" {
+		t.Fatalf("ResolveEmbeddingPooling returned %q, want mean", got)
+	}
+}
+
 func TestResolveNGPULayersUsesExplicitRequest(t *testing.T) {
 	if got := ResolveNGPULayers(42); got != 42 {
 		t.Fatalf("ResolveNGPULayers returned %d, want %d", got, 42)

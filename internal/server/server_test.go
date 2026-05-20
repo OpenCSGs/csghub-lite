@@ -475,8 +475,8 @@ func TestHandlePipelineTags(t *testing.T) {
 	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
 		t.Fatalf("decode error: %v", err)
 	}
-	if len(resp.PipelineTags) != 5 {
-		t.Fatalf("pipeline_tags len = %d, want 5", len(resp.PipelineTags))
+	if len(resp.PipelineTags) != 6 {
+		t.Fatalf("pipeline_tags len = %d, want 6", len(resp.PipelineTags))
 	}
 	if resp.PipelineTags[0].Category != "language_model" || resp.PipelineTags[0].Label != "语言模型" {
 		t.Fatalf("first group = %#v, want language model group", resp.PipelineTags[0])

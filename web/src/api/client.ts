@@ -10,6 +10,7 @@ export interface ModelInfo {
   display_name?: string;
   source?: string;
   provider?: string;
+  category?: string;
   pipeline_tag?: string;
   input_modalities?: string[];
   output_modalities?: string[];
@@ -62,6 +63,25 @@ export interface ModelFileEntry {
 export interface ModelManifestResponse {
   details: ModelInfo;
   files: ModelFileEntry[];
+}
+
+export interface ModelUploadResponse {
+  status: string;
+  model: string;
+  details: ModelInfo;
+  files: ModelFileEntry[];
+}
+
+export interface LocalModelUploadFile {
+  file: File;
+  path: string;
+}
+
+export interface LocalModelUploadOptions {
+  model?: string;
+  mode: "archive" | "directory" | "files";
+  overwrite?: boolean;
+  files: LocalModelUploadFile[];
 }
 
 export interface MarketplaceTag {
@@ -512,6 +532,46 @@ function splitModelID(model: string): { namespace: string; name: string } {
 export async function getModelManifest(model: string): Promise<ModelManifestResponse> {
   const { namespace, name } = splitModelID(model);
   return fetchJSON<ModelManifestResponse>(`/api/models/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}/manifest`);
+}
+
+export function uploadLocalModel(
+  options: LocalModelUploadOptions,
+  onProgress?: (percent: number) => void
+): Promise<ModelUploadResponse> {
+  return new Promise((resolve, reject) => {
+    const form = new FormData();
+    if (options.model?.trim()) form.set("model", options.model.trim());
+    form.set("mode", options.mode);
+    form.set("overwrite", options.overwrite ? "true" : "false");
+    for (const item of options.files) {
+      form.append("paths", item.path || item.file.name);
+      form.append("files", item.file, item.file.name);
+    }
+
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", "/api/models/upload");
+    xhr.upload.onprogress = (event) => {
+      if (event.lengthComputable && event.total > 0) {
+        onProgress?.(Math.round((event.loaded / event.total) * 100));
+      }
+    };
+    xhr.onload = () => {
+      let data: any = null;
+      try {
+        data = xhr.responseText ? JSON.parse(xhr.responseText) : null;
+      } catch {
+        reject(new Error("upload failed"));
+        return;
+      }
+      if (xhr.status >= 200 && xhr.status < 300) {
+        resolve(data as ModelUploadResponse);
+        return;
+      }
+      reject(new Error(data?.error || data?.message || "upload failed"));
+    };
+    xhr.onerror = () => reject(new Error("upload failed"));
+    xhr.send(form);
+  });
 }
 
 export async function getPs(): Promise<RunningModel[]> {

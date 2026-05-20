@@ -13,6 +13,11 @@ var supportedPipelineTagGroups = []api.PipelineTagGroup{
 		Tags:     []string{"text-generation", "conversational", "text2text-generation", "fill-mask"},
 	},
 	{
+		Category: "embedding",
+		Label:    "文本向量",
+		Tags:     []string{"feature-extraction", "sentence-similarity", "text-embedding", "embedding"},
+	},
+	{
 		Category: "image_generation",
 		Label:    "图像生成",
 		Tags:     []string{"text-to-image", "image-to-image"},

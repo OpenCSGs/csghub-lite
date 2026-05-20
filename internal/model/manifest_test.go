@@ -131,6 +131,11 @@ func TestDetectFormat(t *testing.T) {
 			want:  FormatGGUF,
 		},
 		{
+			name:  "PyTorch bin files",
+			files: []string{"pytorch_model.bin", "config.json"},
+			want:  FormatPyTorch,
+		},
+		{
 			name:  "unknown format",
 			files: []string{"config.json", "tokenizer.json"},
 			want:  FormatUnknown,
@@ -154,6 +159,20 @@ func TestDetectFormat(t *testing.T) {
 				t.Errorf("DetectFormat(%v) = %q, want %q", tt.files, got, tt.want)
 			}
 		})
+	}
+}
+
+func TestDetectPipelineTagSentenceTransformersEmbedding(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "modules.json"), []byte(`[]`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "config.json"), []byte(`{"architectures":["XLMRobertaModel"]}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if got := DetectPipelineTag(dir); got != "feature-extraction" {
+		t.Fatalf("DetectPipelineTag() = %q, want feature-extraction", got)
 	}
 }
 
@@ -196,6 +215,25 @@ func TestFindModelFile_SafeTensors(t *testing.T) {
 	}
 	if filepath.Base(path) != "model.safetensors" {
 		t.Errorf("path = %q, want model.safetensors", path)
+	}
+}
+
+func TestFindModelFile_PyTorchBin(t *testing.T) {
+	dir := t.TempDir()
+
+	if err := os.WriteFile(filepath.Join(dir, "pytorch_model.bin"), []byte("pt"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	path, format, err := FindModelFile(dir)
+	if err != nil {
+		t.Fatalf("FindModelFile error: %v", err)
+	}
+	if format != FormatPyTorch {
+		t.Errorf("format = %q, want %q", format, FormatPyTorch)
+	}
+	if filepath.Base(path) != "pytorch_model.bin" {
+		t.Errorf("path = %q, want pytorch_model.bin", path)
 	}
 }
 

@@ -27,7 +27,7 @@ var allowedConvertDTypeSet = func() map[string]struct{} {
 	return allowed
 }()
 
-// Convert converts SafeTensors model files in modelDir to a GGUF file.
+// Convert converts HuggingFace model files in modelDir to a GGUF file.
 // It runs the llama.cpp convert_hf_to_gguf.py bundled in the binary (or from
 // CSGHUB_LITE_CONVERTER_URL when set); see convert_python.go.
 func Convert(modelDir string, progress ProgressFunc, dtype string) (string, error) {
@@ -101,6 +101,25 @@ func HasSafeTensors(modelDir string) bool {
 	return false
 }
 
+// HasPyTorchWeights reports whether modelDir contains legacy PyTorch .bin
+// weights that llama.cpp's HuggingFace converter can read.
+func HasPyTorchWeights(modelDir string) bool {
+	entries, err := os.ReadDir(modelDir)
+	if err != nil {
+		return false
+	}
+	for _, e := range entries {
+		if !e.IsDir() && strings.HasSuffix(strings.ToLower(e.Name()), ".bin") {
+			return true
+		}
+	}
+	return false
+}
+
+func HasConvertibleHFWeights(modelDir string) bool {
+	return HasSafeTensors(modelDir) || HasPyTorchWeights(modelDir)
+}
+
 func mmprojGGUFNames(modelDir string) ([]string, error) {
 	entries, err := os.ReadDir(modelDir)
 	if err != nil {
@@ -116,7 +135,7 @@ func mmprojGGUFNames(modelDir string) ([]string, error) {
 	return names, nil
 }
 
-// NeedsConversion checks if the model directory contains SafeTensors files
+// NeedsConversion checks if the model directory contains HuggingFace weights
 // but no GGUF files.
 func NeedsConversion(modelDir string) bool {
 	_, hasGGUF := HasGGUF(modelDir)
@@ -124,7 +143,7 @@ func NeedsConversion(modelDir string) bool {
 		return false
 	}
 
-	return HasSafeTensors(modelDir)
+	return HasConvertibleHFWeights(modelDir)
 }
 
 // NeedsConversionForDType reports whether SafeTensors conversion is needed for
@@ -143,7 +162,7 @@ func NeedsConversionForDType(modelDir, dtype string) (bool, error) {
 	} else if ok {
 		return false, nil
 	}
-	return HasSafeTensors(modelDir), nil
+	return HasConvertibleHFWeights(modelDir), nil
 }
 
 func reverseShape(shape []int64) []uint64 {

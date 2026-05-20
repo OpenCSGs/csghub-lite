@@ -145,6 +145,13 @@ type ModelManifestResponse struct {
 	Files   []ModelFileEntry `json:"files"`
 }
 
+type ModelUploadResponse struct {
+	Status  string           `json:"status"`
+	Model   string           `json:"model"`
+	Details ModelInfo        `json:"details"`
+	Files   []ModelFileEntry `json:"files"`
+}
+
 type PullResponse struct {
 	Status    string `json:"status"`
 	Digest    string `json:"digest,omitempty"`
@@ -519,6 +526,15 @@ type OpenAIChatRequest struct {
 	Stop              []string    `json:"stop,omitempty"`
 }
 
+type OpenAIEmbeddingsRequest struct {
+	Model      string      `json:"model"`
+	Source     string      `json:"source,omitempty"`
+	Input      interface{} `json:"input"`
+	NumCtx     *int        `json:"num_ctx,omitempty"`
+	NGPULayers *int        `json:"n_gpu_layers,omitempty"`
+	DType      *string     `json:"dtype,omitempty"`
+}
+
 type OpenAIChatResponse struct {
 	ID      string         `json:"id"`
 	Object  string         `json:"object"`
@@ -526,6 +542,19 @@ type OpenAIChatResponse struct {
 	Model   string         `json:"model"`
 	Choices []OpenAIChoice `json:"choices"`
 	Usage   OpenAIUsage    `json:"usage"`
+}
+
+type OpenAIEmbeddingsResponse struct {
+	Object string                  `json:"object"`
+	Data   []OpenAIEmbeddingObject `json:"data"`
+	Model  string                  `json:"model"`
+	Usage  OpenAIUsage             `json:"usage"`
+}
+
+type OpenAIEmbeddingObject struct {
+	Object    string      `json:"object"`
+	Embedding interface{} `json:"embedding"`
+	Index     int         `json:"index"`
 }
 
 type OpenAIChoice struct {

@@ -11,6 +11,12 @@ const logs = signal<string[]>([]);
 const streaming = signal(true);
 const apiInfoModel = signal<string>("");
 
+function isEmbeddingModel(model?: Pick<ModelInfo, "pipeline_tag" | "category"> | null): boolean {
+  const pipelineTag = (model?.pipeline_tag || "").toLowerCase();
+  const category = (model?.category || "").toLowerCase();
+  return category === "embedding" || ["feature-extraction", "sentence-similarity", "text-embedding", "embedding"].includes(pipelineTag);
+}
+
 export function Dashboard() {
   const logRef = useRef<HTMLDivElement>(null);
   void locale.value;
@@ -193,6 +199,7 @@ export function Dashboard() {
         <ApiInfoDialog
           model={apiInfoModel.value}
           isVision={allModels.value.find((m) => m.name === apiInfoModel.value)?.pipeline_tag === "image-text-to-text"}
+          isEmbedding={isEmbeddingModel(allModels.value.find((m) => m.name === apiInfoModel.value))}
           onClose={() => (apiInfoModel.value = "")}
         />
       )}
@@ -200,7 +207,7 @@ export function Dashboard() {
   );
 }
 
-function ApiInfoDialog({ model, isVision, onClose }: { model: string; isVision?: boolean; onClose: () => void }) {
+function ApiInfoDialog({ model, isVision, isEmbedding, onClose }: { model: string; isVision?: boolean; isEmbedding?: boolean; onClose: () => void }) {
   const baseUrl = `${location.protocol}//${location.host}`;
 
   const textMsg = `{"role": "user", "content": "Hello!"}`;
@@ -209,7 +216,15 @@ function ApiInfoDialog({ model, isVision, onClose }: { model: string; isVision?:
         {"type": "image_url", "image_url": {"url": "data:image/png;base64,<BASE64_DATA>"}}
       ]}`;
 
-  const curlExample = `curl ${baseUrl}/v1/chat/completions \\
+  const curlExample = isEmbedding
+    ? `curl ${baseUrl}/v1/embeddings \\
+  -H "Content-Type: application/json" \\
+  -d '{
+    "model": "${model}",
+    "input": ["Hello!"],
+    "encoding_format": "float"
+  }'`
+    : `curl ${baseUrl}/v1/chat/completions \\
   -H "Content-Type: application/json" \\
   -d '{
     "model": "${model}",
@@ -231,7 +246,22 @@ function ApiInfoDialog({ model, isVision, onClose }: { model: string; isVision?:
             ]
         }`;
 
-  const pythonExample = isVision
+  const pythonExample = isEmbedding
+    ? `from openai import OpenAI
+
+client = OpenAI(
+    base_url="${baseUrl}/v1",
+    api_key="unused"
+)
+
+response = client.embeddings.create(
+    model="${model}",
+    input=["Hello!"],
+    encoding_format="float"
+)
+
+print(response.data[0].embedding)`
+    : isVision
     ? `import base64
 from openai import OpenAI
 
@@ -282,7 +312,20 @@ for chunk in response:
       ]
     }`;
 
-  const jsExample = isVision
+  const jsExample = isEmbedding
+    ? `const response = await fetch("${baseUrl}/v1/embeddings", {
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({
+    model: "${model}",
+    input: ["Hello!"],
+    encoding_format: "float"
+  })
+});
+
+const data = await response.json();
+console.log(data.data[0].embedding);`
+    : isVision
     ? `const imgBase64 = "..."; // Base64-encoded image data
 
 const response = await fetch("${baseUrl}/v1/chat/completions", {
@@ -326,6 +369,7 @@ console.log(data.choices[0].message.content);`;
             <p class="text-sm text-gray-500 mt-0.5">
               {t("dash.apiModel")}: <span class="font-mono text-indigo-600">{model}</span>
               {isVision && <span class="ml-2 px-1.5 py-0.5 text-xs bg-purple-50 text-purple-700 rounded">Vision</span>}
+              {isEmbedding && <span class="ml-2 px-1.5 py-0.5 text-xs bg-emerald-50 text-emerald-700 rounded">Embedding</span>}
             </p>
           </div>
         </div>

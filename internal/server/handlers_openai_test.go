@@ -51,6 +51,36 @@ func (e *fakeChatCompletionEngine) ChatCompletion(_ context.Context, reqBody map
 	}, nil
 }
 
+type fakeEmbeddingsEngine struct {
+	resp    api.OpenAIEmbeddingsResponse
+	lastReq map[string]interface{}
+}
+
+func (e *fakeEmbeddingsEngine) Generate(context.Context, string, inference.Options, inference.TokenCallback) (string, error) {
+	return "", nil
+}
+
+func (e *fakeEmbeddingsEngine) Chat(context.Context, []inference.Message, inference.Options, inference.TokenCallback) (string, error) {
+	return "", nil
+}
+
+func (e *fakeEmbeddingsEngine) Close() error { return nil }
+
+func (e *fakeEmbeddingsEngine) ModelName() string { return "BAAI/bge-m3" }
+
+func (e *fakeEmbeddingsEngine) Embeddings(_ context.Context, reqBody map[string]interface{}) (*http.Response, error) {
+	e.lastReq = reqBody
+	data, err := json.Marshal(e.resp)
+	if err != nil {
+		return nil, err
+	}
+	return &http.Response{
+		StatusCode: http.StatusOK,
+		Body:       io.NopCloser(bytes.NewReader(data)),
+		Header:     make(http.Header),
+	}, nil
+}
+
 func newCloudOpenAIAPIServer(t *testing.T, expectedToken string) *httptest.Server {
 	t.Helper()
 
@@ -161,6 +191,112 @@ func TestNormalizeOpenAIToolResponseFromBareToolName(t *testing.T) {
 	}
 	if call.Function.Arguments != "{}" {
 		t.Fatalf("unexpected arguments payload: %#v", call.Function.Arguments)
+	}
+}
+
+func TestHandleOpenAIEmbeddingsProxiesLocalEmbeddingEngine(t *testing.T) {
+	engine := &fakeEmbeddingsEngine{
+		resp: api.OpenAIEmbeddingsResponse{
+			Object: "list",
+			Model:  "BAAI/bge-m3",
+			Data: []api.OpenAIEmbeddingObject{{
+				Object:    "embedding",
+				Embedding: []float64{0.1, 0.2, 0.3},
+				Index:     0,
+			}},
+			Usage: api.OpenAIUsage{PromptTokens: 3, TotalTokens: 3},
+		},
+	}
+	cfg := &config.Config{ModelDir: t.TempDir()}
+	s := New(cfg, "test")
+	s.engines[engineCacheKey("BAAI/bge-m3", engineModeEmbed)] = &managedEngine{
+		engine:    engine,
+		lastUsed:  time.Now(),
+		keepAlive: DefaultKeepAlive,
+	}
+
+	body := `{"model":"BAAI/bge-m3","input":["hello","world"],"encoding_format":"float","source":"local"}`
+	req := httptest.NewRequest(http.MethodPost, "/v1/embeddings", strings.NewReader(body))
+	w := httptest.NewRecorder()
+
+	s.handleOpenAIEmbeddings(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("unexpected status code: %d body=%s", w.Code, w.Body.String())
+	}
+	var resp api.OpenAIEmbeddingsResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if len(resp.Data) != 1 {
+		t.Fatalf("unexpected embeddings response: %#v", resp)
+	}
+	embedding, ok := resp.Data[0].Embedding.([]interface{})
+	if !ok || len(embedding) != 3 {
+		t.Fatalf("unexpected embeddings response: %#v", resp)
+	}
+	if engine.lastReq["model"] != "BAAI/bge-m3" {
+		t.Fatalf("model was not forwarded: %#v", engine.lastReq["model"])
+	}
+	if engine.lastReq["encoding_format"] != "float" {
+		t.Fatalf("encoding_format was not preserved: %#v", engine.lastReq["encoding_format"])
+	}
+	if _, ok := engine.lastReq["source"]; ok {
+		t.Fatalf("source should not be forwarded upstream: %#v", engine.lastReq)
+	}
+}
+
+func TestHandleChatWithEmbeddingModelReturnsEmbeddingJSON(t *testing.T) {
+	engine := &fakeEmbeddingsEngine{
+		resp: api.OpenAIEmbeddingsResponse{
+			Object: "list",
+			Model:  "BAAI/bge-m3",
+			Data: []api.OpenAIEmbeddingObject{{
+				Object:    "embedding",
+				Embedding: []float64{0.1, 0.2},
+				Index:     0,
+			}},
+			Usage: api.OpenAIUsage{PromptTokens: 2, TotalTokens: 2},
+		},
+	}
+	cfg := &config.Config{ModelDir: t.TempDir()}
+	if err := model.SaveManifest(cfg.ModelDir, &model.LocalModel{
+		Namespace:   "BAAI",
+		Name:        "bge-m3",
+		Format:      model.FormatPyTorch,
+		Files:       []string{"pytorch_model.bin"},
+		PipelineTag: "feature-extraction",
+	}); err != nil {
+		t.Fatalf("save manifest: %v", err)
+	}
+
+	s := New(cfg, "test")
+	s.engines[engineCacheKey("BAAI/bge-m3", engineModeEmbed)] = &managedEngine{
+		engine:    engine,
+		lastUsed:  time.Now(),
+		keepAlive: DefaultKeepAlive,
+	}
+
+	body := `{"model":"BAAI/bge-m3","source":"local","messages":[{"role":"user","content":"hello world"}],"stream":true,"web_search":{"enabled":true}}`
+	req := httptest.NewRequest(http.MethodPost, "/api/chat", strings.NewReader(body))
+	req.Header.Set("Accept", "text/event-stream")
+	req.Header.Set("X-CSGHUB-Stream", "sse")
+	w := httptest.NewRecorder()
+
+	s.handleChat(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("unexpected status code: %d body=%s", w.Code, w.Body.String())
+	}
+	respBody := w.Body.String()
+	if strings.Contains(respBody, "searching") || strings.Contains(respBody, "search_results") || strings.Contains(respBody, "search_route") {
+		t.Fatalf("embedding chat should not emit search events: %s", respBody)
+	}
+	if !strings.Contains(respBody, "embedding") || !strings.Contains(respBody, "0.1") {
+		t.Fatalf("embedding chat response missing vector JSON: %s", respBody)
+	}
+	if engine.lastReq["input"] != "hello world" {
+		t.Fatalf("embedding input = %#v, want hello world", engine.lastReq["input"])
 	}
 }
 

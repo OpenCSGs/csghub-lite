@@ -122,7 +122,8 @@ func (s *Server) handlePs(w http.ResponseWriter, r *http.Request) {
 
 	models := make([]api.RunningModel, 0, len(s.engines)+len(s.loading))
 	for id, me := range s.engines {
-		lm, err := s.manager.Get(id)
+		modelID := engineModelIDFromKey(id)
+		lm, err := s.manager.Get(modelID)
 		if err != nil {
 			continue
 		}
@@ -139,7 +140,8 @@ func (s *Server) handlePs(w http.ResponseWriter, r *http.Request) {
 		if _, ok := s.engines[id]; ok {
 			continue
 		}
-		lm, err := s.manager.Get(id)
+		modelID := engineModelIDFromKey(id)
+		lm, err := s.manager.Get(modelID)
 		if err != nil {
 			continue
 		}
@@ -164,14 +166,17 @@ func (s *Server) handleStop(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.mu.Lock()
-	me, ok := s.engines[req.Model]
-	if ok {
-		me.engine.Close()
-		delete(s.engines, req.Model)
+	stopped := false
+	for _, key := range []string{engineCacheKey(req.Model, engineModeChat), engineCacheKey(req.Model, engineModeEmbed)} {
+		if me, ok := s.engines[key]; ok {
+			me.engine.Close()
+			delete(s.engines, key)
+			stopped = true
+		}
 	}
 	s.mu.Unlock()
 
-	if !ok {
+	if !stopped {
 		writeError(w, http.StatusNotFound, fmt.Sprintf("model %q is not running", req.Model))
 		return
 	}
@@ -255,9 +260,11 @@ func (s *Server) handleDelete(w http.ResponseWriter, r *http.Request) {
 
 	// Close engine if running
 	s.mu.Lock()
-	if me, ok := s.engines[req.Model]; ok {
-		me.engine.Close()
-		delete(s.engines, req.Model)
+	for _, key := range []string{engineCacheKey(req.Model, engineModeChat), engineCacheKey(req.Model, engineModeEmbed)} {
+		if me, ok := s.engines[key]; ok {
+			me.engine.Close()
+			delete(s.engines, key)
+		}
 	}
 	s.mu.Unlock()
 
@@ -306,18 +313,28 @@ func (s *Server) handleLoad(w http.ResponseWriter, r *http.Request) {
 	if req.DType != "" {
 		requestedDType = req.DType
 	}
+	embeddingModel := s.modelUsesEmbeddingEngine(req.Model)
 
 	stream := req.Stream != nil && *req.Stream
 
 	if !stream {
 		log.Printf("MODEL %s: load requested stream=false num_ctx=%d num_parallel=%d n_gpu_layers=%d cache_type_k=%q cache_type_v=%q dtype=%q", req.Model, requestedNumCtx, requestedNumParallel, requestedNGPULayers, requestedCacheTypeK, requestedCacheTypeV, requestedDType)
-		_, err := s.getOrLoadEngineFull(req.Model, nil, requestedNumCtx, requestedNumParallel, requestedNGPULayers, requestedCacheTypeK, requestedCacheTypeV, requestedDType)
+		var err error
+		if embeddingModel {
+			_, err = s.getOrLoadEmbeddingEngineWithOpts(req.Model, requestedNumCtx, requestedNGPULayers, requestedDType)
+		} else {
+			_, err = s.getOrLoadEngineFull(req.Model, nil, requestedNumCtx, requestedNumParallel, requestedNGPULayers, requestedCacheTypeK, requestedCacheTypeV, requestedDType)
+		}
 		if err != nil {
 			log.Printf("MODEL %s: load failed: %v", req.Model, err)
 			writeError(w, http.StatusBadRequest, err.Error())
 			return
 		}
-		s.touchEngine(req.Model)
+		if embeddingModel {
+			s.touchEngineKey(engineCacheKey(req.Model, engineModeEmbed))
+		} else {
+			s.touchEngine(req.Model)
+		}
 		if keepAliveSet {
 			s.setEngineKeepAlive(req.Model, requestedKeepAlive)
 		}
@@ -354,13 +371,21 @@ func (s *Server) handleLoad(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	_, err = s.getOrLoadEngineWithProgressAndOpts(req.Model, progress, requestedNumCtx, requestedNumParallel, requestedNGPULayers, requestedCacheTypeK, requestedCacheTypeV, requestedDType)
+	if embeddingModel {
+		_, err = s.getOrLoadEngineFullMode(req.Model, progress, requestedNumCtx, 0, requestedNGPULayers, "", "", requestedDType, engineModeEmbed)
+	} else {
+		_, err = s.getOrLoadEngineWithProgressAndOpts(req.Model, progress, requestedNumCtx, requestedNumParallel, requestedNGPULayers, requestedCacheTypeK, requestedCacheTypeV, requestedDType)
+	}
 	if err != nil {
 		log.Printf("load %s failed: %v", req.Model, err)
 		safeSSE(api.LoadResponse{Status: "error: " + err.Error()})
 		return
 	}
-	s.touchEngine(req.Model)
+	if embeddingModel {
+		s.touchEngineKey(engineCacheKey(req.Model, engineModeEmbed))
+	} else {
+		s.touchEngine(req.Model)
+	}
 	if keepAliveSet {
 		s.setEngineKeepAlive(req.Model, requestedKeepAlive)
 	}
@@ -484,6 +509,10 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 	var req api.ChatRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if s.modelUsesEmbeddingEngine(req.Model) {
+		s.handleEmbeddingChat(w, r, req)
 		return
 	}
 

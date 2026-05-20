@@ -37,6 +37,12 @@ type ChatCompletionProxier interface {
 	ChatCompletion(ctx context.Context, reqBody map[string]interface{}) (*http.Response, error)
 }
 
+// EmbeddingsProxier exposes direct access to the underlying
+// OpenAI-compatible /v1/embeddings API.
+type EmbeddingsProxier interface {
+	Embeddings(ctx context.Context, reqBody map[string]interface{}) (*http.Response, error)
+}
+
 // ConvertProgressFunc receives conversion progress updates.
 // If nil, conversion progress is not reported.
 type ConvertProgressFunc func(step string, current, total int)
@@ -53,6 +59,16 @@ func LoadEngine(modelDir string, lm *model.LocalModel) (Engine, error) {
 // for SafeTensors → GGUF conversion. When verbose is true, llama-server
 // output is printed to stderr.
 func LoadEngineWithProgress(modelDir string, lm *model.LocalModel, progress ConvertProgressFunc, verbose bool, numCtx, numParallel, nGPULayers int, cacheTypeK, cacheTypeV, dtype string) (Engine, error) {
+	return loadEngineWithProgressMode(modelDir, lm, progress, verbose, numCtx, numParallel, nGPULayers, cacheTypeK, cacheTypeV, dtype, false)
+}
+
+// LoadEmbeddingEngineWithProgress is like LoadEngineWithProgress but starts
+// llama-server in embedding mode for OpenAI-compatible /v1/embeddings.
+func LoadEmbeddingEngineWithProgress(modelDir string, lm *model.LocalModel, progress ConvertProgressFunc, verbose bool, numCtx, numParallel, nGPULayers int, cacheTypeK, cacheTypeV, dtype string) (Engine, error) {
+	return loadEngineWithProgressMode(modelDir, lm, progress, verbose, numCtx, numParallel, nGPULayers, cacheTypeK, cacheTypeV, dtype, true)
+}
+
+func loadEngineWithProgressMode(modelDir string, lm *model.LocalModel, progress ConvertProgressFunc, verbose bool, numCtx, numParallel, nGPULayers int, cacheTypeK, cacheTypeV, dtype string, embedding bool) (Engine, error) {
 	modelName := ""
 	if lm != nil {
 		modelName = lm.FullName()
@@ -86,10 +102,13 @@ func LoadEngineWithProgress(modelDir string, lm *model.LocalModel, progress Conv
 			if err != nil {
 				return nil, err
 			}
+			if embedding {
+				return newLlamaEmbeddingEngine(ggufPath, lm.FullName(), verbose, progress, numCtx, numParallel, nGPULayers, cacheTypeK, cacheTypeV, mmproj)
+			}
 			return newLlamaEngine(ggufPath, lm.FullName(), verbose, progress, numCtx, numParallel, nGPULayers, cacheTypeK, cacheTypeV, mmproj)
 		}
-		if convert.HasSafeTensors(modelDir) {
-			log.Printf("INFERENCE %s: SafeTensors detected; converting to GGUF dtype=%q", modelName, normalizedDType)
+		if convert.HasConvertibleHFWeights(modelDir) {
+			log.Printf("INFERENCE %s: HuggingFace weights detected; converting to GGUF dtype=%q", modelName, normalizedDType)
 			ggufPath, err := convertSafeTensors(modelDir, progress, normalizedDType)
 			if err != nil {
 				return nil, fmt.Errorf("auto-converting SafeTensors to GGUF: %w", err)
@@ -97,6 +116,14 @@ func LoadEngineWithProgress(modelDir string, lm *model.LocalModel, progress Conv
 			mmproj, err := resolveMMProj()
 			if err != nil {
 				return nil, err
+			}
+			if embedding {
+				eng, err := newLlamaEmbeddingEngine(ggufPath, lm.FullName(), verbose, progress, numCtx, numParallel, nGPULayers, cacheTypeK, cacheTypeV, mmproj)
+				if err != nil {
+					removeConvertedGGUFIfInvalid(ggufPath, err)
+					return nil, err
+				}
+				return eng, nil
 			}
 			eng, err := newLlamaEngine(ggufPath, lm.FullName(), verbose, progress, numCtx, numParallel, nGPULayers, cacheTypeK, cacheTypeV, mmproj)
 			if err != nil {
@@ -125,10 +152,13 @@ func LoadEngineWithProgress(modelDir string, lm *model.LocalModel, progress Conv
 		if err != nil {
 			return nil, err
 		}
+		if embedding {
+			return newLlamaEmbeddingEngine(modelFile, lm.FullName(), verbose, progress, numCtx, numParallel, nGPULayers, cacheTypeK, cacheTypeV, mmproj)
+		}
 		return newLlamaEngine(modelFile, lm.FullName(), verbose, progress, numCtx, numParallel, nGPULayers, cacheTypeK, cacheTypeV, mmproj)
 
-	case model.FormatSafeTensors:
-		log.Printf("INFERENCE %s: SafeTensors detected; converting to GGUF dtype=%q", modelName, normalizedDType)
+	case model.FormatSafeTensors, model.FormatPyTorch:
+		log.Printf("INFERENCE %s: HuggingFace weights detected; converting to GGUF dtype=%q", modelName, normalizedDType)
 		ggufPath, err := convertSafeTensors(modelDir, progress, normalizedDType)
 		if err != nil {
 			return nil, fmt.Errorf("auto-converting SafeTensors to GGUF: %w", err)
@@ -136,6 +166,14 @@ func LoadEngineWithProgress(modelDir string, lm *model.LocalModel, progress Conv
 		mmproj, err := resolveMMProj()
 		if err != nil {
 			return nil, err
+		}
+		if embedding {
+			eng, err := newLlamaEmbeddingEngine(ggufPath, lm.FullName(), verbose, progress, numCtx, numParallel, nGPULayers, cacheTypeK, cacheTypeV, mmproj)
+			if err != nil {
+				removeConvertedGGUFIfInvalid(ggufPath, err)
+				return nil, err
+			}
+			return eng, nil
 		}
 		eng, err := newLlamaEngine(ggufPath, lm.FullName(), verbose, progress, numCtx, numParallel, nGPULayers, cacheTypeK, cacheTypeV, mmproj)
 		if err != nil {

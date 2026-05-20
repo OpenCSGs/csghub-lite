@@ -242,6 +242,45 @@ func ResolveNumParallel(requested int) int {
 	return defaultLlamaParallel
 }
 
+// ResolveEmbeddingPooling returns the llama-server pooling strategy for common
+// embedding model families. The env override is intentionally kept as an escape
+// hatch because GGUF metadata and model cards occasionally disagree.
+func ResolveEmbeddingPooling(modelName string) string {
+	if v := strings.TrimSpace(os.Getenv("CSGHUB_LITE_LLAMA_EMBEDDING_POOLING")); v != "" {
+		return v
+	}
+	normalized := normalizeEmbeddingModelName(modelName)
+
+	switch {
+	case strings.Contains(normalized, "qwen3embedding"),
+		strings.Contains(normalized, "gteqwen"):
+		return "last"
+	case strings.Contains(normalized, "bge"),
+		strings.Contains(normalized, "gtelargeenv15"),
+		strings.Contains(normalized, "gtebaseenv15"),
+		strings.Contains(normalized, "gtesmallenv15"):
+		return "cls"
+	case strings.Contains(normalized, "e5"),
+		strings.Contains(normalized, "nomicembed"),
+		strings.Contains(normalized, "jinaembeddingsv2"):
+		return "mean"
+	default:
+		return "mean"
+	}
+}
+
+func normalizeEmbeddingModelName(modelName string) string {
+	modelName = strings.ToLower(strings.TrimSpace(modelName))
+	replacer := strings.NewReplacer(
+		"/", "",
+		"-", "",
+		"_", "",
+		".", "",
+		" ", "",
+	)
+	return replacer.Replace(modelName)
+}
+
 // ResolveNGPULayers returns the effective llama-server GPU layer offload count.
 // Explicit requests win; otherwise GPU-capable hosts default to offloading all
 // layers and CPU-only hosts leave the flag unset.
@@ -297,6 +336,14 @@ func ModelMaxPositionEmbeddings(modelDir string) int {
 }
 
 func newLlamaEngine(modelPath, modelName string, verbose bool, progress ConvertProgressFunc, numCtx, numParallel, nGPULayers int, cacheTypeK, cacheTypeV string, mmproj ...string) (*llamaEngine, error) {
+	return newLlamaEngineWithMode(modelPath, modelName, verbose, progress, numCtx, numParallel, nGPULayers, cacheTypeK, cacheTypeV, false, mmproj...)
+}
+
+func newLlamaEmbeddingEngine(modelPath, modelName string, verbose bool, progress ConvertProgressFunc, numCtx, numParallel, nGPULayers int, cacheTypeK, cacheTypeV string, mmproj ...string) (*llamaEngine, error) {
+	return newLlamaEngineWithMode(modelPath, modelName, verbose, progress, numCtx, numParallel, nGPULayers, cacheTypeK, cacheTypeV, true, mmproj...)
+}
+
+func newLlamaEngineWithMode(modelPath, modelName string, verbose bool, progress ConvertProgressFunc, numCtx, numParallel, nGPULayers int, cacheTypeK, cacheTypeV string, embedding bool, mmproj ...string) (*llamaEngine, error) {
 	binary := findLlamaBinary()
 	if binary == "" {
 		return nil, fmt.Errorf("llama-server not found in PATH or common install locations.\n" +
@@ -339,6 +386,12 @@ func newLlamaEngine(modelPath, modelName string, verbose bool, progress ConvertP
 		"-c", strconv.Itoa(totalCtx),
 		"--parallel", strconv.Itoa(effectiveNumParallel),
 	}
+	if embedding {
+		args = append(args, "--embedding")
+		if pooling := ResolveEmbeddingPooling(modelName); pooling != "" {
+			args = append(args, "--pooling", pooling)
+		}
+	}
 	if normalizedCacheTypeK != "" {
 		args = append(args, "--cache-type-k", normalizedCacheTypeK)
 	}
@@ -354,7 +407,7 @@ func newLlamaEngine(modelPath, modelName string, verbose bool, progress ConvertP
 	}
 
 	engine.cmd = exec.Command(binary, args...)
-	log.Printf("LLAMA: starting llama-server model=%q binary=%s port=%d num_ctx=%d num_parallel=%d n_gpu_layers=%d cache_type_k=%q cache_type_v=%q mmproj=%t", modelName, binary, port, effectiveNumCtx, effectiveNumParallel, effectiveNGPULayers, normalizedCacheTypeK, normalizedCacheTypeV, len(mmproj) > 0 && mmproj[0] != "")
+	log.Printf("LLAMA: starting llama-server model=%q binary=%s port=%d embedding=%t num_ctx=%d num_parallel=%d n_gpu_layers=%d cache_type_k=%q cache_type_v=%q mmproj=%t", modelName, binary, port, embedding, effectiveNumCtx, effectiveNumParallel, effectiveNGPULayers, normalizedCacheTypeK, normalizedCacheTypeV, len(mmproj) > 0 && mmproj[0] != "")
 	if config.FileLoggingEnabled() {
 		if path, err := config.LlamaServerLogPath(); err != nil {
 			log.Printf("warning: could not resolve llama-server log path: %v", err)
@@ -505,6 +558,36 @@ func (e *llamaEngine) ChatCompletion(ctx context.Context, reqBody map[string]int
 			reqDebug = reqDebug[:500] + "...(truncated)"
 		}
 		log.Printf("llama-server error %d: %s\nRequest (truncated): %s", resp.StatusCode, string(errBody), reqDebug)
+		return nil, &inferenceHTTPError{status: resp.StatusCode, body: string(errBody)}
+	}
+	return resp, nil
+}
+
+func (e *llamaEngine) Embeddings(ctx context.Context, reqBody map[string]interface{}) (*http.Response, error) {
+	body, err := json.Marshal(reqBody)
+	if err != nil {
+		return nil, fmt.Errorf("marshaling request: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, e.baseURL()+"/v1/embeddings", bytes.NewReader(body))
+	if err != nil {
+		return nil, fmt.Errorf("creating request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json")
+
+	resp, err := e.client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("embeddings request failed: %w", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		defer resp.Body.Close()
+		errBody, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		reqDebug := string(body)
+		if len(reqDebug) > 500 {
+			reqDebug = reqDebug[:500] + "...(truncated)"
+		}
+		log.Printf("llama-server embeddings error %d: %s\nRequest (truncated): %s", resp.StatusCode, string(errBody), reqDebug)
 		return nil, &inferenceHTTPError{status: resp.StatusCode, body: string(errBody)}
 	}
 	return resp, nil
