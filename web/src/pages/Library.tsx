@@ -345,6 +345,8 @@ export function Library() {
           loadProgress.value = `${p.step} (${p.current}/${p.total}) ${pct}%`;
         } else if (p.step) {
           loadProgress.value = p.step;
+        } else if (p.status) {
+          loadProgress.value = p.status;
         }
       }, options);
       await loadModels();

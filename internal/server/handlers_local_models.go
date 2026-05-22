@@ -144,9 +144,30 @@ func (s *Server) modelUsesEmbeddingEngine(modelID string) bool {
 	return isEmbeddingPipelineTag(pipelineTag)
 }
 
+func (s *Server) modelUsesImageGenerationEngine(modelID string) bool {
+	lm, err := s.manager.Get(modelID)
+	if err != nil || lm == nil {
+		return false
+	}
+	pipelineTag := strings.TrimSpace(lm.PipelineTag)
+	if dir, err := s.manager.ModelPath(modelID); err == nil && pipelineTag == "" {
+		pipelineTag = model.DetectPipelineTag(dir)
+	}
+	return isImageGenerationPipelineTag(pipelineTag)
+}
+
 func isEmbeddingPipelineTag(pipelineTag string) bool {
 	switch strings.ToLower(strings.TrimSpace(pipelineTag)) {
 	case "feature-extraction", "sentence-similarity", "text-embedding", "embedding":
+		return true
+	default:
+		return false
+	}
+}
+
+func isImageGenerationPipelineTag(pipelineTag string) bool {
+	switch strings.ToLower(strings.TrimSpace(pipelineTag)) {
+	case "text-to-image":
 		return true
 	default:
 		return false

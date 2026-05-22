@@ -37,6 +37,7 @@ func (s *Server) routes() http.Handler {
 
 	mux.HandleFunc("POST /v1/chat/completions", s.handleOpenAIChatCompletions)
 	mux.HandleFunc("POST /v1/embeddings", s.handleOpenAIEmbeddings)
+	mux.HandleFunc("POST /v1/images/generations", s.handleOpenAIImagesGenerations)
 	mux.HandleFunc("GET /v1/models", s.handleModels)
 	mux.HandleFunc("GET /v1/responses", s.handleOpenAIResponsesUnsupported)
 	mux.HandleFunc("POST /v1/responses", s.handleOpenAIResponses)
@@ -55,6 +56,8 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("GET /api/settings", s.handleSettings)
 	mux.HandleFunc("POST /api/settings", s.handleSettingsUpdate)
 	mux.HandleFunc("POST /api/settings/directories", s.handleSettingsDirectories)
+	mux.HandleFunc("GET /api/image-runtime", s.handleImageRuntimeStatus)
+	mux.HandleFunc("POST /api/image-runtime/install", s.handleImageRuntimeInstall)
 	mux.HandleFunc("GET /api/api-keys", s.handleAPIKeysList)
 	mux.HandleFunc("POST /api/api-keys/settings", s.handleAPIKeysSettingsUpdate)
 	mux.HandleFunc("POST /api/api-keys", s.handleAPIKeyCreate)
