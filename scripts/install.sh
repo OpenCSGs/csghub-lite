@@ -186,6 +186,33 @@ add_release_candidates() {
     IFS="$_old_ifs"
 }
 
+add_release_cuda_candidates() {
+    _arch_token="$1"
+    _versioned_pattern="llama-${_llama_tag}-bin-ubuntu-cuda-[0-9]+(\\.[0-9]+(\\.[0-9]+)?)?-${_arch_token}\\.tar\\.gz"
+    _versioned_matches="$(extract_release_asset_names "$_versioned_pattern" 2>/dev/null | while IFS= read -r _match; do
+        [ -n "$_match" ] || continue
+        _ver="$(printf "%s\n" "$_match" | sed -n "s/.*-cuda-\\([0-9][0-9]*\\)\\(\\.\\([0-9][0-9]*\\)\\)\\{0,1\\}\\(\\.\\([0-9][0-9]*\\)\\)\\{0,1\\}-${_arch_token}\\.tar\\.gz/\\1 \\3 \\5/p")"
+        [ -n "$_ver" ] || continue
+        # shellcheck disable=SC2086
+        set -- $_ver
+        printf "%06d %06d %06d %s\n" "${1:-0}" "${2:-0}" "${3:-0}" "$_match"
+    done | sort -r | sed 's/^[0-9][0-9]* [0-9][0-9]* [0-9][0-9]* //')"
+    if [ -n "$_versioned_matches" ]; then
+        _old_ifs="$IFS"
+        IFS='
+'
+        for _match in $_versioned_matches; do
+            add_candidate "$_match"
+        done
+        IFS="$_old_ifs"
+    fi
+
+    # Some mirrored CUDA builds intentionally omit the CUDA minor version in the
+    # filename. Prefer the release metadata name before trying hard-coded legacy
+    # aliases, so installers do not stall on missing versioned URLs.
+    add_release_candidates "llama-${_llama_tag}-bin-ubuntu-cuda-${_arch_token}\\.tar\\.gz"
+}
+
 normalize_minor_version() {
     printf "%s\n" "$1" | sed -n 's/.*\([0-9][0-9]*\.[0-9][0-9]*\).*/\1/p' | sed -n '1p'
 }
@@ -560,10 +587,9 @@ install_llama_server() {
             if [ -n "${_arch_token:-}" ]; then
                 if command -v nvidia-smi >/dev/null 2>&1; then
                     info "NVIDIA GPU detected, trying CUDA build first."
-                    add_candidate "llama-${_llama_tag}-bin-ubuntu-cuda-12.4-${_arch_token}.tar.gz"
-                    add_release_candidates "llama-${_llama_tag}-bin-ubuntu-cuda-[0-9]+\\.[0-9]+(\\.[0-9]+)?-${_arch_token}\\.tar\\.gz"
+                    add_release_cuda_candidates "$_arch_token"
                     add_candidate "llama-${_llama_tag}-bin-ubuntu-cuda-${_arch_token}.tar.gz"
-                    add_release_candidates "llama-${_llama_tag}-bin-ubuntu-cuda-[0-9]+-${_arch_token}\\.tar\\.gz"
+                    add_candidate "llama-${_llama_tag}-bin-ubuntu-cuda-12.4-${_arch_token}.tar.gz"
                     add_candidate "llama-${_llama_tag}-bin-ubuntu-vulkan-${_arch_token}.tar.gz"
                     add_candidate "llama-${_llama_tag}-bin-ubuntu-${_arch_token}.tar.gz"
                 elif [ "$_arch_token" = "x64" ] && has_rocm_runtime; then
