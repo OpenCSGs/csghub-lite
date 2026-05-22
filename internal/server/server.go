@@ -19,6 +19,7 @@ import (
 	"github.com/opencsgs/csghub-lite/internal/config"
 	"github.com/opencsgs/csghub-lite/internal/convert"
 	"github.com/opencsgs/csghub-lite/internal/dataset"
+	"github.com/opencsgs/csghub-lite/internal/imagegen"
 	"github.com/opencsgs/csghub-lite/internal/inference"
 	"github.com/opencsgs/csghub-lite/internal/model"
 	"github.com/opencsgs/csghub-lite/pkg/api"
@@ -46,6 +47,18 @@ type managedEngine struct {
 type engineLoadState struct {
 	done   chan struct{}
 	engine inference.Engine
+	err    error
+}
+
+type managedImageEngine struct {
+	engine    imagegen.Engine
+	lastUsed  time.Time
+	keepAlive time.Duration
+}
+
+type imageEngineLoadState struct {
+	done   chan struct{}
+	engine imagegen.Engine
 	err    error
 }
 
@@ -85,12 +98,14 @@ type Server struct {
 	http           *http.Server
 	logBuf         *LogBuffer
 
-	mu         sync.RWMutex
-	engines    map[string]*managedEngine
-	loading    map[string]*engineLoadState
-	prefsMu    sync.Mutex
-	openclawMu sync.Mutex
-	csgclawMu  sync.Mutex
+	mu           sync.RWMutex
+	engines      map[string]*managedEngine
+	loading      map[string]*engineLoadState
+	imageEngines map[string]*managedImageEngine
+	imageLoading map[string]*imageEngineLoadState
+	prefsMu      sync.Mutex
+	openclawMu   sync.Mutex
+	csgclawMu    sync.Mutex
 
 	cloudRefreshMu   sync.Mutex
 	cloudRefreshAt   time.Time
@@ -124,6 +139,8 @@ func New(cfg *config.Config, version string) *Server {
 		cloud:          cloudSvc,
 		engines:        make(map[string]*managedEngine),
 		loading:        make(map[string]*engineLoadState),
+		imageEngines:   make(map[string]*managedImageEngine),
+		imageLoading:   make(map[string]*imageEngineLoadState),
 		logBuf:         logBuf,
 	}
 	s.appShells = newAIAppShellManager()
@@ -237,6 +254,16 @@ func (s *Server) evictExpired(now time.Time) {
 			delete(s.engines, id)
 		}
 	}
+	for id, me := range s.imageEngines {
+		if me.keepAlive < 0 {
+			continue
+		}
+		if now.After(me.lastUsed.Add(me.keepAlive)) {
+			log.Printf("evicting idle image model %s (unused for %s)", id, me.keepAlive)
+			me.engine.Close()
+			delete(s.imageEngines, id)
+		}
+	}
 }
 
 // touchEngine updates lastUsed for the given model. Must be called after
@@ -259,6 +286,22 @@ func (s *Server) setEngineKeepAlive(modelID string, keepAlive time.Duration) {
 		if me, ok := s.engines[key]; ok {
 			me.keepAlive = keepAlive
 		}
+	}
+	s.mu.Unlock()
+}
+
+func (s *Server) setImageEngineKeepAlive(modelID string, keepAlive time.Duration) {
+	s.mu.Lock()
+	if me, ok := s.imageEngines[modelID]; ok {
+		me.keepAlive = keepAlive
+	}
+	s.mu.Unlock()
+}
+
+func (s *Server) touchImageEngine(modelID string) {
+	s.mu.Lock()
+	if me, ok := s.imageEngines[modelID]; ok {
+		me.lastUsed = time.Now()
 	}
 	s.mu.Unlock()
 }
@@ -299,6 +342,16 @@ func loadedDTypeMatchesRequest(loaded, requested string) bool {
 
 var loadEngineWithProgress = inference.LoadEngineWithProgress
 var loadEmbeddingEngineWithProgress = inference.LoadEmbeddingEngineWithProgress
+var newDiffusersEngine = func(ctx context.Context, modelName, modelDir string, runtimeManager *imagegen.RuntimeManager) (imagegen.Engine, error) {
+	return imagegen.NewDiffusersEngine(ctx, modelName, modelDir, runtimeManager)
+}
+var ensureImageRuntimeReady = func(ctx context.Context, runtimeManager *imagegen.RuntimeManager, progress imagegen.ProgressFunc) error {
+	if status := runtimeManager.Status(ctx); status.Ready {
+		return nil
+	}
+	_, err := runtimeManager.InstallWithProgress(ctx, progress)
+	return err
+}
 
 func (s *Server) getOrLoadEngineFull(modelID string, progress inference.ConvertProgressFunc, numCtx, numParallel, nGPULayers int, cacheTypeK, cacheTypeV, dtype string) (inference.Engine, error) {
 	return s.getOrLoadEngineFullMode(modelID, progress, numCtx, numParallel, nGPULayers, cacheTypeK, cacheTypeV, dtype, engineModeChat)
@@ -437,11 +490,93 @@ func (s *Server) getOrLoadEngineFullMode(modelID string, progress inference.Conv
 	}
 }
 
+func (s *Server) getOrLoadImageEngine(ctx context.Context, modelID string) (imagegen.Engine, error) {
+	return s.getOrLoadImageEngineWithProgress(ctx, modelID, nil)
+}
+
+func (s *Server) getOrLoadImageEngineWithProgress(ctx context.Context, modelID string, progress imagegen.ProgressFunc) (imagegen.Engine, error) {
+	s.mu.RLock()
+	me, ok := s.imageEngines[modelID]
+	s.mu.RUnlock()
+	if ok {
+		return me.engine, nil
+	}
+
+	modelDir, err := s.manager.ModelPath(modelID)
+	if err != nil {
+		return nil, fmt.Errorf("model %q not found locally; use 'csghub-lite pull %s' first", modelID, modelID)
+	}
+	lm, err := s.manager.Get(modelID)
+	if err != nil {
+		return nil, err
+	}
+	pipelineTag := s.resolvedLocalPipelineTag(modelID, strings.TrimSpace(lm.PipelineTag))
+	if !isImageGenerationPipelineTag(pipelineTag) {
+		return nil, fmt.Errorf("model %q is not a text-to-image model", modelID)
+	}
+
+	for {
+		s.mu.Lock()
+		if me, ok := s.imageEngines[modelID]; ok {
+			eng := me.engine
+			s.mu.Unlock()
+			return eng, nil
+		}
+		if state, ok := s.imageLoading[modelID]; ok {
+			s.mu.Unlock()
+			<-state.done
+			if state.err != nil {
+				return nil, state.err
+			}
+			if state.engine != nil {
+				return state.engine, nil
+			}
+			continue
+		}
+		state := &imageEngineLoadState{done: make(chan struct{})}
+		s.imageLoading[modelID] = state
+		s.mu.Unlock()
+
+		log.Printf("MODEL %s: image engine load started", modelID)
+		runtimeManager, err := imagegen.NewRuntimeManager()
+		if err == nil {
+			err = ensureImageRuntimeReady(ctx, runtimeManager, progress)
+			if err == nil {
+				state.engine, err = newDiffusersEngine(ctx, modelID, modelDir, runtimeManager)
+			}
+		}
+		state.err = err
+
+		s.mu.Lock()
+		delete(s.imageLoading, modelID)
+		if state.err == nil {
+			s.imageEngines[modelID] = &managedImageEngine{
+				engine:    state.engine,
+				lastUsed:  time.Now(),
+				keepAlive: DefaultKeepAlive,
+			}
+		}
+		close(state.done)
+		s.mu.Unlock()
+
+		if state.err != nil {
+			log.Printf("MODEL %s: image engine load failed: %v", modelID, state.err)
+			return nil, state.err
+		}
+		log.Printf("MODEL %s: image engine load complete", modelID)
+		return state.engine, nil
+	}
+}
+
 func (s *Server) closeAllEngines() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for id, me := range s.engines {
 		me.engine.Close()
 		delete(s.engines, id)
+	}
+	for id, me := range s.imageEngines {
+		me.engine.Close()
+		delete(s.imageEngines, id)
 	}
 }

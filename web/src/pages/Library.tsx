@@ -123,6 +123,39 @@ function buildLoadOptions(params: RunModelParams): LoadModelOptions {
   };
 }
 
+function isImageGenerationModel(model: Pick<ModelInfo, "pipeline_tag">): boolean {
+	return model.pipeline_tag === "text-to-image";
+}
+
+function isEmbeddingModel(model: Pick<ModelInfo, "pipeline_tag">): boolean {
+	const tag = model.pipeline_tag || "";
+	return tag === "feature-extraction" || tag === "sentence-similarity" || tag === "text-embedding" || tag === "embedding";
+}
+
+function buildLoadOptionsForModel(model: ModelInfo, params: RunModelParams): LoadModelOptions {
+	if (isImageGenerationModel(model)) {
+		return {
+			keep_alive: optionalText(params.keepAlive),
+		};
+	}
+	if (isEmbeddingModel(model)) {
+		return {
+			num_ctx: optionalInt(params.numCtx, t("lib.runParamNumCtx"), 1024),
+			n_gpu_layers: optionalInt(params.nGpuLayers, t("lib.runParamNGPULayers"), 0),
+			dtype: optionalText(params.dtype),
+			keep_alive: optionalText(params.keepAlive),
+		};
+	}
+	return buildLoadOptions(params);
+}
+
+function loadingLabelForModel(model: ModelInfo): string {
+	if (loadProgress.value) return loadProgress.value;
+	if (isImageGenerationModel(model)) return t("lib.loadingImageRuntime");
+	if (model.format !== "gguf") return t("lib.converting");
+	return t("lib.loadingModel");
+}
+
 const filtered = computed(() => {
   const list = allModels.value;
   const field = sortField.value;
@@ -345,6 +378,8 @@ export function Library() {
           loadProgress.value = `${p.step} (${p.current}/${p.total}) ${pct}%`;
         } else if (p.step) {
           loadProgress.value = p.step;
+        } else if (p.status) {
+          loadProgress.value = p.status;
         }
       }, options);
       await loadModels();
@@ -426,7 +461,7 @@ export function Library() {
     if (!model) return;
     let options: LoadModelOptions;
     try {
-      options = buildLoadOptions(runParams.value);
+      options = buildLoadOptionsForModel(model, runParams.value);
     } catch (e: any) {
       runDialogError.value = e?.message || t("lib.runParamInvalid");
       return;
@@ -446,7 +481,7 @@ export function Library() {
     }
   };
 
-  const isRunning = (name: string) => runningModels.value.some((m) => m.name === name);
+  const runningStatus = (name: string) => runningModels.value.find((m) => m.name === name)?.status || "";
   const hasActiveFilters = searchQuery.value.trim().length > 0 || formatFilter.value !== "all";
   const downloading = hasActiveDownload.value;
   const uploadDisabled = downloading || uploadBusy.value;
@@ -599,14 +634,21 @@ export function Library() {
                         <span class="inline-flex items-center justify-center w-16 px-3 py-1 text-xs rounded bg-gray-50 text-gray-400 font-medium">
                           —
                         </span>
-                      ) : isRunning(m.name) ? (
+                      ) : runningStatus(m.name) === "running" ? (
                         <span class="inline-flex items-center justify-center w-16 px-3 py-1 text-xs rounded bg-green-50 text-green-700 font-medium">
                           {t("lib.running")}
                         </span>
+                      ) : runningStatus(m.name) === "loading" ? (
+                        <div class="flex items-center gap-2">
+                          <span class="text-xs text-gray-500 max-w-[200px] truncate">
+                            {loadingLabelForModel(m)}
+                          </span>
+                          <span class="inline-block w-3 h-3 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin" />
+                        </div>
                       ) : loadingRun.value === m.name ? (
                         <div class="flex items-center gap-2">
                           <span class="text-xs text-gray-500 max-w-[200px] truncate">
-                            {loadProgress.value || (m.format !== "gguf" ? t("lib.converting") : t("lib.loadingModel"))}
+                            {loadingLabelForModel(m)}
                           </span>
                           <span class="inline-block w-3 h-3 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin" />
                         </div>
@@ -834,6 +876,9 @@ function RunParamsDialog({
   onCancel: () => void;
   onSubmit: () => void;
 }) {
+  const imageGenerationModel = isImageGenerationModel(model);
+  const embeddingModel = isEmbeddingModel(model);
+
   return (
     <div class="fixed inset-0 z-50 flex items-center justify-center bg-gray-900/40 px-4">
       <form
@@ -845,55 +890,75 @@ function RunParamsDialog({
       >
         <div class="px-6 py-5 border-b border-gray-100">
           <h2 class="text-lg font-semibold text-gray-900">{t("lib.runParamsTitle")}</h2>
-          <p class="text-sm text-gray-500 mt-1">{t("lib.runParamsDesc", model.name)}</p>
+          <p class="text-sm text-gray-500 mt-1">
+            {imageGenerationModel
+              ? t("lib.runParamsDescImage", model.name)
+              : embeddingModel
+                ? t("lib.runParamsDescEmbedding", model.name)
+                : t("lib.runParamsDesc", model.name)}
+          </p>
         </div>
 
         <div class="px-6 py-5 grid grid-cols-1 md:grid-cols-2 gap-4">
-          <RunNumberField
-            label={t("lib.runParamNumCtx")}
-            value={params.numCtx}
-            min={1024}
-            placeholder="131072"
-            hint={t("lib.runParamNumCtxHint")}
-            onInput={(value) => onChange("numCtx", value)}
-          />
-          <RunNumberField
-            label={t("lib.runParamNumParallel")}
-            value={params.numParallel}
-            min={1}
-            placeholder="1"
-            hint={t("lib.runParamNumParallelHint")}
-            onInput={(value) => onChange("numParallel", value)}
-          />
-          <RunNumberField
-            label={t("lib.runParamNGPULayers")}
-            value={params.nGpuLayers}
-            min={0}
-            placeholder="40"
-            hint={t("lib.runParamNGPULayersHint")}
-            onInput={(value) => onChange("nGpuLayers", value)}
-          />
-          <RunSelectField
-            label={t("lib.runParamDType")}
-            value={params.dtype}
-            options={DTYPE_OPTIONS}
-            hint={t("lib.runParamDTypeHint")}
-            onInput={(value) => onChange("dtype", value)}
-          />
-          <RunSelectField
-            label={t("lib.runParamCacheTypeK")}
-            value={params.cacheTypeK}
-            options={CACHE_TYPE_OPTIONS}
-            hint={t("lib.runParamCacheTypeHint")}
-            onInput={(value) => onChange("cacheTypeK", value)}
-          />
-          <RunSelectField
-            label={t("lib.runParamCacheTypeV")}
-            value={params.cacheTypeV}
-            options={CACHE_TYPE_OPTIONS}
-            hint={t("lib.runParamCacheTypeHint")}
-            onInput={(value) => onChange("cacheTypeV", value)}
-          />
+          {imageGenerationModel ? (
+            <div class="md:col-span-2 rounded-lg border border-indigo-100 bg-indigo-50 px-3 py-2 text-sm text-indigo-800">
+              {t("lib.runParamImageRuntimeHint")}
+            </div>
+          ) : (
+            <>
+              <RunNumberField
+                label={t("lib.runParamNumCtx")}
+                value={params.numCtx}
+                min={1024}
+                placeholder="131072"
+                hint={t("lib.runParamNumCtxHint")}
+                onInput={(value) => onChange("numCtx", value)}
+              />
+              {!embeddingModel && (
+                <RunNumberField
+                  label={t("lib.runParamNumParallel")}
+                  value={params.numParallel}
+                  min={1}
+                  placeholder="1"
+                  hint={t("lib.runParamNumParallelHint")}
+                  onInput={(value) => onChange("numParallel", value)}
+                />
+              )}
+              <RunNumberField
+                label={t("lib.runParamNGPULayers")}
+                value={params.nGpuLayers}
+                min={0}
+                placeholder="40"
+                hint={t("lib.runParamNGPULayersHint")}
+                onInput={(value) => onChange("nGpuLayers", value)}
+              />
+              <RunSelectField
+                label={t("lib.runParamDType")}
+                value={params.dtype}
+                options={DTYPE_OPTIONS}
+                hint={t("lib.runParamDTypeHint")}
+                onInput={(value) => onChange("dtype", value)}
+              />
+              {!embeddingModel && (
+                <>
+                  <RunSelectField
+                    label={t("lib.runParamCacheTypeK")}
+                    value={params.cacheTypeK}
+                    options={CACHE_TYPE_OPTIONS}
+                    hint={t("lib.runParamCacheTypeHint")}
+                    onInput={(value) => onChange("cacheTypeK", value)}
+                  />
+                  <RunSelectField
+                    label={t("lib.runParamCacheTypeV")}
+                    value={params.cacheTypeV}
+                    options={CACHE_TYPE_OPTIONS}
+                    hint={t("lib.runParamCacheTypeHint")}
+                    onInput={(value) => onChange("cacheTypeV", value)}
+                  />
+                </>
+              )}
+            </>
+          )}
           <div class="md:col-span-2">
             <label class="block text-sm font-medium text-gray-700 mb-1">{t("lib.runParamKeepAlive")}</label>
             <input

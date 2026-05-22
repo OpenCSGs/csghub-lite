@@ -35,6 +35,9 @@ var embeddingArchitectures = map[string]bool{
 // tag for routing. Sentence-transformers repositories are treated as embedding
 // models even when the hub metadata was not persisted in older manifests.
 func DetectPipelineTag(modelDir string) string {
+	if tag := detectDiffusersPipelineTag(modelDir); tag != "" {
+		return tag
+	}
 	if _, err := os.Stat(filepath.Join(modelDir, "modules.json")); err == nil {
 		return "feature-extraction"
 	}
@@ -57,6 +60,39 @@ func DetectPipelineTag(modelDir string) string {
 		}
 	}
 	return "text-generation"
+}
+
+func detectDiffusersPipelineTag(modelDir string) string {
+	data, err := os.ReadFile(filepath.Join(modelDir, "model_index.json"))
+	if err != nil {
+		return ""
+	}
+	var idx struct {
+		ClassName string `json:"_class_name"`
+	}
+	if json.Unmarshal(data, &idx) != nil {
+		return ""
+	}
+	className := strings.ToLower(strings.TrimSpace(idx.ClassName))
+	switch {
+	case strings.Contains(className, "texttoimage"),
+		strings.Contains(className, "qwenimagepipeline"),
+		strings.Contains(className, "fluxpipeline"),
+		strings.Contains(className, "stablediffusionpipeline"),
+		strings.Contains(className, "stablediffusionxlpipeline"),
+		strings.Contains(className, "stablediffusion3pipeline"):
+		return "text-to-image"
+	case strings.Contains(className, "image2image"),
+		strings.Contains(className, "img2img"),
+		strings.Contains(className, "kontext"),
+		strings.Contains(className, "edit"):
+		return "image-to-image"
+	default:
+		// A Diffusers model_index.json is a stronger signal than the legacy
+		// text-model config checks below. Prefer trying the image runtime so
+		// newly supported text-to-image pipelines do not fall back to llama.
+		return "text-to-image"
+	}
 }
 
 // FindMMProj looks for a multimodal projector GGUF file (mmproj) in the model directory.

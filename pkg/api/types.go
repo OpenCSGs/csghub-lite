@@ -535,6 +535,19 @@ type OpenAIEmbeddingsRequest struct {
 	DType      *string     `json:"dtype,omitempty"`
 }
 
+type OpenAIImagesGenerationRequest struct {
+	Model          string   `json:"model"`
+	Prompt         string   `json:"prompt"`
+	N              *int     `json:"n,omitempty"`
+	Size           string   `json:"size,omitempty"`
+	ResponseFormat string   `json:"response_format,omitempty"`
+	Seed           *int     `json:"seed,omitempty"`
+	NegativePrompt string   `json:"negative_prompt,omitempty"`
+	Steps          *int     `json:"steps,omitempty"`
+	CFGScale       *float64 `json:"cfg_scale,omitempty"`
+	Source         string   `json:"source,omitempty"`
+}
+
 type OpenAIChatResponse struct {
 	ID      string         `json:"id"`
 	Object  string         `json:"object"`
@@ -549,6 +562,17 @@ type OpenAIEmbeddingsResponse struct {
 	Data   []OpenAIEmbeddingObject `json:"data"`
 	Model  string                  `json:"model"`
 	Usage  OpenAIUsage             `json:"usage"`
+}
+
+type OpenAIImagesGenerationResponse struct {
+	Created int64         `json:"created"`
+	Data    []OpenAIImage `json:"data"`
+}
+
+type OpenAIImage struct {
+	B64JSON       string `json:"b64_json,omitempty"`
+	URL           string `json:"url,omitempty"`
+	RevisedPrompt string `json:"revised_prompt,omitempty"`
 }
 
 type OpenAIEmbeddingObject struct {

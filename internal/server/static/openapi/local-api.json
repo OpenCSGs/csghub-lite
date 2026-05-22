@@ -1686,6 +1686,56 @@
         }
       }
     },
+    "/api/image-runtime": {
+      "get": {
+        "tags": [
+          "System"
+        ],
+        "summary": "Get local image runtime status",
+        "description": "Reports whether the lazy Diffusers runtime for local text-to-image generation is installed and ready.",
+        "operationId": "getImageRuntimeStatus",
+        "responses": {
+          "200": {
+            "description": "Diffusers runtime status.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ImageRuntimeStatus"
+                }
+              }
+            }
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      }
+    },
+    "/api/image-runtime/install": {
+      "post": {
+        "tags": [
+          "System"
+        ],
+        "summary": "Install local image runtime",
+        "description": "Creates or repairs the user-scoped Python Diffusers runtime. This endpoint is intended to be called only when a user runs local text-to-image generation.",
+        "operationId": "installImageRuntime",
+        "responses": {
+          "200": {
+            "description": "Diffusers runtime is ready.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ImageRuntimeStatus"
+                }
+              }
+            }
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      }
+    },
     "/api/settings/directories": {
       "post": {
         "tags": [
@@ -2943,6 +2993,60 @@
           },
           "429": {
             "$ref": "#/components/responses/OpenAITooManyRequests"
+          },
+          "500": {
+            "$ref": "#/components/responses/OpenAIInternalError"
+          }
+        }
+      }
+    },
+    "/v1/images/generations": {
+      "post": {
+        "tags": [
+          "Compatibility"
+        ],
+        "summary": "OpenAI-compatible image generation",
+        "description": "Compatibility layer for local text-to-image generation. The Diffusers runtime is checked lazily when this endpoint is called.",
+        "operationId": "openAIImagesGenerations",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OpenAIImagesGenerationRequest"
+              },
+              "example": {
+                "model": "Qwen/Qwen-Image",
+                "prompt": "A watercolor cat reading a book",
+                "size": "1024x1024",
+                "response_format": "b64_json"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Generated image data.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OpenAIImagesGenerationResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/OpenAIBadRequest"
+          },
+          "503": {
+            "description": "Diffusers runtime is not installed or not ready.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ImageRuntimeNotReadyError"
+                }
+              }
+            }
           },
           "500": {
             "$ref": "#/components/responses/OpenAIInternalError"
@@ -6155,6 +6259,169 @@
           },
           "total_tokens": {
             "type": "integer"
+          }
+        }
+      },
+      "ImageRuntimeStatus": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "ready",
+          "runtime_dir",
+          "venv_dir",
+          "platform",
+          "arch",
+          "hardware"
+        ],
+        "properties": {
+          "ready": {
+            "type": "boolean"
+          },
+          "runtime_dir": {
+            "type": "string"
+          },
+          "venv_dir": {
+            "type": "string"
+          },
+          "python": {
+            "type": "string"
+          },
+          "platform": {
+            "type": "string"
+          },
+          "arch": {
+            "type": "string"
+          },
+          "hardware": {
+            "type": "string",
+            "enum": [
+              "cpu",
+              "mps",
+              "cuda",
+              "rocm"
+            ]
+          },
+          "torch_index_url": {
+            "type": "string"
+          },
+          "missing_packages": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "install_command": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "error": {
+            "type": "string"
+          }
+        }
+      },
+      "ImageRuntimeNotReadyError": {
+        "type": "object",
+        "required": [
+          "errorCode",
+          "error",
+          "runtime"
+        ],
+        "properties": {
+          "errorCode": {
+            "type": "integer",
+            "format": "int32",
+            "example": 503
+          },
+          "error": {
+            "$ref": "#/components/schemas/OpenAIError"
+          },
+          "runtime": {
+            "$ref": "#/components/schemas/ImageRuntimeStatus"
+          }
+        }
+      },
+      "OpenAIImagesGenerationRequest": {
+        "type": "object",
+        "required": [
+          "model",
+          "prompt"
+        ],
+        "properties": {
+          "model": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string"
+          },
+          "prompt": {
+            "type": "string"
+          },
+          "n": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 4,
+            "default": 1
+          },
+          "size": {
+            "type": "string",
+            "description": "Image size in WIDTHxHEIGHT format.",
+            "default": "1024x1024"
+          },
+          "response_format": {
+            "type": "string",
+            "enum": [
+              "b64_json"
+            ],
+            "default": "b64_json"
+          },
+          "seed": {
+            "type": "integer"
+          },
+          "negative_prompt": {
+            "type": "string"
+          },
+          "steps": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "cfg_scale": {
+            "type": "number"
+          }
+        }
+      },
+      "OpenAIImage": {
+        "type": "object",
+        "properties": {
+          "b64_json": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string"
+          },
+          "revised_prompt": {
+            "type": "string"
+          }
+        }
+      },
+      "OpenAIImagesGenerationResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "created",
+          "data"
+        ],
+        "properties": {
+          "created": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/OpenAIImage"
+            }
           }
         }
       },

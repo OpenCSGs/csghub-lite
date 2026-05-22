@@ -49,6 +49,7 @@ export interface RunningModel {
   model: string;
   size: number;
   format: string;
+  status?: "running" | "loading" | string;
   expires_at: string;
 }
 
@@ -183,6 +184,41 @@ export interface WebSearchSettings {
   providers?: string[];
   safe_search: number;
   timeout_seconds: number;
+}
+
+export interface ImageRuntimeStatus {
+  ready: boolean;
+  runtime_dir: string;
+  venv_dir: string;
+  python?: string;
+  platform: string;
+  arch: string;
+  hardware: "cpu" | "mps" | "cuda" | "rocm";
+  torch_index_url?: string;
+  missing_packages?: string[];
+  install_command?: string[];
+  error?: string;
+}
+
+export interface ImageGenerationRequest {
+  model: string;
+  prompt: string;
+  n?: number;
+  size?: string;
+  response_format?: "b64_json";
+  seed?: number;
+  negative_prompt?: string;
+  steps?: number;
+  cfg_scale?: number;
+}
+
+export interface ImageGenerationResponse {
+  created: number;
+  data: Array<{
+    b64_json?: string;
+    url?: string;
+    revised_prompt?: string;
+  }>;
 }
 
 export interface WebSearchResult {
@@ -585,6 +621,22 @@ export async function getCloudAuthStatus(): Promise<CloudAuthStatus> {
 
 export async function getSettings(): Promise<AppSettings> {
   return fetchJSON<AppSettings>("/api/settings");
+}
+
+export async function getImageRuntimeStatus(): Promise<ImageRuntimeStatus> {
+  return fetchJSON<ImageRuntimeStatus>("/api/image-runtime");
+}
+
+export async function installImageRuntime(): Promise<ImageRuntimeStatus> {
+  return fetchJSON<ImageRuntimeStatus>("/api/image-runtime/install", { method: "POST" });
+}
+
+export async function generateImage(req: ImageGenerationRequest): Promise<ImageGenerationResponse> {
+  return fetchJSON<ImageGenerationResponse>("/v1/images/generations", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ ...req, response_format: req.response_format || "b64_json" }),
+  });
 }
 
 export async function saveSettings(patch: { storage_dir?: string; model_dir?: string; dataset_dir?: string; autostart?: boolean; web_search?: WebSearchSettings }): Promise<AppSettings> {
@@ -1020,6 +1072,7 @@ export function loadModel(
         const reader = resp.body.getReader();
         const decoder = new TextDecoder();
         let buf = "";
+        let settled = false;
 
         function processLine(line: string) {
           if (!line.startsWith("data: ")) return;
@@ -1027,8 +1080,10 @@ export function loadModel(
             const p: LoadProgress = JSON.parse(line.slice(6));
             onProgress(p);
             if (p.status === "ready") {
+              settled = true;
               resolve();
-            } else if (p.status.startsWith("error")) {
+            } else if (p.status.startsWith("error") || p.status.startsWith("image_runtime_required")) {
+              settled = true;
               reject(new Error(p.status));
             }
           } catch {
@@ -1039,7 +1094,9 @@ export function loadModel(
         function read(): Promise<void> {
           return reader.read().then(({ done, value }) => {
             if (done) {
-              resolve();
+              if (!settled) {
+                reject(new Error("load did not reach ready state"));
+              }
               return;
             }
             buf += decoder.decode(value, { stream: true });

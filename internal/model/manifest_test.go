@@ -176,6 +176,31 @@ func TestDetectPipelineTagSentenceTransformersEmbedding(t *testing.T) {
 	}
 }
 
+func TestDetectPipelineTagDiffusersModelIndexDefaultsToTextToImage(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "model_index.json"), []byte(`{"_class_name":"QwenImagePipeline"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "config.json"), []byte(`{"architectures":["Qwen2_5_VLForConditionalGeneration"]}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if got := DetectPipelineTag(dir); got != "text-to-image" {
+		t.Fatalf("DetectPipelineTag() = %q, want text-to-image", got)
+	}
+}
+
+func TestDetectPipelineTagUnknownDiffusersModelIndexDefaultsToTextToImage(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "model_index.json"), []byte(`{"_class_name":"NewFancyPipeline"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if got := DetectPipelineTag(dir); got != "text-to-image" {
+		t.Fatalf("DetectPipelineTag() = %q, want text-to-image", got)
+	}
+}
+
 func TestFindModelFile(t *testing.T) {
 	dir := t.TempDir()
 

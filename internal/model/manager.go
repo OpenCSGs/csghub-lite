@@ -79,6 +79,7 @@ func (m *Manager) Pull(ctx context.Context, modelID string, quant string, progre
 		Files:        fileNames,
 		FileEntries:  fileEntries,
 		DownloadedAt: time.Now(),
+		PipelineTag:  DetectPipelineTag(destDir),
 		Description:  info.Description,
 		License:      info.License,
 	}

@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -10,6 +11,7 @@ import (
 	"time"
 
 	"github.com/opencsgs/csghub-lite/internal/csghub"
+	"github.com/opencsgs/csghub-lite/internal/imagegen"
 	"github.com/opencsgs/csghub-lite/internal/inference"
 	"github.com/opencsgs/csghub-lite/pkg/api"
 )
@@ -153,6 +155,36 @@ func (s *Server) handlePs(w http.ResponseWriter, r *http.Request) {
 			Status: "loading",
 		})
 	}
+	for id, me := range s.imageEngines {
+		lm, err := s.manager.Get(id)
+		if err != nil {
+			continue
+		}
+		models = append(models, api.RunningModel{
+			Name:      lm.FullName(),
+			Model:     lm.FullName(),
+			Size:      lm.Size,
+			Format:    string(lm.Format),
+			Status:    "running",
+			ExpiresAt: me.lastUsed.Add(me.keepAlive),
+		})
+	}
+	for id := range s.imageLoading {
+		if _, ok := s.imageEngines[id]; ok {
+			continue
+		}
+		lm, err := s.manager.Get(id)
+		if err != nil {
+			continue
+		}
+		models = append(models, api.RunningModel{
+			Name:   lm.FullName(),
+			Model:  lm.FullName(),
+			Size:   lm.Size,
+			Format: string(lm.Format),
+			Status: "loading",
+		})
+	}
 
 	writeJSON(w, http.StatusOK, api.PsResponse{Models: models})
 }
@@ -173,6 +205,11 @@ func (s *Server) handleStop(w http.ResponseWriter, r *http.Request) {
 			delete(s.engines, key)
 			stopped = true
 		}
+	}
+	if me, ok := s.imageEngines[req.Model]; ok {
+		me.engine.Close()
+		delete(s.imageEngines, req.Model)
+		stopped = true
 	}
 	s.mu.Unlock()
 
@@ -314,29 +351,46 @@ func (s *Server) handleLoad(w http.ResponseWriter, r *http.Request) {
 		requestedDType = req.DType
 	}
 	embeddingModel := s.modelUsesEmbeddingEngine(req.Model)
+	imageGenerationModel := s.modelUsesImageGenerationEngine(req.Model)
 
 	stream := req.Stream != nil && *req.Stream
 
 	if !stream {
 		log.Printf("MODEL %s: load requested stream=false num_ctx=%d num_parallel=%d n_gpu_layers=%d cache_type_k=%q cache_type_v=%q dtype=%q", req.Model, requestedNumCtx, requestedNumParallel, requestedNGPULayers, requestedCacheTypeK, requestedCacheTypeV, requestedDType)
 		var err error
-		if embeddingModel {
+		if imageGenerationModel {
+			_, err = s.getOrLoadImageEngine(context.Background(), req.Model)
+		} else if embeddingModel {
 			_, err = s.getOrLoadEmbeddingEngineWithOpts(req.Model, requestedNumCtx, requestedNGPULayers, requestedDType)
 		} else {
 			_, err = s.getOrLoadEngineFull(req.Model, nil, requestedNumCtx, requestedNumParallel, requestedNGPULayers, requestedCacheTypeK, requestedCacheTypeV, requestedDType)
 		}
 		if err != nil {
 			log.Printf("MODEL %s: load failed: %v", req.Model, err)
+			if status, ok := imagegen.RuntimeStatusFromError(err); ok {
+				writeJSON(w, http.StatusServiceUnavailable, map[string]interface{}{
+					"error":     err.Error(),
+					"errorCode": http.StatusServiceUnavailable,
+					"runtime":   status,
+				})
+				return
+			}
 			writeError(w, http.StatusBadRequest, err.Error())
 			return
 		}
-		if embeddingModel {
+		if imageGenerationModel {
+			s.touchImageEngine(req.Model)
+		} else if embeddingModel {
 			s.touchEngineKey(engineCacheKey(req.Model, engineModeEmbed))
 		} else {
 			s.touchEngine(req.Model)
 		}
 		if keepAliveSet {
-			s.setEngineKeepAlive(req.Model, requestedKeepAlive)
+			if imageGenerationModel {
+				s.setImageEngineKeepAlive(req.Model, requestedKeepAlive)
+			} else {
+				s.setEngineKeepAlive(req.Model, requestedKeepAlive)
+			}
 		}
 		log.Printf("MODEL %s: load ready", req.Model)
 		writeJSON(w, http.StatusOK, api.LoadResponse{Status: "ready"})
@@ -371,23 +425,47 @@ func (s *Server) handleLoad(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	if embeddingModel {
+	if imageGenerationModel {
+		imageProgress := func(step string, current, total int) {
+			safeSSE(api.LoadResponse{
+				Status:  "installing image runtime",
+				Step:    step,
+				Current: current,
+				Total:   total,
+			})
+			if time.Since(lastLoadProgressLog) >= 2*time.Second || current == total {
+				log.Printf("MODEL %s: image runtime progress step=%q current=%d total=%d", req.Model, step, current, total)
+				lastLoadProgressLog = time.Now()
+			}
+		}
+		_, err = s.getOrLoadImageEngineWithProgress(context.Background(), req.Model, imageProgress)
+	} else if embeddingModel {
 		_, err = s.getOrLoadEngineFullMode(req.Model, progress, requestedNumCtx, 0, requestedNGPULayers, "", "", requestedDType, engineModeEmbed)
 	} else {
 		_, err = s.getOrLoadEngineWithProgressAndOpts(req.Model, progress, requestedNumCtx, requestedNumParallel, requestedNGPULayers, requestedCacheTypeK, requestedCacheTypeV, requestedDType)
 	}
 	if err != nil {
 		log.Printf("load %s failed: %v", req.Model, err)
+		if _, ok := imagegen.RuntimeStatusFromError(err); ok {
+			safeSSE(api.LoadResponse{Status: "error: " + err.Error()})
+			return
+		}
 		safeSSE(api.LoadResponse{Status: "error: " + err.Error()})
 		return
 	}
-	if embeddingModel {
+	if imageGenerationModel {
+		s.touchImageEngine(req.Model)
+	} else if embeddingModel {
 		s.touchEngineKey(engineCacheKey(req.Model, engineModeEmbed))
 	} else {
 		s.touchEngine(req.Model)
 	}
 	if keepAliveSet {
-		s.setEngineKeepAlive(req.Model, requestedKeepAlive)
+		if imageGenerationModel {
+			s.setImageEngineKeepAlive(req.Model, requestedKeepAlive)
+		} else {
+			s.setEngineKeepAlive(req.Model, requestedKeepAlive)
+		}
 	}
 
 	log.Printf("MODEL %s: load ready", req.Model)
