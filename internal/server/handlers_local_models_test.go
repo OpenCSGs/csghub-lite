@@ -178,6 +178,36 @@ func TestHandleLocalModelSearch_Filters(t *testing.T) {
 	}
 }
 
+func TestLocalModelInfoPrefersDetectedDiffusersPipelineTag(t *testing.T) {
+	s := newTestServer(t)
+
+	mustSaveLocalModel(t, s.cfg.ModelDir, &model.LocalModel{
+		Namespace:    "Qwen",
+		Name:         "Qwen-Image-2512",
+		Format:       model.FormatSafeTensors,
+		Files:        []string{"model_index.json", "transformer/diffusion_pytorch_model.safetensors"},
+		DownloadedAt: time.Unix(100, 0),
+		PipelineTag:  "text-generation",
+	})
+	modelDir := filepath.Join(s.cfg.ModelDir, "Qwen", "Qwen-Image-2512")
+	if err := os.WriteFile(filepath.Join(modelDir, "model_index.json"), []byte(`{"_class_name":"QwenImagePipeline"}`), 0o644); err != nil {
+		t.Fatalf("write model_index.json: %v", err)
+	}
+
+	info := s.localModelInfo(&model.LocalModel{
+		Namespace:   "Qwen",
+		Name:        "Qwen-Image-2512",
+		Format:      model.FormatSafeTensors,
+		PipelineTag: "text-generation",
+	})
+	if info.PipelineTag != "text-to-image" {
+		t.Fatalf("PipelineTag = %q, want text-to-image", info.PipelineTag)
+	}
+	if !s.modelUsesImageGenerationEngine("Qwen/Qwen-Image-2512") {
+		t.Fatal("modelUsesImageGenerationEngine = false, want true")
+	}
+}
+
 func TestHandleLocalModelSearch_InvalidPaginationParams(t *testing.T) {
 	s := newTestServer(t)
 

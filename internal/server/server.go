@@ -507,10 +507,7 @@ func (s *Server) getOrLoadImageEngineWithProgress(ctx context.Context, modelID s
 	if err != nil {
 		return nil, err
 	}
-	pipelineTag := strings.TrimSpace(lm.PipelineTag)
-	if pipelineTag == "" {
-		pipelineTag = model.DetectPipelineTag(modelDir)
-	}
+	pipelineTag := s.resolvedLocalPipelineTag(modelID, strings.TrimSpace(lm.PipelineTag))
 	if !isImageGenerationPipelineTag(pipelineTag) {
 		return nil, fmt.Errorf("model %q is not a text-to-image model", modelID)
 	}

@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -358,7 +359,7 @@ func (s *Server) handleLoad(w http.ResponseWriter, r *http.Request) {
 		log.Printf("MODEL %s: load requested stream=false num_ctx=%d num_parallel=%d n_gpu_layers=%d cache_type_k=%q cache_type_v=%q dtype=%q", req.Model, requestedNumCtx, requestedNumParallel, requestedNGPULayers, requestedCacheTypeK, requestedCacheTypeV, requestedDType)
 		var err error
 		if imageGenerationModel {
-			_, err = s.getOrLoadImageEngine(r.Context(), req.Model)
+			_, err = s.getOrLoadImageEngine(context.Background(), req.Model)
 		} else if embeddingModel {
 			_, err = s.getOrLoadEmbeddingEngineWithOpts(req.Model, requestedNumCtx, requestedNGPULayers, requestedDType)
 		} else {
@@ -437,7 +438,7 @@ func (s *Server) handleLoad(w http.ResponseWriter, r *http.Request) {
 				lastLoadProgressLog = time.Now()
 			}
 		}
-		_, err = s.getOrLoadImageEngineWithProgress(r.Context(), req.Model, imageProgress)
+		_, err = s.getOrLoadImageEngineWithProgress(context.Background(), req.Model, imageProgress)
 	} else if embeddingModel {
 		_, err = s.getOrLoadEngineFullMode(req.Model, progress, requestedNumCtx, 0, requestedNGPULayers, "", "", requestedDType, engineModeEmbed)
 	} else {

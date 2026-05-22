@@ -49,6 +49,7 @@ export interface RunningModel {
   model: string;
   size: number;
   format: string;
+  status?: "running" | "loading" | string;
   expires_at: string;
 }
 

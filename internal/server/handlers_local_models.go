@@ -98,14 +98,11 @@ func (s *Server) listLocalModelInfos() ([]api.ModelInfo, error) {
 
 func (s *Server) localModelInfo(item *model.LocalModel) api.ModelInfo {
 	modelID := strings.TrimSpace(item.FullName())
-	pipelineTag := strings.TrimSpace(item.PipelineTag)
+	pipelineTag := s.resolvedLocalPipelineTag(modelID, strings.TrimSpace(item.PipelineTag))
 	hasMMProj := false
 	var contextWindow int64
 
 	if dir, err := s.manager.ModelPath(modelID); err == nil {
-		if pipelineTag == "" {
-			pipelineTag = model.DetectPipelineTag(dir)
-		}
 		hasMMProj = model.FindMMProj(dir) != ""
 		contextWindow = s.localModelContextWindow(modelID, dir)
 	}
@@ -137,10 +134,7 @@ func (s *Server) modelUsesEmbeddingEngine(modelID string) bool {
 	if err != nil || lm == nil {
 		return false
 	}
-	pipelineTag := strings.TrimSpace(lm.PipelineTag)
-	if dir, err := s.manager.ModelPath(modelID); err == nil && pipelineTag == "" {
-		pipelineTag = model.DetectPipelineTag(dir)
-	}
+	pipelineTag := s.resolvedLocalPipelineTag(modelID, strings.TrimSpace(lm.PipelineTag))
 	return isEmbeddingPipelineTag(pipelineTag)
 }
 
@@ -149,11 +143,22 @@ func (s *Server) modelUsesImageGenerationEngine(modelID string) bool {
 	if err != nil || lm == nil {
 		return false
 	}
-	pipelineTag := strings.TrimSpace(lm.PipelineTag)
-	if dir, err := s.manager.ModelPath(modelID); err == nil && pipelineTag == "" {
-		pipelineTag = model.DetectPipelineTag(dir)
-	}
+	pipelineTag := s.resolvedLocalPipelineTag(modelID, strings.TrimSpace(lm.PipelineTag))
 	return isImageGenerationPipelineTag(pipelineTag)
+}
+
+func (s *Server) resolvedLocalPipelineTag(modelID, manifestPipelineTag string) string {
+	detected := ""
+	if dir, err := s.manager.ModelPath(modelID); err == nil {
+		detected = strings.TrimSpace(model.DetectPipelineTag(dir))
+	}
+	if isImageGenerationPipelineTag(detected) || isEmbeddingPipelineTag(detected) {
+		return detected
+	}
+	if manifestPipelineTag != "" {
+		return manifestPipelineTag
+	}
+	return detected
 }
 
 func isEmbeddingPipelineTag(pipelineTag string) bool {

@@ -1,5 +1,6 @@
 import argparse
 import base64
+from pathlib import Path
 import inspect
 import io
 import json
@@ -28,8 +29,24 @@ def parse_size(value: Optional[str]) -> tuple[int, int]:
     return width, height
 
 
-def detect_device() -> tuple[str, torch.dtype]:
+def is_qwen_image_model(model_dir: str, model_name: str) -> bool:
+    model_tokens = f"{model_name} {model_dir}".lower()
+    if "qwen-image" in model_tokens or "qwen_image" in model_tokens:
+        return True
+
+    model_index = Path(model_dir) / "model_index.json"
+    try:
+        data = json.loads(model_index.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return False
+    class_name = str(data.get("_class_name", "")).lower()
+    return class_name == "qwenimagepipeline"
+
+
+def detect_device(model_dir: str, model_name: str) -> tuple[str, torch.dtype]:
     if torch.cuda.is_available():
+        if is_qwen_image_model(model_dir, model_name) and torch.cuda.is_bf16_supported():
+            return "cuda", torch.bfloat16
         return "cuda", torch.float16
     if getattr(torch.backends, "mps", None) is not None and torch.backends.mps.is_available():
         return "mps", torch.float16
@@ -40,7 +57,7 @@ class Worker:
     def __init__(self, model_dir: str, model_name: str) -> None:
         self.model_dir = model_dir
         self.model_name = model_name
-        self.device, self.dtype = detect_device()
+        self.device, self.dtype = detect_device(model_dir, model_name)
         self.pipeline = None
         self.lock = threading.Lock()
 
@@ -115,7 +132,15 @@ class Handler(BaseHTTPRequestHandler):
         if self.path != "/health":
             self.write_json(404, {"error": "not found"})
             return
-        self.write_json(200, {"status": "ok", "device": self.worker.device, "model": self.worker.model_name})
+        self.write_json(
+            200,
+            {
+                "status": "ok",
+                "device": self.worker.device,
+                "dtype": str(self.worker.dtype).removeprefix("torch."),
+                "model": self.worker.model_name,
+            },
+        )
 
     def do_POST(self) -> None:
         if self.path != "/generate":
