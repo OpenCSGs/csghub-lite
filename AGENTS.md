@@ -33,6 +33,9 @@ Copilot, and Aider.
   `internal/server/static`, then restart the single backend preview.
 - Keep commit, PR, and release notes concise and focused on concrete user-facing
   changes.
+- When syncing llama.cpp binaries: use official `ggml-org/llama.cpp` GitHub
+  releases for upstream-published assets; build Ubuntu Linux CUDA packages only
+  via `scripts/llama-build/` (see `docs/agent-guidelines/llama-cpp.md`).
 
 ## Rule Index
 

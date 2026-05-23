@@ -20,7 +20,8 @@ this repository. They are written for any coding agent, not only Cursor.
 - `cross-platform.md` - macOS, Linux, and Windows compatibility rules.
 - `frontend-i18n.md` - web UI localization rules.
 - `go-conventions.md` - Go project structure and coding conventions.
-- `llama-cpp.md` - llama.cpp version lockstep and CUDA mirror rules.
+- `llama-cpp.md` - llama.cpp version lockstep and CUDA mirror rules
+  (`scripts/llama-build/` for Docker rebuilds).
 - `local-preview.md` - local preview port and redeploy workflow.
 - `network-and-secrets.md` - proxy, GitLab, and local secret handling.
 - `release-notes.md` - commit, PR, and release note conventions.

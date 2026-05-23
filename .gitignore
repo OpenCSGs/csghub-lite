@@ -14,3 +14,6 @@ design/
 csghub-lite
 # Local secrets (GitLab PAT for scripts/push.sh); never commit
 local/secrets.env
+# llama.cpp CUDA Docker build trees (see scripts/llama-build/README.md)
+scripts/llama-build/work/
+local/llama-build/
