@@ -14,7 +14,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
-	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -625,55 +624,16 @@ func resolveAIAppOpenTarget(appID string) (aiAppOpenTarget, error) {
 }
 
 func (s *Server) resolveAIAppLaunchModels(ctx context.Context, requestedModel, requestedSource string) (string, []string, error) {
-	localModels, err := s.manager.List()
+	availableModels, err := s.listAvailableModelsWithRefresh(ctx, true)
 	if err != nil {
-		return "", nil, fmt.Errorf("listing local models: %w", err)
+		return "", nil, fmt.Errorf("listing available models: %w", err)
 	}
-	hasLocalModels := len(localModels) > 0
-
-	sort.SliceStable(localModels, func(i, j int) bool {
-		left := scoreOpenClawModel(localModels[i])
-		right := scoreOpenClawModel(localModels[j])
-		if left != right {
-			return left > right
-		}
-		return localModels[i].DownloadedAt.After(localModels[j].DownloadedAt)
-	})
-
-	modelIDs := make([]string, 0, len(localModels)+4)
-	seen := make(map[string]struct{}, len(localModels)+4)
+	modelIDs, seen := modelIDsFromInfos(availableModels)
 	defaultModel := ""
-	for _, item := range localModels {
-		modelID := item.FullName()
-		if defaultModel == "" {
-			defaultModel = modelID
-		}
-		modelIDs = appendUniqueModelID(modelIDs, seen, modelID)
+	if len(modelIDs) > 0 {
+		defaultModel = modelIDs[0]
 	}
-
-	if s.cloud != nil && s.hasCloudCredential() {
-		s.refreshOpenClawModelCatalog(ctx)
-		if cloudModels, err := s.cloud.ListChatModels(ctx); err == nil {
-			for _, item := range cloudModels {
-				modelIDs = appendUniqueModelID(modelIDs, seen, item.Model)
-				if defaultModel == "" {
-					defaultModel = item.Model
-				}
-			}
-		}
-	}
-
-	// Include third-party provider models in the available list.
-	for _, item := range s.listThirdPartyProviderModels(ctx) {
-		modelID := strings.TrimSpace(item.Model)
-		if modelID == "" {
-			continue
-		}
-		modelIDs = appendUniqueModelID(modelIDs, seen, modelID)
-		if defaultModel == "" {
-			defaultModel = modelID
-		}
-	}
+	hasLocalModels := hasLocalAIAppModels(availableModels)
 
 	if defaultModel == "" {
 		if !hasLocalModels {
@@ -684,69 +644,38 @@ func (s *Server) resolveAIAppLaunchModels(ctx context.Context, requestedModel, r
 		}
 		return "", nil, fmt.Errorf("no models were found. Pull a model first, then open the app")
 	}
+	if defaultInfo, ok := firstModelInfoByID(availableModels, defaultModel); ok && isCloudModelInfo(defaultInfo) && !s.hasCloudCredential() {
+		return "", nil, fmt.Errorf("no local models were found. Pull a model first, or open csghub-lite Settings to sign in to OpenCSG or save an API Key")
+	}
 
 	requestedModel = strings.TrimSpace(requestedModel)
 	requestedSource = strings.TrimSpace(requestedSource)
 	if requestedModel != "" {
 		if requestedSource != "" {
 			normalizedSource := strings.ToLower(requestedSource)
-			switch {
-			case normalizedSource == "local":
-				for _, item := range localModels {
-					if strings.TrimSpace(item.FullName()) == requestedModel {
-						return requestedModel, modelIDs, nil
-					}
+			if (normalizedSource == "local" || normalizedSource == "cloud" || providerIDFromSource(requestedSource) != "") &&
+				modelInfoListContainsSource(availableModels, requestedModel, requestedSource) {
+				if normalizedSource == "cloud" && !s.hasCloudCredential() {
+					return "", nil, fmt.Errorf("model %q is not available for AI Apps. If you are trying to use an OpenCSG model, please open csghub-lite Settings to sign in to OpenCSG or save an API Key first", requestedModel)
 				}
-				return "", nil, fmt.Errorf("model %q is not available for AI Apps", requestedModel)
-			case normalizedSource == "cloud":
+				return requestedModel, modelIDs, nil
+			}
+			if normalizedSource == "cloud" && refreshRequestedCloudModel(ctx, s, requestedModel, seen, &modelIDs) {
 				if !s.hasCloudCredential() {
 					return "", nil, fmt.Errorf("model %q is not available for AI Apps. If you are trying to use an OpenCSG model, please open csghub-lite Settings to sign in to OpenCSG or save an API Key first", requestedModel)
 				}
-				if s.cloud != nil {
-					if cloudModels, err := s.cloud.RefreshChatModels(ctx); err == nil {
-						for _, item := range cloudModels {
-							modelIDs = appendUniqueModelID(modelIDs, seen, item.Model)
-						}
-						if modelInfoListContains(cloudModels, requestedModel) {
-							return requestedModel, modelIDs, nil
-						}
-					}
-				}
-				return "", nil, fmt.Errorf("model %q is not available for AI Apps", requestedModel)
-			case providerIDFromSource(requestedSource) != "":
-				for _, item := range s.listThirdPartyProviderModels(ctx) {
-					modelID := strings.TrimSpace(item.Model)
-					if modelID == "" {
-						continue
-					}
-					modelIDs = appendUniqueModelID(modelIDs, seen, modelID)
-					if strings.EqualFold(strings.TrimSpace(item.Source), requestedSource) && modelID == requestedModel {
-						return requestedModel, modelIDs, nil
-					}
-				}
+				return requestedModel, modelIDs, nil
+			}
+			if normalizedSource == "cloud" && !s.hasCloudCredential() {
+				return "", nil, fmt.Errorf("model %q is not available for AI Apps. If you are trying to use an OpenCSG model, please open csghub-lite Settings to sign in to OpenCSG or save an API Key first", requestedModel)
+			}
+			if normalizedSource == "local" || normalizedSource == "cloud" || providerIDFromSource(requestedSource) != "" {
 				return "", nil, fmt.Errorf("model %q is not available for AI Apps", requestedModel)
 			}
 		}
 		if _, ok := seen[requestedModel]; !ok {
-			if s.cloud != nil && s.hasCloudCredential() {
-				if cloudModels, err := s.cloud.RefreshChatModels(ctx); err == nil {
-					for _, item := range cloudModels {
-						modelIDs = appendUniqueModelID(modelIDs, seen, item.Model)
-					}
-				}
-			}
-		}
-		if _, ok := seen[requestedModel]; !ok {
-			// Re-query third-party provider models in case the requested model is from a provider.
-			for _, item := range s.listThirdPartyProviderModels(ctx) {
-				modelID := strings.TrimSpace(item.Model)
-				if modelID == "" {
-					continue
-				}
-				if _, alreadySeen := seen[modelID]; !alreadySeen {
-					seen[modelID] = struct{}{}
-					modelIDs = append(modelIDs, modelID)
-				}
+			if refreshRequestedCloudModel(ctx, s, requestedModel, seen, &modelIDs) && !s.hasCloudCredential() {
+				return "", nil, fmt.Errorf("model %q is not available for AI Apps. If you are trying to use an OpenCSG model, please open csghub-lite Settings to sign in to OpenCSG or save an API Key first", requestedModel)
 			}
 		}
 		if _, ok := seen[requestedModel]; !ok {
@@ -755,10 +684,66 @@ func (s *Server) resolveAIAppLaunchModels(ctx context.Context, requestedModel, r
 			}
 			return "", nil, fmt.Errorf("model %q is not available for AI Apps", requestedModel)
 		}
+		if requestedInfo, ok := firstModelInfoByID(availableModels, requestedModel); ok && isCloudModelInfo(requestedInfo) && !s.hasCloudCredential() {
+			return "", nil, fmt.Errorf("model %q is not available for AI Apps. If you are trying to use an OpenCSG model, please open csghub-lite Settings to sign in to OpenCSG or save an API Key first", requestedModel)
+		}
 		return requestedModel, modelIDs, nil
 	}
 
 	return defaultModel, modelIDs, nil
+}
+
+func modelIDsFromInfos(models []api.ModelInfo) ([]string, map[string]struct{}) {
+	modelIDs := make([]string, 0, len(models))
+	seen := make(map[string]struct{}, len(models))
+	for _, item := range models {
+		modelIDs = appendUniqueModelID(modelIDs, seen, item.Model)
+	}
+	return modelIDs, seen
+}
+
+func hasLocalAIAppModels(models []api.ModelInfo) bool {
+	for _, item := range models {
+		if isLocalModelInfo(item) {
+			return true
+		}
+	}
+	return false
+}
+
+func modelInfoListContainsSource(models []api.ModelInfo, modelID, source string) bool {
+	modelID = strings.TrimSpace(modelID)
+	source = strings.TrimSpace(source)
+	for _, item := range models {
+		if strings.TrimSpace(item.Model) == modelID && strings.EqualFold(strings.TrimSpace(item.Source), source) {
+			return true
+		}
+	}
+	return false
+}
+
+func firstModelInfoByID(models []api.ModelInfo, modelID string) (api.ModelInfo, bool) {
+	modelID = strings.TrimSpace(modelID)
+	for _, item := range models {
+		if strings.TrimSpace(item.Model) == modelID {
+			return item, true
+		}
+	}
+	return api.ModelInfo{}, false
+}
+
+func refreshRequestedCloudModel(ctx context.Context, s *Server, requestedModel string, seen map[string]struct{}, modelIDs *[]string) bool {
+	if s == nil || s.cloud == nil {
+		return false
+	}
+	cloudModels, err := s.cloud.RefreshChatModels(ctx)
+	if err != nil {
+		return false
+	}
+	for _, item := range cloudModels {
+		*modelIDs = appendUniqueModelID(*modelIDs, seen, item.Model)
+	}
+	return modelInfoListContains(cloudModels, requestedModel)
 }
 
 func appendUniqueModelID(modelIDs []string, seen map[string]struct{}, modelID string) []string {

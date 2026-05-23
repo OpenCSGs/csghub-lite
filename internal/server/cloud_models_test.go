@@ -293,6 +293,58 @@ func TestResolveAIAppLaunchModelsRefreshesRequestedCloudModelAfterCacheMiss(t *t
 	}
 }
 
+func TestResolveAIAppLaunchModelsUsesSelectedProviderModels(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	config.ResetProviders()
+	config.ResetProviderModelAllowlist()
+	t.Cleanup(config.ResetProviders)
+	t.Cleanup(config.ResetProviderModelAllowlist)
+
+	apiServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/models" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"data": []map[string]string{
+				{"id": "selected/model"},
+				{"id": "unselected/model"},
+			},
+		})
+	}))
+	defer apiServer.Close()
+
+	s := newTestServer(t)
+	if err := config.SaveProviders([]config.ThirdPartyProvider{{
+		ID:      "provider1",
+		Name:    "OpenAI",
+		BaseURL: apiServer.URL + "/v1",
+		APIKey:  "secret",
+		Enabled: true,
+	}}); err != nil {
+		t.Fatalf("save providers: %v", err)
+	}
+	if err := config.ReplaceProviderModelAllowlist("provider1", []string{"selected/model"}); err != nil {
+		t.Fatalf("save provider model allowlist: %v", err)
+	}
+
+	modelID, modelIDs, err := s.resolveAIAppLaunchModels(context.Background(), "", "")
+	if err != nil {
+		t.Fatalf("resolveAIAppLaunchModels returned error: %v", err)
+	}
+	if modelID != "selected/model" {
+		t.Fatalf("default model = %q, want selected/model", modelID)
+	}
+	if !containsModelID(modelIDs, "selected/model") {
+		t.Fatalf("modelIDs = %#v, want selected/model", modelIDs)
+	}
+	if containsModelID(modelIDs, "unselected/model") {
+		t.Fatalf("modelIDs = %#v, want unselected/model excluded", modelIDs)
+	}
+}
+
 func TestGetChatEngineRefreshesCloudModelsAfterCacheMiss(t *testing.T) {
 	requests := 0
 	currentModel := "stale/model"
