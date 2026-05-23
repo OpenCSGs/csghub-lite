@@ -1,9 +1,11 @@
 package server
 
 import (
+	"bufio"
 	"fmt"
 	"io"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"sync"
@@ -153,12 +155,66 @@ func SetupLogging(buf *LogBuffer) {
 	log.SetFlags(log.LstdFlags)
 }
 
+type logResponseWriter struct {
+	http.ResponseWriter
+	status int
+}
+
+func (w *logResponseWriter) WriteHeader(status int) {
+	w.status = status
+	w.ResponseWriter.WriteHeader(status)
+}
+
+func (w *logResponseWriter) Write(p []byte) (int, error) {
+	if w.status == 0 {
+		w.status = http.StatusOK
+	}
+	return w.ResponseWriter.Write(p)
+}
+
+func (w *logResponseWriter) Flush() {
+	if flusher, ok := w.ResponseWriter.(http.Flusher); ok {
+		flusher.Flush()
+	}
+}
+
+func (w *logResponseWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	hijacker, ok := w.ResponseWriter.(http.Hijacker)
+	if !ok {
+		return nil, nil, fmt.Errorf("response writer does not support hijacking")
+	}
+	return hijacker.Hijack()
+}
+
+func (w *logResponseWriter) Unwrap() http.ResponseWriter {
+	return w.ResponseWriter
+}
+
 // LogMiddleware logs HTTP requests to the standard logger with timing info.
 func LogMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
-		next.ServeHTTP(w, r)
+		lw := &logResponseWriter{ResponseWriter: w}
+		next.ServeHTTP(lw, r)
 		elapsed := time.Since(start)
+		if lw.status == 0 {
+			lw.status = http.StatusOK
+		}
+		if isQuietRequestLog(r) && lw.status < http.StatusBadRequest && elapsed < time.Second {
+			return
+		}
 		log.Printf("REQUEST: %s %s (%s)", r.Method, r.URL.Path, elapsed.Round(time.Millisecond))
 	})
+}
+
+func isQuietRequestLog(r *http.Request) bool {
+	if r.Method != http.MethodGet {
+		return false
+	}
+	switch r.URL.Path {
+	case "/api/conversations", "/api/ps", "/api/system", "/api/tags":
+		return true
+	default:
+		return false
+	}
 }

@@ -38,7 +38,10 @@
       "Bash(kill 40445)",
       "Bash(make package *)",
       "Bash(gh release *)",
-      "Bash(glab --version)"
+      "Bash(glab --version)",
+      "Bash(bash *)",
+      "Read(//private/tmp/cuda-analysis/**)",
+      "Bash(tar xzf *)"
     ]
   }
 }
