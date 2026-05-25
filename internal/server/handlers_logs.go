@@ -212,7 +212,7 @@ func isQuietRequestLog(r *http.Request) bool {
 		return false
 	}
 	switch r.URL.Path {
-	case "/api/conversations", "/api/ps", "/api/system", "/api/tags":
+	case "/api/apps", "/api/conversations", "/api/ps", "/api/system", "/api/tags":
 		return true
 	default:
 		return false
