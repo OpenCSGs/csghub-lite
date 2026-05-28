@@ -20,11 +20,6 @@ func modelProviderID(info api.ModelInfo) string {
 		return localModelProvider
 	}
 	if providerID := providerIDFromSource(info.Source); providerID != "" {
-		if provider, ok := getThirdPartyProvider(providerID); ok {
-			if value := normalizeModelProvider(provider.Name); value != "" {
-				return value
-			}
-		}
 		return normalizeModelProvider(providerID)
 	}
 	if isCloudModelInfo(info) {
@@ -47,7 +42,7 @@ func modelProviderAliases(info api.ModelInfo) []string {
 		return []string{localModelProvider}
 	}
 	if providerID := providerIDFromSource(info.Source); providerID != "" {
-		values := []string{info.Provider}
+		values := []string{providerID, info.Provider}
 		if provider, ok := getThirdPartyProvider(providerID); ok {
 			values = append(values, provider.Name)
 		}
@@ -90,9 +85,9 @@ func modelMatchesProvider(info api.ModelInfo, provider string) bool {
 	return false
 }
 
-func modelProviderName(info api.ModelInfo, id string) string {
+func modelProviderName(info api.ModelInfo, id string, locale string) string {
 	if id == localModelProvider {
-		return localModelProvider
+		return localModelProviderName(locale)
 	}
 	if providerID := providerIDFromSource(info.Source); providerID != "" {
 		if provider, ok := getThirdPartyProvider(providerID); ok && strings.TrimSpace(provider.Name) != "" {
@@ -114,6 +109,15 @@ func modelProviderName(info api.ModelInfo, id string) string {
 		return provider
 	}
 	return id
+}
+
+func localModelProviderName(locale string) string {
+	switch locale {
+	case "zh", "zh-cn", "zh-hans", "zh-hans-cn":
+		return "本地"
+	default:
+		return localModelProvider
+	}
 }
 
 func modelProviderSource(info api.ModelInfo) string {
@@ -138,29 +142,21 @@ func isCloudModelInfo(model api.ModelInfo) bool {
 	return source == "cloud" || format == "cloud"
 }
 
-func (s *Server) listModelProviders(ctx context.Context, refresh bool) ([]api.ProviderInfo, error) {
-	models, err := s.listAvailableModelsWithRefresh(ctx, refresh)
+func (s *Server) listModelProviders(ctx context.Context, refresh bool, locale string) ([]api.ProviderInfo, error) {
+	localModels, err := s.listLocalModelInfos()
 	if err != nil {
 		return nil, err
 	}
 
 	byID := make(map[string]*api.ProviderInfo)
-	for _, model := range models {
-		id := modelProviderID(model)
-		if id == "" {
-			continue
-		}
-		provider, ok := byID[id]
-		if !ok {
-			provider = &api.ProviderInfo{
-				ID:     id,
-				Name:   modelProviderName(model, id),
-				Source: modelProviderSource(model),
-			}
-			byID[id] = provider
-		}
-		provider.ModelCount++
+	addModelProviderInfos(byID, localModels, locale)
+
+	cloudModels, err := s.listCloudModels(ctx, refresh)
+	if err == nil {
+		addModelProviderInfos(byID, cloudModels, locale)
 	}
+
+	addSelectedThirdPartyProviderInfos(byID)
 
 	out := make([]api.ProviderInfo, 0, len(byID))
 	for _, provider := range byID {
@@ -179,4 +175,54 @@ func (s *Server) listModelProviders(ctx context.Context, refresh bool) ([]api.Pr
 		return out[i].ID < out[j].ID
 	})
 	return out, nil
+}
+
+func addModelProviderInfos(byID map[string]*api.ProviderInfo, models []api.ModelInfo, locale string) {
+	for _, model := range models {
+		id := modelProviderID(model)
+		if id == "" {
+			continue
+		}
+		provider, ok := byID[id]
+		if !ok {
+			provider = &api.ProviderInfo{
+				ID:     id,
+				Name:   modelProviderName(model, id, locale),
+				Source: modelProviderSource(model),
+			}
+			byID[id] = provider
+		}
+		provider.ModelCount++
+	}
+}
+
+func addSelectedThirdPartyProviderInfos(byID map[string]*api.ProviderInfo) {
+	for _, provider := range config.GetProviders() {
+		if !provider.Enabled {
+			continue
+		}
+		id := normalizeModelProvider(provider.ID)
+		if id == "" {
+			continue
+		}
+		count := 0
+		for _, selection := range config.GetProviderModelSelections(provider.ID) {
+			if providerModelOriginalID(selection) != "" {
+				count++
+			}
+		}
+		if count == 0 {
+			continue
+		}
+		name := strings.TrimSpace(provider.Name)
+		if name == "" {
+			name = id
+		}
+		byID[id] = &api.ProviderInfo{
+			ID:         id,
+			Name:       name,
+			Source:     "provider",
+			ModelCount: count,
+		}
+	}
 }

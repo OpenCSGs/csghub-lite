@@ -41,12 +41,24 @@ func (s *Server) handleThirdPartyProvidersList(w http.ResponseWriter, r *http.Re
 }
 
 func (s *Server) handleModelProvidersList(w http.ResponseWriter, r *http.Request) {
-	providers, err := s.listModelProviders(r.Context(), requestWantsModelRefresh(r))
+	providers, err := s.listModelProviders(r.Context(), requestWantsModelRefresh(r), requestLocale(r))
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	writeJSON(w, http.StatusOK, api.ModelProvidersResponse{Providers: providers})
+}
+
+func requestLocale(r *http.Request) string {
+	locale := strings.TrimSpace(r.URL.Query().Get("locale"))
+	if locale == "" {
+		locale = strings.TrimSpace(r.Header.Get("Accept-Language"))
+	}
+	locale = strings.ToLower(locale)
+	if i := strings.IndexAny(locale, ",;"); i >= 0 {
+		locale = locale[:i]
+	}
+	return strings.ReplaceAll(locale, "_", "-")
 }
 
 // POST /api/providers/validate -- validate provider settings without saving

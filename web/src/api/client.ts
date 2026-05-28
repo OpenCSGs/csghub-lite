@@ -1,4 +1,5 @@
 import { stripReasoningText } from "../reasoning";
+import { locale } from "../i18n";
 
 export interface ModelInfo {
   name: string;
@@ -486,8 +487,16 @@ function extractErrorMessage(body: string, contentType: string, fallback: string
   return preview || fallback;
 }
 
+function withLocaleHeader(init?: RequestInit): RequestInit {
+  const headers = new Headers(init?.headers);
+  if (!headers.has("Accept-Language")) {
+    headers.set("Accept-Language", locale.value === "zh" ? "zh-CN" : "en-US");
+  }
+  return { ...init, headers };
+}
+
 async function fetchJSON<T>(url: string, init?: RequestInit): Promise<T> {
-  const resp = await fetch(url, init);
+  const resp = await fetch(url, withLocaleHeader(init));
   const contentType = resp.headers.get("content-type") || "";
   const body = await resp.text();
 

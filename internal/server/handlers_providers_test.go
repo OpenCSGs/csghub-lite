@@ -8,10 +8,12 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/opencsgs/csghub-lite/internal/cloud"
 	"github.com/opencsgs/csghub-lite/internal/config"
 	"github.com/opencsgs/csghub-lite/internal/inference"
+	"github.com/opencsgs/csghub-lite/internal/model"
 	"github.com/opencsgs/csghub-lite/pkg/api"
 )
 
@@ -59,6 +61,38 @@ func TestProviderCRUDDoesNotExposeAPIKey(t *testing.T) {
 	}
 	if strings.Contains(w.Body.String(), "secret") {
 		t.Fatalf("list response exposed API key: %s", w.Body.String())
+	}
+}
+
+func TestHandleModelProvidersListLocalizesLocalProviderName(t *testing.T) {
+	s := newTestServer(t)
+	if err := model.SaveManifest(s.cfg.ModelDir, &model.LocalModel{
+		Namespace:    "test",
+		Name:         "model",
+		Format:       model.FormatGGUF,
+		Size:         1024,
+		Files:        []string{"model.gguf"},
+		DownloadedAt: time.Now(),
+	}); err != nil {
+		t.Fatalf("save local model: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/providers?source=model&locale=zh", nil)
+	w := httptest.NewRecorder()
+	s.handleProvidersList(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s", w.Code, w.Body.String())
+	}
+
+	var resp api.ModelProvidersResponse
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode providers response: %v", err)
+	}
+	if len(resp.Providers) != 1 {
+		t.Fatalf("providers = %#v, want one local provider", resp.Providers)
+	}
+	if got := resp.Providers[0]; got.ID != "local" || got.Name != "本地" || got.Source != "local" || got.ModelCount != 1 {
+		t.Fatalf("provider = %#v, want localized local provider", got)
 	}
 }
 
@@ -324,7 +358,7 @@ func stringSliceContains(values []string, target string) bool {
 	return false
 }
 
-func TestThirdPartyModelProviderUsesConfiguredName(t *testing.T) {
+func TestThirdPartyModelProviderUsesStableProviderID(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("USERPROFILE", home)
@@ -333,7 +367,9 @@ func TestThirdPartyModelProviderUsesConfiguredName(t *testing.T) {
 	t.Cleanup(config.ResetProviders)
 	t.Cleanup(config.ResetProviderModelAllowlist)
 
+	providerModelRequests := 0
 	apiServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		providerModelRequests++
 		if r.URL.Path != "/v1/models" {
 			t.Fatalf("unexpected path: %s", r.URL.Path)
 		}
@@ -381,11 +417,14 @@ func TestThirdPartyModelProviderUsesConfiguredName(t *testing.T) {
 		t.Fatalf("providers = %#v, want one third-party provider", providersResp.Providers)
 	}
 	got := providersResp.Providers[0]
-	if got.ID != "xiaomi-plan" || got.Name != "xiaomi-plan" || got.Source != "provider" || got.ModelCount != 1 {
-		t.Fatalf("model provider = %#v, want xiaomi-plan provider", got)
+	if got.ID != "provider1" || got.Name != "xiaomi-plan" || got.Source != "provider" || got.ModelCount != 1 {
+		t.Fatalf("model provider = %#v, want provider1 with xiaomi-plan display name", got)
+	}
+	if providerModelRequests != 0 {
+		t.Fatalf("providers list requested third-party models %d times, want none", providerModelRequests)
 	}
 
-	req = httptest.NewRequest(http.MethodGet, "/api/tags?provider=xiaomi-plan", nil)
+	req = httptest.NewRequest(http.MethodGet, "/api/tags?provider=provider1", nil)
 	w = httptest.NewRecorder()
 	s.handleTags(w, req)
 	if w.Code != http.StatusOK {
@@ -408,7 +447,7 @@ func TestThirdPartyModelProviderUsesConfiguredName(t *testing.T) {
 		t.Fatalf("category = %q, want language_model", tagsResp.Models[0].Category)
 	}
 
-	req = httptest.NewRequest(http.MethodGet, "/api/tags?provider=xiaomi-plan&category=language_model", nil)
+	req = httptest.NewRequest(http.MethodGet, "/api/tags?provider=provider1&category=language_model", nil)
 	w = httptest.NewRecorder()
 	s.handleTags(w, req)
 	if w.Code != http.StatusOK {
@@ -421,7 +460,7 @@ func TestThirdPartyModelProviderUsesConfiguredName(t *testing.T) {
 		t.Fatalf("language category models = %#v, want mi-model", tagsResp.Models)
 	}
 
-	req = httptest.NewRequest(http.MethodGet, "/api/tags?provider=xiaomi-plan&category=image_generation", nil)
+	req = httptest.NewRequest(http.MethodGet, "/api/tags?provider=provider1&category=image_generation", nil)
 	w = httptest.NewRecorder()
 	s.handleTags(w, req)
 	if w.Code != http.StatusOK {
@@ -434,7 +473,7 @@ func TestThirdPartyModelProviderUsesConfiguredName(t *testing.T) {
 		t.Fatalf("image category models = %#v, want none", tagsResp.Models)
 	}
 
-	req = httptest.NewRequest(http.MethodGet, "/api/tags?provider=xiaomi-plan&category=bad", nil)
+	req = httptest.NewRequest(http.MethodGet, "/api/tags?provider=provider1&category=bad", nil)
 	w = httptest.NewRecorder()
 	s.handleTags(w, req)
 	if w.Code != http.StatusBadRequest {
@@ -454,17 +493,17 @@ func TestThirdPartyModelProviderUsesConfiguredName(t *testing.T) {
 		t.Fatalf("openai-compatible type should not be exposed as model provider: %#v", tagsResp.Models)
 	}
 
-	req = httptest.NewRequest(http.MethodGet, "/api/tags?provider=provider1", nil)
+	req = httptest.NewRequest(http.MethodGet, "/api/tags?provider=xiaomi-plan", nil)
 	w = httptest.NewRecorder()
 	s.handleTags(w, req)
 	if w.Code != http.StatusOK {
-		t.Fatalf("provider id filter status = %d body=%s", w.Code, w.Body.String())
+		t.Fatalf("provider name filter status = %d body=%s", w.Code, w.Body.String())
 	}
 	if err := json.NewDecoder(w.Body).Decode(&tagsResp); err != nil {
-		t.Fatalf("decode provider id filtered tags: %v", err)
+		t.Fatalf("decode provider name filtered tags: %v", err)
 	}
-	if len(tagsResp.Models) != 0 {
-		t.Fatalf("provider id should not match configured provider name: %#v", tagsResp.Models)
+	if len(tagsResp.Models) != 1 || tagsResp.Models[0].Model != "mi-model" {
+		t.Fatalf("provider name compatibility models = %#v, want mi-model", tagsResp.Models)
 	}
 }
 

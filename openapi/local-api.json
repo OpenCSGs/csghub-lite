@@ -96,7 +96,7 @@
           "Models"
         ],
         "summary": "List available models",
-        "description": "Returns local, CSGHub cloud, and selected third-party provider models. Use `provider` to filter by a model provider such as `local`, `csghub`, or a third-party provider name. Third-party provider filters return only models selected through `/api/tags/manage`.",
+        "description": "Returns local, CSGHub cloud, and selected third-party provider models. Use `provider` to filter by a model provider ID such as `local`, `csghub`, or a third-party provider ID. Third-party provider filters return only models selected through `/api/tags/manage`; configured third-party names are accepted as legacy aliases.",
         "operationId": "getTags",
         "parameters": [
           {
@@ -110,7 +110,7 @@
           {
             "name": "provider",
             "in": "query",
-            "description": "Filter models by normalized provider name. Local models use `local`; all CSGHub cloud models use `csghub`; third-party provider models use the configured provider name, not the generated provider ID.",
+            "description": "Filter models by normalized provider ID. Local models use `local`; all CSGHub cloud models use `csghub`; third-party provider models use the configured provider ID. Configured third-party names are accepted as legacy aliases.",
             "schema": {
               "type": "string"
             }
@@ -2273,6 +2273,18 @@
                 "model"
               ],
               "default": "model"
+            }
+          },
+          {
+            "name": "locale",
+            "in": "query",
+            "description": "Optional response locale. When set to `zh`, the built-in local provider name is returned in Chinese. Third-party provider names remain user-configured.",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "en",
+                "zh"
+              ]
             }
           }
         ],

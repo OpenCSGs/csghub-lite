@@ -337,9 +337,6 @@ func providerModelSelectionByOriginal(providerID, modelID string) (config.Provid
 }
 
 func modelProviderIDFromProvider(provider config.ThirdPartyProvider) string {
-	if name := normalizeModelProvider(provider.Name); name != "" {
-		return name
-	}
 	return normalizeModelProvider(provider.ID)
 }
 
