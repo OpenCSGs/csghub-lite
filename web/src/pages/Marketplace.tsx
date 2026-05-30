@@ -1,4 +1,4 @@
-import { useEffect, useState } from "preact/hooks";
+import { useEffect, useRef, useState } from "preact/hooks";
 import { signal, computed } from "@preact/signals";
 import {
   getMarketplaceModels,
@@ -107,6 +107,7 @@ export function Marketplace() {
   void locale.value;
   const [selectedModelPath, setSelectedModelPath] = useState("");
   const [filtersOpen, setFiltersOpen] = useState(false);
+  const filtersRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     loadLocalModels();
@@ -124,6 +125,21 @@ export function Marketplace() {
       setFiltersOpen(false);
     }
   }, [activeTab.value]);
+
+  useEffect(() => {
+    if (!filtersOpen) return;
+
+    const handlePointerDown = (event: PointerEvent) => {
+      const target = event.target;
+      if (target instanceof Node && filtersRef.current?.contains(target)) {
+        return;
+      }
+      setFiltersOpen(false);
+    };
+
+    document.addEventListener("pointerdown", handlePointerDown);
+    return () => document.removeEventListener("pointerdown", handlePointerDown);
+  }, [filtersOpen]);
 
   const handleSearch = (e: Event) => {
     e.preventDefault();
@@ -192,7 +208,7 @@ export function Marketplace() {
           </svg>
         </div>
         {activeTab.value === "models" && (
-          <div class="relative">
+          <div ref={filtersRef} class="relative">
             <button
               type="button"
               onClick={() => setFiltersOpen((open) => !open)}
