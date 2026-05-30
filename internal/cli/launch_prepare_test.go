@@ -646,6 +646,9 @@ func TestClaudeLaunchSettingsJSONIncludesAcceptEditsMode(t *testing.T) {
 	if payload.Env["ANTHROPIC_BASE_URL"] != "http://127.0.0.1:11435" {
 		t.Fatalf("ANTHROPIC_BASE_URL = %q, want test server URL", payload.Env["ANTHROPIC_BASE_URL"])
 	}
+	if payload.Env["CLAUDE_CODE_ATTRIBUTION_HEADER"] != "0" {
+		t.Fatalf("CLAUDE_CODE_ATTRIBUTION_HEADER = %q, want 0", payload.Env["CLAUDE_CODE_ATTRIBUTION_HEADER"])
+	}
 	if _, ok := payload.Env["ANTHROPIC_AUTH_TOKEN"]; ok {
 		t.Fatalf("ANTHROPIC_AUTH_TOKEN should not be included with ANTHROPIC_API_KEY")
 	}
@@ -698,6 +701,9 @@ func TestPrepareClaudeLaunchPersistsSettingsEnv(t *testing.T) {
 	}
 	if settings.Env["ANTHROPIC_API_KEY"] != "csghub-lite" {
 		t.Fatalf("ANTHROPIC_API_KEY = %q, want csghub-lite", settings.Env["ANTHROPIC_API_KEY"])
+	}
+	if settings.Env["CLAUDE_CODE_ATTRIBUTION_HEADER"] != "0" {
+		t.Fatalf("CLAUDE_CODE_ATTRIBUTION_HEADER = %q, want 0", settings.Env["CLAUDE_CODE_ATTRIBUTION_HEADER"])
 	}
 	if _, ok := settings.Env["ANTHROPIC_AUTH_TOKEN"]; ok {
 		t.Fatalf("ANTHROPIC_AUTH_TOKEN should not be persisted")

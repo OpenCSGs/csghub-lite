@@ -30,6 +30,7 @@ func SyncConfig(serverURL, apiKey, modelID string) error {
 		delete(env, "ANTHROPIC_AUTH_TOKEN")
 		env["CLAUDE_API_BASE_URL"] = strings.TrimRight(serverURL, "/")
 		env["CLAUDE_API_KEY"] = strings.TrimSpace(apiKey)
+		env["CLAUDE_CODE_ATTRIBUTION_HEADER"] = "0"
 	}); err != nil {
 		return err
 	}

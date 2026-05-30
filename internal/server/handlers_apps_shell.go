@@ -870,10 +870,11 @@ func (s *Server) prepareAIAppShellLaunch(target aiAppOpenTarget, modelID string,
 				"--settings", claudeLaunchSettingsJSON(serverURL),
 			},
 			Env: envWithOverridesAndUnset(aiAppShellEnvOverrides(map[string]string{
-				"ANTHROPIC_BASE_URL":  serverURL,
-				"ANTHROPIC_API_KEY":   "csghub-lite",
-				"CLAUDE_API_BASE_URL": serverURL,
-				"CLAUDE_API_KEY":      "csghub-lite",
+				"ANTHROPIC_BASE_URL":             serverURL,
+				"ANTHROPIC_API_KEY":              "csghub-lite",
+				"CLAUDE_API_BASE_URL":            serverURL,
+				"CLAUDE_API_KEY":                 "csghub-lite",
+				"CLAUDE_CODE_ATTRIBUTION_HEADER": "0",
 			}), "NO_COLOR", "ANTHROPIC_AUTH_TOKEN"),
 			Dir: workingDir,
 		}, nil
@@ -966,10 +967,11 @@ func normalizeAIAppWorkDir(requested string) (string, error) {
 func claudeLaunchSettingsJSON(serverURL string) string {
 	payload := map[string]interface{}{
 		"env": map[string]string{
-			"ANTHROPIC_BASE_URL":  serverURL,
-			"ANTHROPIC_API_KEY":   "csghub-lite",
-			"CLAUDE_API_BASE_URL": serverURL,
-			"CLAUDE_API_KEY":      "csghub-lite",
+			"ANTHROPIC_BASE_URL":             serverURL,
+			"ANTHROPIC_API_KEY":              "csghub-lite",
+			"CLAUDE_API_BASE_URL":            serverURL,
+			"CLAUDE_API_KEY":                 "csghub-lite",
+			"CLAUDE_CODE_ATTRIBUTION_HEADER": "0",
 		},
 		"permissions": map[string]string{
 			"defaultMode": "acceptEdits",

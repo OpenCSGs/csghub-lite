@@ -42,6 +42,9 @@ func TestSyncConfigWritesEnvSettings(t *testing.T) {
 	if settings.Env["CLAUDE_API_BASE_URL"] != "http://127.0.0.1:11435" {
 		t.Fatalf("CLAUDE_API_BASE_URL = %q, want http://127.0.0.1:11435", settings.Env["CLAUDE_API_BASE_URL"])
 	}
+	if settings.Env["CLAUDE_CODE_ATTRIBUTION_HEADER"] != "0" {
+		t.Fatalf("CLAUDE_CODE_ATTRIBUTION_HEADER = %q, want 0", settings.Env["CLAUDE_CODE_ATTRIBUTION_HEADER"])
+	}
 	if _, ok := settings.Env["ANTHROPIC_AUTH_TOKEN"]; ok {
 		t.Fatalf("ANTHROPIC_AUTH_TOKEN should not be written with ANTHROPIC_API_KEY")
 	}

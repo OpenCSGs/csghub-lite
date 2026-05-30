@@ -247,10 +247,11 @@ func prepareClaudeLaunch(target launchTarget, serverURL, modelID string, userArg
 	args = prependArgsIfMissing(args, []string{"--model", modelID}, "--model", "-m")
 	args = prependArgsIfMissing(args, []string{"--settings", claudeLaunchSettingsJSON(serverURL)}, "--settings")
 	env := envWithOverridesAndUnset(map[string]string{
-		"ANTHROPIC_BASE_URL":  serverURL,
-		"ANTHROPIC_API_KEY":   "csghub-lite",
-		"CLAUDE_API_BASE_URL": serverURL,
-		"CLAUDE_API_KEY":      "csghub-lite",
+		"ANTHROPIC_BASE_URL":              serverURL,
+		"ANTHROPIC_API_KEY":               "csghub-lite",
+		"CLAUDE_API_BASE_URL":             serverURL,
+		"CLAUDE_API_KEY":                  "csghub-lite",
+		"CLAUDE_CODE_ATTRIBUTION_HEADER":  "0",
 	}, "ANTHROPIC_AUTH_TOKEN")
 	return preparedLaunch{Binary: binary, Args: args, Env: env}, nil
 }
@@ -474,10 +475,11 @@ func envWithOverridesAndUnset(overrides map[string]string, unsetKeys ...string) 
 func claudeLaunchSettingsJSON(serverURL string) string {
 	payload := map[string]interface{}{
 		"env": map[string]string{
-			"ANTHROPIC_BASE_URL":  serverURL,
-			"ANTHROPIC_API_KEY":   "csghub-lite",
-			"CLAUDE_API_BASE_URL": serverURL,
-			"CLAUDE_API_KEY":      "csghub-lite",
+			"ANTHROPIC_BASE_URL":             serverURL,
+			"ANTHROPIC_API_KEY":              "csghub-lite",
+			"CLAUDE_API_BASE_URL":            serverURL,
+			"CLAUDE_API_KEY":                 "csghub-lite",
+			"CLAUDE_CODE_ATTRIBUTION_HEADER": "0",
 		},
 		"permissions": map[string]string{
 			"defaultMode": "acceptEdits",
