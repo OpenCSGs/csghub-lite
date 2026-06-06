@@ -132,6 +132,17 @@ function applyProgress(task: DownloadTask, p: PullProgress): DownloadTask {
   };
 }
 
+function isInterruptedDownloadError(err: any): boolean {
+  const name = String(err?.name || "");
+  const message = String(err?.message || err || "").toLowerCase();
+  return name === "AbortError" ||
+    message.includes("input stream") ||
+    message.includes("network") ||
+    message.includes("failed to fetch") ||
+    message.includes("load failed") ||
+    message.includes("context canceled");
+}
+
 export const downloadTasks = signal<Record<string, DownloadTask>>(loadTasks());
 export const downloadTaskList = computed(() =>
   Object.values(downloadTasks.value).sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())
@@ -240,6 +251,16 @@ export function startDownload(kind: DownloadKind, name: string, onComplete?: () 
   ).catch((err: any) => {
     const current = downloadTasks.value[key] || task;
     if (current.status === "success") return;
+    if (isInterruptedDownloadError(err)) {
+      setTask({
+        ...current,
+        status: "paused",
+        statusText: "interrupted",
+        error: undefined,
+        updatedAt: nowISO(),
+      });
+      return;
+    }
     setTask({
       ...current,
       status: "error",

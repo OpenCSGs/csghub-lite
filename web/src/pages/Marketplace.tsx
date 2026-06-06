@@ -365,6 +365,8 @@ export function Marketplace() {
         <MarketplaceModelDetailDialog
           modelPath={selectedModelPath}
           isLocal={localModelNames.value.has(selectedModelPath)}
+          pulling={getDownloadTask("model", selectedModelPath)}
+          onDownload={handleDownload}
           onClose={() => setSelectedModelPath("")}
         />
       )}

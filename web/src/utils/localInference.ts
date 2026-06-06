@@ -1,6 +1,6 @@
 import type { LocalInferenceSupport } from "../api/client";
 
-export type LocalInferenceMode = "direct" | "convert" | "image" | "none";
+export type LocalInferenceMode = "direct" | "convert" | "image" | "asr" | "none";
 
 export function localInferenceModeFromSupport(support?: LocalInferenceSupport | null): LocalInferenceMode {
   if (!support?.supported) {
@@ -13,6 +13,8 @@ export function localInferenceModeFromSupport(support?: LocalInferenceSupport | 
       return "convert";
     case "image":
       return "image";
+    case "asr":
+      return "asr";
     default:
       return "none";
   }
@@ -40,6 +42,8 @@ export function localInferenceValueKey(mode: LocalInferenceMode, prefix: "mp" | 
       return `${prefix}.localInferenceConvert`;
     case "image":
       return `${prefix}.localInferenceImage`;
+    case "asr":
+      return `${prefix}.localInferenceASR`;
     default:
       return `${prefix}.localInferenceNone`;
   }

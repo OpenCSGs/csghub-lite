@@ -51,6 +51,21 @@ func FromMarketplace(format, architecture, className string) api.LocalInferenceS
 	return llamaSupport(format, architecture)
 }
 
+// FromMarketplaceModel reports likely support for a marketplace model when the
+// model id/name or task tag provides stronger routing hints than config metadata.
+func FromMarketplaceModel(format, architecture, className, modelName, pipelineTag string) api.LocalInferenceSupport {
+	if support := diffusersSupportFromPipelineTag(pipelineTag); support.Supported {
+		return support
+	}
+	if support := asrSupportFromPipelineTag(pipelineTag); support.Supported {
+		return support
+	}
+	if model.IsASRModelFamily(modelName) {
+		return asrSupport(architecture)
+	}
+	return FromMarketplace(format, architecture, className)
+}
+
 func llamaSupport(format, architecture string) api.LocalInferenceSupport {
 	normalizedFormat := strings.ToLower(strings.TrimSpace(format))
 	normalizedArch := strings.TrimSpace(architecture)

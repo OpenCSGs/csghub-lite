@@ -56,20 +56,32 @@ var visionArchitectures = map[string]bool{
 	"YoutuVLForConditionalGeneration":        true,
 }
 
-var asrArchitectures = map[string]bool{
-	"GlmAsrForConditionalGeneration":      true,
-	"Qwen3ASRForConditionalGeneration":    true,
-	"WhisperForConditionalGeneration":     true,
-	"Wav2Vec2ForCTC":                      true,
-	"HubertForCTC":                        true,
-	"SEWForCTC":                           true,
-	"SEWDForCTC":                          true,
-	"Data2VecAudioForCTC":                 true,
-	"UniSpeechForCTC":                     true,
-	"UniSpeechSatForCTC":                  true,
-	"WavLMForCTC":                         true,
-	"Speech2TextForConditionalGeneration": true,
-	"SpeechEncoderDecoderModel":           true,
+var asrArchitectures = []string{
+	"GlmAsrForConditionalGeneration",
+	"Qwen3ASRForConditionalGeneration",
+	"WhisperForConditionalGeneration",
+	"Wav2Vec2ForCTC",
+	"HubertForCTC",
+	"SEWForCTC",
+	"SEWDForCTC",
+	"Data2VecAudioForCTC",
+	"UniSpeechForCTC",
+	"UniSpeechSatForCTC",
+	"WavLMForCTC",
+	"Speech2TextForConditionalGeneration",
+	"SpeechEncoderDecoderModel",
+}
+
+var asrModelFamilies = []string{
+	"SenseVoiceSmall",
+	"Fun-ASR-Nano-2512",
+	"GLM-ASR-Nano-2512",
+	"Whisper-large-v3",
+	"Whisper-large-v3-turbo",
+	"Qwen3-ASR-0.6B",
+	"Qwen3-ASR-1.7B",
+	"Paraformer-zh",
+	"Paraformer-zh-streaming",
 }
 
 var embeddingArchitectures = map[string]bool{
@@ -114,31 +126,35 @@ func IsVisionArchitecture(architecture string) bool {
 // IsASRArchitecture reports whether the HuggingFace architecture is an
 // automatic speech recognition model.
 func IsASRArchitecture(architecture string) bool {
-	return asrArchitectures[strings.TrimSpace(architecture)]
+	architecture = strings.TrimSpace(architecture)
+	if architecture == "" {
+		return false
+	}
+	for _, supported := range asrArchitectures {
+		if strings.Contains(architecture, supported) {
+			return true
+		}
+	}
+	return false
 }
 
 // IsASRModelFamily reports whether a model id/name belongs to a known ASR
 // family served by the Python ASR runtime.
 func IsASRModelFamily(name string) bool {
-	normalized := strings.ToLower(strings.TrimSpace(name))
-	normalized = strings.ReplaceAll(normalized, "_", "-")
-	compact := strings.NewReplacer("-", "", " ", "", ".", "").Replace(normalized)
-	switch {
-	case strings.Contains(compact, "sensevoicesmall"):
-		return true
-	case strings.Contains(normalized, "fun-asr-nano"):
-		return true
-	case strings.Contains(normalized, "glm-asr-nano"):
-		return true
-	case strings.Contains(normalized, "qwen3-asr"):
-		return true
-	case strings.Contains(normalized, "whisper-large-v3"):
-		return true
-	case strings.Contains(normalized, "paraformer-zh"):
-		return true
-	default:
+	normalized := normalizeASRModelFamily(name)
+	if normalized == "" {
 		return false
 	}
+	for _, supported := range asrModelFamilies {
+		if strings.Contains(normalized, normalizeASRModelFamily(supported)) {
+			return true
+		}
+	}
+	return false
+}
+
+func normalizeASRModelFamily(value string) string {
+	return strings.NewReplacer("-", "", "_", "", " ", "", ".", "").Replace(strings.ToLower(strings.TrimSpace(value)))
 }
 
 // DetectPipelineTag reads config.json in modelDir and returns a local pipeline
@@ -162,15 +178,21 @@ func DetectPipelineTag(modelDir string) string {
 		return "text-generation"
 	}
 	var cfg struct {
-		Architectures  []string `json:"architectures"`
-		SupportedArchs []string `json:"supported_archs"`
-		ModelType      string   `json:"model_type"`
+		Architectures   []string `json:"architectures"`
+		SupportedArchs  []string `json:"supported_archs"`
+		SupportedModels []string `json:"supported_models"`
+		ModelType       string   `json:"model_type"`
 	}
 	if json.Unmarshal(data, &cfg) != nil {
 		return "text-generation"
 	}
 	if isASRModelType(cfg.ModelType) {
 		return "automatic-speech-recognition"
+	}
+	for _, name := range cfg.SupportedModels {
+		if IsASRModelFamily(name) {
+			return "automatic-speech-recognition"
+		}
 	}
 	for _, arch := range append(cfg.Architectures, cfg.SupportedArchs...) {
 		if visionArchitectures[arch] {
@@ -179,7 +201,7 @@ func DetectPipelineTag(modelDir string) string {
 		if embeddingArchitectures[arch] {
 			return "feature-extraction"
 		}
-		if asrArchitectures[arch] {
+		if IsASRArchitecture(arch) {
 			return "automatic-speech-recognition"
 		}
 	}
@@ -192,8 +214,10 @@ func detectModelScopePipelineTag(modelDir string) string {
 		return ""
 	}
 	var cfg struct {
-		Task  string `json:"task"`
-		Model struct {
+		Task            string   `json:"task"`
+		SupportedArchs  []string `json:"supported_archs"`
+		SupportedModels []string `json:"supported_models"`
+		Model           struct {
 			Type string `json:"type"`
 		} `json:"model"`
 		Pipeline struct {
@@ -206,6 +230,16 @@ func detectModelScopePipelineTag(modelDir string) string {
 	task := strings.ToLower(strings.TrimSpace(cfg.Task))
 	modelType := strings.ToLower(strings.TrimSpace(cfg.Model.Type))
 	pipelineType := strings.ToLower(strings.TrimSpace(cfg.Pipeline.Type))
+	for _, name := range cfg.SupportedModels {
+		if IsASRModelFamily(name) {
+			return "automatic-speech-recognition"
+		}
+	}
+	for _, arch := range cfg.SupportedArchs {
+		if IsASRArchitecture(arch) {
+			return "automatic-speech-recognition"
+		}
+	}
 	if task == "automatic-speech-recognition" ||
 		task == "auto-speech-recognition" ||
 		strings.Contains(task, "speech-recognition") ||

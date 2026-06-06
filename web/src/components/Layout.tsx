@@ -39,7 +39,7 @@ function PricingIcon({ active }: { active: boolean }) {
 }
 
 export function Layout({ children }: { children: ComponentChildren }) {
-  const { path } = useLocation();
+  const { path, route } = useLocation();
   void locale.value;
 
   return (
@@ -56,6 +56,10 @@ export function Layout({ children }: { children: ComponentChildren }) {
               <a
                 key={item.path}
                 href={item.path}
+                onClick={(event) => {
+                  event.preventDefault();
+                  route(item.path);
+                }}
                 class={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
                   active
                     ? "bg-indigo-50 text-indigo-700"
@@ -73,6 +77,10 @@ export function Layout({ children }: { children: ComponentChildren }) {
           return (
             <a
               href="/settings"
+              onClick={(event) => {
+                event.preventDefault();
+                route("/settings");
+              }}
               class={`flex items-center gap-3 mx-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
                 active
                   ? "bg-indigo-50 text-indigo-700"
@@ -89,6 +97,10 @@ export function Layout({ children }: { children: ComponentChildren }) {
           return (
             <a
               href="/pricing"
+              onClick={(event) => {
+                event.preventDefault();
+                route("/pricing");
+              }}
               class={`flex items-center gap-3 mx-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
                 active
                   ? "bg-indigo-50 text-indigo-700"

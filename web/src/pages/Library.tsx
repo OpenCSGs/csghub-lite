@@ -183,6 +183,17 @@ function modelDetailHref(modelID: string): string {
   return `/library/detail/${encodeURIComponent(modelID)}`;
 }
 
+function modelIDBasename(modelID: string): string {
+  const parts = modelID.trim().split("/").filter(Boolean);
+  return parts[parts.length - 1] || modelID.trim();
+}
+
+function localModelMatchesDownloadTask(model: ModelInfo, task: DownloadTask): boolean {
+  const taskName = task.name.trim();
+  if (!taskName) return false;
+  return model.name === taskName || model.model === taskName || model.name === modelIDBasename(taskName);
+}
+
 function modelRows(models: ModelInfo[]): ModelTableRow[] {
   const rows = models.map((model) => ({
     model,
@@ -191,7 +202,7 @@ function modelRows(models: ModelInfo[]): ModelTableRow[] {
   }));
   const known = new Set(models.map((model) => model.name));
   for (const task of getDownloadTasks("model")) {
-    if (known.has(task.name)) continue;
+    if (known.has(task.name) || (task.status === "success" && models.some((model) => localModelMatchesDownloadTask(model, task)))) continue;
     rows.push({
       model: {
         name: task.name,

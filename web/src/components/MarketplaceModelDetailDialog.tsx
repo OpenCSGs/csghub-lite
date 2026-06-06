@@ -5,6 +5,7 @@ import type {
   MarketplaceModelDetailResponse,
   MarketplaceTag,
 } from "../api/client";
+import type { DownloadTask } from "../downloads";
 import { locale, t } from "../i18n";
 import { LocalInferenceBadge } from "./LocalInferenceBadge";
 import {
@@ -16,12 +17,16 @@ import {
 type MarketplaceModelDetailDialogProps = {
   modelPath: string;
   isLocal?: boolean;
+  pulling?: DownloadTask;
+  onDownload?: (modelPath: string) => void;
   onClose: () => void;
 };
 
 export function MarketplaceModelDetailDialog({
   modelPath,
   isLocal,
+  pulling,
+  onDownload,
   onClose,
 }: MarketplaceModelDetailDialogProps) {
   void locale.value;
@@ -112,6 +117,12 @@ export function MarketplaceModelDetailDialog({
             <p class="mt-1 text-sm text-gray-500">{t("mp.detailSubtitle")}</p>
           </div>
           <div class="flex items-center gap-3 flex-shrink-0">
+            <DetailDownloadAction
+              modelPath={modelPath}
+              isLocal={isLocal}
+              pulling={pulling}
+              onDownload={onDownload}
+            />
             <button
               onClick={onClose}
               class="inline-flex h-9 w-9 items-center justify-center rounded-full text-gray-500 hover:bg-gray-100 hover:text-gray-700"
@@ -196,6 +207,79 @@ export function MarketplaceModelDetailDialog({
         </div>
       </div>
     </div>
+  );
+}
+
+function DetailDownloadAction({
+  modelPath,
+  isLocal,
+  pulling,
+  onDownload,
+}: {
+  modelPath: string;
+  isLocal?: boolean;
+  pulling?: DownloadTask;
+  onDownload?: (modelPath: string) => void;
+}) {
+  if ((isLocal || pulling?.status === "success") && !pulling?.status?.startsWith("downloading")) {
+    return (
+      <span class="inline-flex items-center gap-1.5 rounded-lg bg-indigo-50 px-3 py-2 text-sm font-medium text-indigo-600">
+        <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
+        </svg>
+        {t("mp.downloaded")}
+      </span>
+    );
+  }
+
+  if (pulling) {
+    if (pulling.status === "error") {
+      return (
+        <button
+          type="button"
+          onClick={() => onDownload?.(modelPath)}
+          class="inline-flex items-center gap-1.5 rounded-lg border border-red-200 px-3 py-2 text-sm font-medium text-red-600 hover:bg-red-50"
+          title={pulling.error || pulling.statusText}
+        >
+          <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+          </svg>
+          {t("mp.failed")}
+        </button>
+      );
+    }
+
+    return (
+      <div class="min-w-[120px]">
+        <div class="mb-1 text-xs font-medium text-indigo-600">
+          {pulling.percent > 0 ? `${pulling.percent}%` : t("mp.pulling")}
+        </div>
+        <div class="h-1.5 overflow-hidden rounded-full bg-gray-200">
+          <div
+            class="h-full rounded-full bg-indigo-500 transition-all duration-300"
+            style={{ width: `${Math.max(pulling.percent, 3)}%` }}
+          />
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={() => onDownload?.(modelPath)}
+      class="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 px-3 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50"
+    >
+      <DownloadIcon /> {t("mp.download")}
+    </button>
+  );
+}
+
+function DownloadIcon() {
+  return (
+    <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+      <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v12m0 0l-4-4m4 4l4-4M4 20h16" />
+    </svg>
   );
 }
 

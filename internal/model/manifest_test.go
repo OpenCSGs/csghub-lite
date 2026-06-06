@@ -216,6 +216,26 @@ func TestDetectPipelineTagASRSupportedArchitectures(t *testing.T) {
 	}
 }
 
+func TestDetectPipelineTagASRSupportedArchitectureSubstring(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "config.json"), []byte(`{"supported_archs":["modeling_qwen3_asr.Qwen3ASRForConditionalGeneration"]}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got := DetectPipelineTag(dir); got != "automatic-speech-recognition" {
+		t.Fatalf("DetectPipelineTag() = %q, want automatic-speech-recognition", got)
+	}
+}
+
+func TestDetectPipelineTagASRSupportedModels(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "config.json"), []byte(`{"supported_models":["AIWizards/Fun-ASR-Nano-2512"]}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got := DetectPipelineTag(dir); got != "automatic-speech-recognition" {
+		t.Fatalf("DetectPipelineTag() = %q, want automatic-speech-recognition", got)
+	}
+}
+
 func TestIsASRModelFamily(t *testing.T) {
 	for _, name := range []string{
 		"iic/SenseVoiceSmall",

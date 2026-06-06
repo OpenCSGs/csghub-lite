@@ -71,6 +71,20 @@ func TestFromMarketplaceDiffusersClassNameFamilies(t *testing.T) {
 	}
 }
 
+func TestFromMarketplaceModelASRFamily(t *testing.T) {
+	support := FromMarketplaceModel("pytorch", "", "", "AIWizards/Fun-ASR-Nano-2512", "")
+	if !support.Supported || support.Runtime != "python-asr" || support.Mode != "asr" {
+		t.Fatalf("support = %#v, want python-asr asr", support)
+	}
+}
+
+func TestFromMarketplaceModelASRTaskTag(t *testing.T) {
+	support := FromMarketplaceModel("", "", "", "AIWizards/unknown", "automatic-speech-recognition")
+	if !support.Supported || support.Runtime != "python-asr" || support.Mode != "asr" {
+		t.Fatalf("support = %#v, want python-asr asr", support)
+	}
+}
+
 func TestFromLocalModelDiffusers(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "model_index.json"), []byte(`{"_class_name":"QwenImagePipeline"}`), 0o644); err != nil {

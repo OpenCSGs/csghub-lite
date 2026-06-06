@@ -144,6 +144,7 @@ func (s *Server) handleMarketplaceModelDetail(w http.ResponseWriter, r *http.Req
 		}
 	}
 	enrichMarketplaceModelDetail(details, format, architecture, configMetadata)
+	pipelineTag := marketplaceModelTaskTag(details.Tags)
 	if format == "gguf" {
 		if !filesFetched {
 			if fetched, err := client.GetModelTree(r.Context(), namespace, name); err == nil {
@@ -159,10 +160,12 @@ func (s *Server) handleMarketplaceModelDetail(w http.ResponseWriter, r *http.Req
 	writeJSON(w, http.StatusOK, marketplaceModelDetailResponse{
 		Details:       details,
 		Quantizations: quantizations,
-		LocalInference: localinference.FromMarketplace(
+		LocalInference: localinference.FromMarketplaceModel(
 			format,
 			architecture,
 			details.Metadata.ClassName,
+			details.Path,
+			pipelineTag,
 		),
 	})
 }
@@ -320,24 +323,27 @@ func marketplaceRepoHasFile(files []csghub.RepoFile, name string) bool {
 }
 
 type marketplaceModelConfigMetadata struct {
-	Architecture string
-	ModelType    string
-	TensorType   string
+	Architecture    string
+	ModelType       string
+	TensorType      string
+	SupportedModels []string
 }
 
 func marketplaceMetadataFromConfig(rawConfig string) marketplaceModelConfigMetadata {
 	var cfg struct {
-		Architectures  []string `json:"architectures"`
-		SupportedArchs []string `json:"supported_archs"`
-		ModelType      string   `json:"model_type"`
-		TorchDType     string   `json:"torch_dtype"`
+		Architectures   []string `json:"architectures"`
+		SupportedArchs  []string `json:"supported_archs"`
+		SupportedModels []string `json:"supported_models"`
+		ModelType       string   `json:"model_type"`
+		TorchDType      string   `json:"torch_dtype"`
 	}
 	if json.Unmarshal([]byte(rawConfig), &cfg) != nil {
 		return marketplaceModelConfigMetadata{}
 	}
 	metadata := marketplaceModelConfigMetadata{
-		ModelType:  strings.TrimSpace(cfg.ModelType),
-		TensorType: strings.TrimSpace(cfg.TorchDType),
+		ModelType:       strings.TrimSpace(cfg.ModelType),
+		TensorType:      strings.TrimSpace(cfg.TorchDType),
+		SupportedModels: cfg.SupportedModels,
 	}
 	if len(cfg.Architectures) > 0 {
 		metadata.Architecture = strings.TrimSpace(cfg.Architectures[0])
@@ -368,7 +374,7 @@ func enrichMarketplaceModelDetail(details *csghub.Model, format, architecture st
 	if format != "" {
 		details.Tags = marketplaceEnsureTag(details.Tags, format, "framework", marketplaceFrameworkShowName(format))
 	}
-	if inferredTask := marketplaceInferredTaskTag(details, architecture); inferredTask != "" {
+	if inferredTask := marketplaceInferredTaskTag(details, architecture, configMetadata.SupportedModels); inferredTask != "" {
 		details.Tags = marketplaceEnsureTag(details.Tags, inferredTask, "task", marketplaceTaskShowName(inferredTask))
 	}
 	if strings.TrimSpace(details.Metadata.Architecture) == "" {
@@ -400,6 +406,15 @@ func marketplaceEnsureTag(tags []csghub.Tag, name, category, showName string) []
 	})
 }
 
+func marketplaceModelTaskTag(tags []csghub.Tag) string {
+	for _, tag := range tags {
+		if tag.Category == "task" {
+			return strings.TrimSpace(tag.Name)
+		}
+	}
+	return ""
+}
+
 func marketplaceFrameworkShowName(format string) string {
 	switch strings.ToLower(strings.TrimSpace(format)) {
 	case string(model.FormatGGUF):
@@ -413,13 +428,14 @@ func marketplaceFrameworkShowName(format string) string {
 	}
 }
 
-func marketplaceInferredTaskTag(details *csghub.Model, architecture string) string {
+func marketplaceInferredTaskTag(details *csghub.Model, architecture string, supportedModels []string) string {
 	haystack := strings.ToLower(strings.Join([]string{
 		details.Path,
 		details.Name,
 		details.Nickname,
 		details.Metadata.ModelType,
 		architecture,
+		strings.Join(supportedModels, " "),
 	}, " "))
 	switch {
 	case model.IsASRModelFamily(haystack):
