@@ -56,23 +56,31 @@ func (s *Server) handleProviderTagsManageAdd(w http.ResponseWriter, r *http.Requ
 		writeJSON(w, http.StatusOK, model)
 		return
 	}
+	catalogDisplayName := providerModelCatalogDisplayName(provider, model)
 	model = applyProviderModelMetadata(model, config.ProviderModelSelection{
-		Model:         model.Model,
-		OriginalModel: model.Model,
-		DisplayName:   req.DisplayName,
-		Description:   req.Description,
+		Model:              model.Model,
+		OriginalModel:      model.Model,
+		CatalogDisplayName: catalogDisplayName,
+		DisplayName:        req.DisplayName,
+		Description:        req.Description,
+		PipelineTag:        model.PipelineTag,
+		InputModalities:    model.InputModalities,
+		OutputModalities:   model.OutputModalities,
 	})
 	alreadySelected := modelIDInList(config.GetProviderModelAllowlist(provider.ID), model.Model)
 	if err := config.AddProviderModelSelection(provider.ID, config.ProviderModelSelection{
-		Model:         model.Model,
-		OriginalModel: model.Model,
-		DisplayName:   strings.TrimSpace(req.DisplayName),
-		Description:   strings.TrimSpace(req.Description),
+		Model:              model.Model,
+		OriginalModel:      model.Model,
+		CatalogDisplayName: catalogDisplayName,
+		DisplayName:        strings.TrimSpace(req.DisplayName),
+		Description:        strings.TrimSpace(req.Description),
+		PipelineTag:        model.PipelineTag,
+		InputModalities:    model.InputModalities,
+		OutputModalities:   model.OutputModalities,
 	}); err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to save provider model: "+err.Error())
 		return
 	}
-	s.invalidateThirdPartyProviderModelsCache()
 
 	status := http.StatusCreated
 	if alreadySelected {
@@ -110,17 +118,26 @@ func (s *Server) handleProviderTagsManageReplace(w http.ResponseWriter, r *http.
 			writeError(w, http.StatusNotFound, "provider model not found: "+requested.Model)
 			return
 		}
+		catalogDisplayName := providerModelCatalogDisplayName(provider, model)
 		model = applyProviderModelMetadata(model, config.ProviderModelSelection{
-			Model:         model.Model,
-			OriginalModel: model.Model,
-			DisplayName:   requested.DisplayName,
-			Description:   requested.Description,
+			Model:              model.Model,
+			OriginalModel:      model.Model,
+			CatalogDisplayName: catalogDisplayName,
+			DisplayName:        requested.DisplayName,
+			Description:        requested.Description,
+			PipelineTag:        model.PipelineTag,
+			InputModalities:    model.InputModalities,
+			OutputModalities:   model.OutputModalities,
 		})
 		selected = append(selected, config.ProviderModelSelection{
-			Model:         model.Model,
-			OriginalModel: model.Model,
-			DisplayName:   strings.TrimSpace(requested.DisplayName),
-			Description:   strings.TrimSpace(requested.Description),
+			Model:              model.Model,
+			OriginalModel:      model.Model,
+			CatalogDisplayName: catalogDisplayName,
+			DisplayName:        strings.TrimSpace(requested.DisplayName),
+			Description:        strings.TrimSpace(requested.Description),
+			PipelineTag:        model.PipelineTag,
+			InputModalities:    model.InputModalities,
+			OutputModalities:   model.OutputModalities,
 		})
 		selectedModels = append(selectedModels, model)
 	}
@@ -129,7 +146,6 @@ func (s *Server) handleProviderTagsManageReplace(w http.ResponseWriter, r *http.
 		writeError(w, http.StatusInternalServerError, "failed to save provider models: "+err.Error())
 		return
 	}
-	s.invalidateThirdPartyProviderModelsCache()
 	selectedModels, ok = filterModelsByPipelineCategory(selectedModels, r.URL.Query().Get("category"))
 	if !ok {
 		writeError(w, http.StatusBadRequest, "invalid category")
@@ -212,7 +228,6 @@ func (s *Server) handleProviderTagsManageDelete(w http.ResponseWriter, r *http.R
 		writeError(w, http.StatusNotFound, "provider model not found")
 		return
 	}
-	s.invalidateThirdPartyProviderModelsCache()
 	writeJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
 }
 

@@ -5,10 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/opencsgs/csghub-lite/internal/config"
@@ -61,114 +59,92 @@ func getThirdPartyProviderByAlias(alias string) (config.ThirdPartyProvider, bool
 	return config.ThirdPartyProvider{}, false
 }
 
-func (s *Server) invalidateThirdPartyProviderModelsCache() {
-	if s == nil {
-		return
-	}
-	s.thirdPartyModelsCacheMu.Lock()
-	s.thirdPartyModelsCache = nil
-	s.thirdPartyModelsCacheAt = time.Time{}
-	s.thirdPartyModelsCacheMu.Unlock()
-}
-
-func (s *Server) listThirdPartyProviderModels(ctx context.Context) []api.ModelInfo {
-	providers := config.GetProviders()
-	if len(providers) == 0 {
-		return nil
-	}
-
-	// Use cached data if available and fresh (within 30 seconds).
-	// This avoids repeated API calls to third-party providers.
-	s.thirdPartyModelsCacheMu.Lock()
-	if s.thirdPartyModelsCache != nil && time.Since(s.thirdPartyModelsCacheAt) < 30*time.Second {
-		cache := s.thirdPartyModelsCache
-		s.thirdPartyModelsCacheMu.Unlock()
-		return cache
-	}
-	s.thirdPartyModelsCacheMu.Unlock()
-
-	// Query all providers in parallel to reduce latency.
-	var mu sync.Mutex
-	var wg sync.WaitGroup
-	out := make([]api.ModelInfo, 0, len(providers)*4)
-
-	for _, provider := range providers {
-		if !provider.Enabled {
-			continue
-		}
-		wg.Add(1)
-		go func(p config.ThirdPartyProvider) {
-			defer wg.Done()
-			models, err := listOpenAICompatibleProviderModels(ctx, p)
-			if err != nil {
-				log.Printf("listThirdPartyProviderModels: provider %s (%s) error: %v", p.ID, p.Name, err)
-				return
-			}
-			mu.Lock()
-			out = append(out, models...)
-			mu.Unlock()
-		}(provider)
-	}
-	wg.Wait()
-
-	// Cache the result.
-	if len(out) > 0 {
-		s.thirdPartyModelsCacheMu.Lock()
-		s.thirdPartyModelsCache = out
-		s.thirdPartyModelsCacheAt = time.Now()
-		s.thirdPartyModelsCacheMu.Unlock()
-	}
-
-	return out
-}
-
 func (s *Server) listSelectedThirdPartyProviderModels(ctx context.Context) []api.ModelInfo {
 	providers := config.GetProviders()
 	if len(providers) == 0 {
 		return nil
 	}
 
-	allModels := s.listThirdPartyProviderModels(ctx)
-	if len(allModels) == 0 {
-		return nil
-	}
-
-	selectedByProvider := make(map[string]map[string]config.ProviderModelSelection, len(providers))
+	out := make([]api.ModelInfo, 0)
 	for _, provider := range providers {
+		if !provider.Enabled {
+			continue
+		}
 		selections := config.GetProviderModelSelections(provider.ID)
 		if len(selections) == 0 {
 			continue
 		}
-		selected := make(map[string]config.ProviderModelSelection, len(selections))
 		for _, selection := range selections {
-			modelID := providerModelOriginalID(selection)
-			if modelID != "" {
-				selected[modelID] = selection
+			if providerModelOriginalID(selection) == "" {
+				continue
 			}
-		}
-		if len(selected) > 0 {
-			selectedByProvider[provider.ID] = selected
-		}
-	}
-	if len(selectedByProvider) == 0 {
-		return nil
-	}
-
-	out := make([]api.ModelInfo, 0, len(allModels))
-	for _, model := range allModels {
-		providerID := providerIDFromSource(model.Source)
-		if providerID == "" {
-			continue
-		}
-		selected := selectedByProvider[providerID]
-		if selected == nil {
-			continue
-		}
-		if selection, ok := selected[strings.TrimSpace(model.Model)]; ok {
-			out = append(out, applyProviderModelMetadata(model, selection))
+			out = append(out, providerModelInfoFromSelection(provider, selection))
 		}
 	}
 	return out
+}
+
+func providerModelInfoFromSelection(provider config.ThirdPartyProvider, selection config.ProviderModelSelection) api.ModelInfo {
+	originalModel := providerModelOriginalID(selection)
+	labelName := originalModel
+	if catalogDisplayName := strings.TrimSpace(selection.CatalogDisplayName); catalogDisplayName != "" {
+		labelName = catalogDisplayName
+	}
+	if displayName := strings.TrimSpace(selection.DisplayName); displayName != "" {
+		labelName = displayName
+	}
+	label := fmt.Sprintf("%s [%s]", labelName, provider.Name)
+	modelProvider := normalizeModelProvider(provider.Name)
+	if modelProvider == "" {
+		modelProvider = normalizeModelProvider(provider.ID)
+	}
+	pipelineTag := strings.TrimSpace(selection.PipelineTag)
+	inputModalities := append([]string{}, selection.InputModalities...)
+	outputModalities := append([]string{}, selection.OutputModalities...)
+	if pipelineTag == "" || len(inputModalities) == 0 || len(outputModalities) == 0 {
+		inferredTag, inferredInputs, inferredOutputs := inferThirdPartyModelMetadata(provider, thirdPartyProviderModel{ID: originalModel})
+		if pipelineTag == "" {
+			pipelineTag = inferredTag
+		}
+		if len(inputModalities) == 0 {
+			inputModalities = inferredInputs
+		}
+		if len(outputModalities) == 0 {
+			outputModalities = inferredOutputs
+		}
+	}
+	model := api.ModelInfo{
+		Name:             originalModel,
+		Model:            originalModel,
+		Label:            label,
+		DisplayName:      label,
+		Format:           "api",
+		Source:           providerSource(provider.ID),
+		Provider:         modelProvider,
+		Category:         categoryForPipelineTag(pipelineTag),
+		PipelineTag:      pipelineTag,
+		InputModalities:  inputModalities,
+		OutputModalities: outputModalities,
+	}
+	return applyProviderModelMetadata(model, selection)
+}
+
+func providerModelCatalogDisplayName(provider config.ThirdPartyProvider, model api.ModelInfo) string {
+	modelID := strings.TrimSpace(model.Model)
+	for _, value := range []string{model.DisplayName, model.Label, model.Name} {
+		value = strings.TrimSpace(value)
+		if value == "" || value == modelID {
+			continue
+		}
+		suffix := fmt.Sprintf(" [%s]", provider.Name)
+		if strings.HasSuffix(value, suffix) {
+			value = strings.TrimSpace(strings.TrimSuffix(value, suffix))
+		}
+		if value != "" && value != modelID {
+			return value
+		}
+	}
+	return ""
 }
 
 func listOpenAICompatibleProviderModels(ctx context.Context, provider config.ThirdPartyProvider) ([]api.ModelInfo, error) {

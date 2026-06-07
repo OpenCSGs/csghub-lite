@@ -17,10 +17,14 @@ type ProviderModelAllowlist struct {
 }
 
 type ProviderModelSelection struct {
-	Model         string `json:"model"`
-	OriginalModel string `json:"original_model,omitempty"`
-	DisplayName   string `json:"display_name,omitempty"`
-	Description   string `json:"description,omitempty"`
+	Model              string   `json:"model"`
+	OriginalModel      string   `json:"original_model,omitempty"`
+	CatalogDisplayName string   `json:"catalog_display_name,omitempty"`
+	DisplayName        string   `json:"display_name,omitempty"`
+	Description        string   `json:"description,omitempty"`
+	PipelineTag        string   `json:"pipeline_tag,omitempty"`
+	InputModalities    []string `json:"input_modalities,omitempty"`
+	OutputModalities   []string `json:"output_modalities,omitempty"`
 }
 
 var ErrProviderModelSelectionDuplicate = errors.New("provider model id already exists")
@@ -135,8 +139,12 @@ func AddProviderModelSelection(providerID string, selection ProviderModelSelecti
 	if selection.OriginalModel == "" {
 		selection.OriginalModel = selection.Model
 	}
+	selection.CatalogDisplayName = strings.TrimSpace(selection.CatalogDisplayName)
 	selection.DisplayName = strings.TrimSpace(selection.DisplayName)
 	selection.Description = strings.TrimSpace(selection.Description)
+	selection.PipelineTag = strings.TrimSpace(selection.PipelineTag)
+	selection.InputModalities = normalizeModelIDList(selection.InputModalities)
+	selection.OutputModalities = normalizeModelIDList(selection.OutputModalities)
 	if providerID == "" || selection.Model == "" {
 		return nil
 	}
@@ -303,8 +311,12 @@ func normalizeProviderModelSelections(models []ProviderModelSelection) []Provide
 		if model.OriginalModel == "" {
 			model.OriginalModel = model.Model
 		}
+		model.CatalogDisplayName = strings.TrimSpace(model.CatalogDisplayName)
 		model.DisplayName = strings.TrimSpace(model.DisplayName)
 		model.Description = strings.TrimSpace(model.Description)
+		model.PipelineTag = strings.TrimSpace(model.PipelineTag)
+		model.InputModalities = normalizeModelIDList(model.InputModalities)
+		model.OutputModalities = normalizeModelIDList(model.OutputModalities)
 		if model.Model == "" {
 			continue
 		}
@@ -342,8 +354,12 @@ func (s *ProviderModelSelection) UnmarshalJSON(data []byte) error {
 	if err := json.Unmarshal(data, &model); err == nil {
 		s.Model = strings.TrimSpace(model)
 		s.OriginalModel = s.Model
+		s.CatalogDisplayName = ""
 		s.DisplayName = ""
 		s.Description = ""
+		s.PipelineTag = ""
+		s.InputModalities = nil
+		s.OutputModalities = nil
 		return nil
 	}
 	type alias ProviderModelSelection
@@ -356,7 +372,11 @@ func (s *ProviderModelSelection) UnmarshalJSON(data []byte) error {
 	if s.OriginalModel == "" {
 		s.OriginalModel = s.Model
 	}
+	s.CatalogDisplayName = strings.TrimSpace(decoded.CatalogDisplayName)
 	s.DisplayName = strings.TrimSpace(decoded.DisplayName)
 	s.Description = strings.TrimSpace(decoded.Description)
+	s.PipelineTag = strings.TrimSpace(decoded.PipelineTag)
+	s.InputModalities = normalizeModelIDList(decoded.InputModalities)
+	s.OutputModalities = normalizeModelIDList(decoded.OutputModalities)
 	return nil
 }

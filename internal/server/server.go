@@ -23,7 +23,6 @@ import (
 	"github.com/opencsgs/csghub-lite/internal/imagegen"
 	"github.com/opencsgs/csghub-lite/internal/inference"
 	"github.com/opencsgs/csghub-lite/internal/model"
-	"github.com/opencsgs/csghub-lite/pkg/api"
 )
 
 const (
@@ -126,11 +125,6 @@ type Server struct {
 	cloudRefreshMu   sync.Mutex
 	cloudRefreshAt   time.Time
 	cloudRefreshWait chan struct{}
-
-	// Cache for third-party provider models to avoid repeated API calls.
-	thirdPartyModelsCache   []api.ModelInfo
-	thirdPartyModelsCacheAt time.Time
-	thirdPartyModelsCacheMu sync.Mutex
 
 	conversations *chathistory.Store
 	apiKeys       *config.APIKeyStore

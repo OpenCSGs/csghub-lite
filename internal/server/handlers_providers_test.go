@@ -524,7 +524,7 @@ func TestProviderTagsManageSelectsModels(t *testing.T) {
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"data": []map[string]any{
 				{"id": "mi-model", "task": "text-generation"},
-				{"id": "scope/with/slash", "pipeline_tag": "text-to-image"},
+				{"id": "scope/with/slash", "display_name": "Scope Slash", "pipeline_tag": "text-to-image", "architecture": map[string]any{"input_modalities": []string{"text"}, "output_modalities": []string{"image"}}},
 			},
 		})
 	}))
@@ -550,8 +550,9 @@ func TestProviderTagsManageSelectsModels(t *testing.T) {
 	}
 	var tagsResp struct {
 		Models []struct {
-			Model    string `json:"model"`
-			Provider string `json:"provider"`
+			Model       string `json:"model"`
+			Provider    string `json:"provider"`
+			DisplayName string `json:"display_name"`
 		} `json:"models"`
 	}
 	if err := json.NewDecoder(w.Body).Decode(&tagsResp); err != nil {
@@ -593,6 +594,16 @@ func TestProviderTagsManageSelectsModels(t *testing.T) {
 	if w.Code != http.StatusCreated {
 		t.Fatalf("add status = %d body=%s", w.Code, w.Body.String())
 	}
+	selections := config.GetProviderModelSelections("provider1")
+	if len(selections) != 1 {
+		t.Fatalf("selections = %#v, want one", selections)
+	}
+	if selections[0].CatalogDisplayName != "Scope Slash" || selections[0].PipelineTag != "text-to-image" {
+		t.Fatalf("selection metadata = %#v, want catalog display name and pipeline tag", selections[0])
+	}
+	if !stringSliceContains(selections[0].InputModalities, "text") || !stringSliceContains(selections[0].OutputModalities, "image") {
+		t.Fatalf("selection modalities = inputs %#v outputs %#v, want text->image", selections[0].InputModalities, selections[0].OutputModalities)
+	}
 
 	req = httptest.NewRequest(http.MethodGet, "/api/tags?provider=xiaomi-plan", nil)
 	w = httptest.NewRecorder()
@@ -603,7 +614,7 @@ func TestProviderTagsManageSelectsModels(t *testing.T) {
 	if err := json.NewDecoder(w.Body).Decode(&tagsResp); err != nil {
 		t.Fatalf("decode selected tags after add: %v", err)
 	}
-	if len(tagsResp.Models) != 1 || tagsResp.Models[0].Model != "scope/with/slash" || tagsResp.Models[0].Provider != "xiaomi-plan" {
+	if len(tagsResp.Models) != 1 || tagsResp.Models[0].Model != "scope/with/slash" || tagsResp.Models[0].Provider != "xiaomi-plan" || tagsResp.Models[0].DisplayName != "Scope Slash [xiaomi-plan]" {
 		t.Fatalf("selected models = %#v, want slash model", tagsResp.Models)
 	}
 
@@ -1089,7 +1100,7 @@ func TestDisabledProviderExcludedFromTagsAndEngine(t *testing.T) {
 	}
 }
 
-func TestProviderUpdateInvalidatesThirdPartyModelCache(t *testing.T) {
+func TestProviderUpdateDisablesSelectedProviderModelsWithoutRemoteFetch(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("USERPROFILE", home)
@@ -1151,8 +1162,8 @@ func TestProviderUpdateInvalidatesThirdPartyModelCache(t *testing.T) {
 	if !hasProviderModel() {
 		t.Fatalf("provider model should appear before disabling")
 	}
-	if modelRequests != 1 {
-		t.Fatalf("model requests before disabling = %d, want 1", modelRequests)
+	if modelRequests != 0 {
+		t.Fatalf("tags requested third-party models %d times, want none", modelRequests)
 	}
 
 	req := httptest.NewRequest(http.MethodPut, "/api/providers/provider1", strings.NewReader(`{"enabled":false}`))
@@ -1166,7 +1177,7 @@ func TestProviderUpdateInvalidatesThirdPartyModelCache(t *testing.T) {
 	if hasProviderModel() {
 		t.Fatalf("disabled provider model should not remain in cached tags response")
 	}
-	if modelRequests != 1 {
+	if modelRequests != 0 {
 		t.Fatalf("disabling provider should not revalidate remote models, got %d requests", modelRequests)
 	}
 }

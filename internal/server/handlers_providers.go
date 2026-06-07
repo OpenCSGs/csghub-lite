@@ -154,7 +154,6 @@ func (s *Server) handleProviderCreate(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "failed to save provider: "+err.Error())
 		return
 	}
-	s.invalidateThirdPartyProviderModelsCache()
 
 	writeJSON(w, http.StatusCreated, api.ThirdPartyProvider{
 		ID:       newProvider.ID,
@@ -225,7 +224,6 @@ func (s *Server) handleProviderUpdate(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "failed to save provider: "+err.Error())
 		return
 	}
-	s.invalidateThirdPartyProviderModelsCache()
 
 	// Return updated provider without API key
 	for _, p := range providers {
@@ -274,7 +272,6 @@ func (s *Server) handleProviderDelete(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "failed to delete provider models: "+err.Error())
 		return
 	}
-	s.invalidateThirdPartyProviderModelsCache()
 
 	writeJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
 }
