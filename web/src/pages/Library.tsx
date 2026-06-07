@@ -4,6 +4,7 @@ import { deleteModel, getPs, loadModel, searchLocalModels, uploadLocalModel } fr
 import type { LoadModelOptions, LocalModelUploadFile, ModelInfo, RunningModel } from "../api/client";
 import { locale, t } from "../i18n";
 import { DownloadTableCell } from "../components/DownloadProgressPanel";
+import { ApiInfoDialog } from "../components/ApiInfoDialog";
 import { getDownloadTask, getDownloadTasks, hasActiveDownload, clearDownloadTask, pauseDownload, startDownload } from "../downloads";
 import type { DownloadTask } from "../downloads";
 
@@ -39,6 +40,7 @@ const loadingRun = signal<string>("");
 const loadProgress = signal<string>("");
 const libraryError = signal<string>("");
 const runDialogModel = signal<ModelInfo | null>(null);
+const apiDialogModel = signal<ModelInfo | null>(null);
 const runDialogError = signal<string>("");
 const runParams = signal<RunModelParams>(loadSavedRunParams());
 const uploadDialogOpen = signal(false);
@@ -127,14 +129,22 @@ function isImageGenerationModel(model: Pick<ModelInfo, "pipeline_tag">): boolean
 	return model.pipeline_tag === "text-to-image";
 }
 
-function isEmbeddingModel(model: Pick<ModelInfo, "pipeline_tag">): boolean {
-	const tag = model.pipeline_tag || "";
-	return tag === "feature-extraction" || tag === "sentence-similarity" || tag === "text-embedding" || tag === "embedding";
+function isEmbeddingModel(model: Pick<ModelInfo, "pipeline_tag" | "category">): boolean {
+  const tag = (model.pipeline_tag || "").toLowerCase();
+  const category = (model.category || "").toLowerCase();
+  return category === "embedding" || tag === "feature-extraction" || tag === "sentence-similarity" || tag === "text-embedding" || tag === "embedding";
 }
 
-function isASRModel(model: Pick<ModelInfo, "pipeline_tag">): boolean {
-	const tag = model.pipeline_tag || "";
-	return tag === "automatic-speech-recognition";
+function isVisionModel(model: Pick<ModelInfo, "pipeline_tag" | "input_modalities">): boolean {
+  const tag = (model.pipeline_tag || "").toLowerCase();
+  return tag === "image-text-to-text" || Boolean(model.input_modalities?.includes("image"));
+}
+
+function isASRModel(model: Pick<ModelInfo, "pipeline_tag" | "input_modalities" | "output_modalities">): boolean {
+  const tag = (model.pipeline_tag || "").toLowerCase();
+  return tag === "automatic-speech-recognition" ||
+    Boolean(model.input_modalities?.includes("audio")) ||
+    Boolean(model.output_modalities?.includes("transcription"));
 }
 
 function buildLoadOptionsForModel(model: ModelInfo, params: RunModelParams): LoadModelOptions {
@@ -666,9 +676,17 @@ export function Library() {
                           —
                         </span>
                       ) : runningStatus(m.name) === "running" ? (
-                        <span class="inline-flex items-center justify-center w-16 px-3 py-1 text-xs rounded bg-green-50 text-green-700 font-medium">
-                          {t("lib.running")}
-                        </span>
+                        <>
+                          <button
+                            onClick={() => (apiDialogModel.value = m)}
+                            class="inline-flex items-center justify-center w-16 px-3 py-1 text-xs rounded border border-indigo-200 bg-white text-indigo-700 hover:bg-indigo-50 transition-colors font-medium"
+                          >
+                            {t("lib.api")}
+                          </button>
+                          <span class="inline-flex items-center justify-center w-16 px-3 py-1 text-xs rounded bg-green-50 text-green-700 font-medium">
+                            {t("lib.running")}
+                          </span>
+                        </>
                       ) : runningStatus(m.name) === "loading" ? (
                         <div class="flex items-center gap-2">
                           <span class="text-xs text-gray-500 max-w-[200px] truncate">
@@ -709,6 +727,15 @@ export function Library() {
           onChange={updateRunParam}
           onCancel={closeRunDialog}
           onSubmit={submitRunDialog}
+        />
+      )}
+      {apiDialogModel.value && (
+        <ApiInfoDialog
+          model={apiDialogModel.value.name}
+          isVision={isVisionModel(apiDialogModel.value)}
+          isEmbedding={isEmbeddingModel(apiDialogModel.value)}
+          isASR={isASRModel(apiDialogModel.value)}
+          onClose={() => (apiDialogModel.value = null)}
         />
       )}
       {uploadDialogOpen.value && (

@@ -9,6 +9,18 @@
 - Run `go test ./internal/server` after API doc changes so route/doc drift is
   caught by `openapi_sync_test.go`.
 
+## Compatibility
+
+- Treat local HTTP APIs as user-facing contracts. Preserve backward
+  compatibility for existing routes, query parameters, request bodies, response
+  fields, status codes, and error shapes unless the user explicitly approves a
+  breaking change.
+- Prefer additive changes for shipped APIs: add optional fields, new endpoints,
+  or new enum values instead of renaming/removing fields or changing existing
+  meanings.
+- If a breaking API change is unavoidable, document the migration path in the
+  same task and update OpenAPI, tests, and release notes accordingly.
+
 ```go
 // If you add a route in internal/server/routes.go:
 mux.HandleFunc("GET /api/models/{namespace}/{name}/manifest", s.handleModelManifest)
