@@ -63,6 +63,7 @@ function loadTasks(): Record<string, DownloadTask> {
     const tasks: Record<string, DownloadTask> = {};
     for (const item of list) {
       const task = normalizeTask(item);
+      if (task?.status === "success") continue;
       if (task) tasks[task.key] = task;
     }
     return tasks;
@@ -233,6 +234,7 @@ export function startDownload(kind: DownloadKind, name: string, onComplete?: () 
           completedAt: completed,
         });
         onComplete?.();
+        removeTask(key);
         return;
       }
       if (progress.status.startsWith("error")) {

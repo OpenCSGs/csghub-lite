@@ -188,7 +188,7 @@ function modelIDBasename(modelID: string): string {
   return parts[parts.length - 1] || modelID.trim();
 }
 
-function localModelMatchesDownloadTask(model: ModelInfo, task: DownloadTask): boolean {
+function localModelMatchesDownloadTask(model: Pick<ModelInfo, "name" | "model">, task: DownloadTask): boolean {
   const taskName = task.name.trim();
   if (!taskName) return false;
   return model.name === taskName || model.model === taskName || model.name === modelIDBasename(taskName);
@@ -389,9 +389,11 @@ export function Library() {
     if (hasActiveDownload.value) return;
     if (!confirm(t("lib.deleteConfirm", name))) return;
     await deleteModel(name);
-    // 清除对应的下载任务记录
-    const task = getDownloadTask("model", name);
-    if (task) clearDownloadTask(task);
+    for (const task of getDownloadTasks("model")) {
+      if (task.name === name || localModelMatchesDownloadTask({ name, model: name }, task)) {
+        clearDownloadTask(task);
+      }
+    }
     await loadModels();
     loadRunningModels();
   };
