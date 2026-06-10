@@ -57,9 +57,9 @@ var requiredASRPythonPackages = []string{
 var defaultTorchPackages = []string{"torch", "torchvision", "torchaudio"}
 
 var aliyunCUDATorchPackages = []string{
-	"torch==2.5.1+cu124",
-	"torchvision==0.20.1+cu124",
-	"torchaudio==2.5.1+cu124",
+	"torch==2.11.0+cu128",
+	"torchvision==0.26.0+cu128",
+	"torchaudio==2.11.0+cu128",
 }
 
 // HardwareKind describes the PyTorch wheel/runtime family to use.
@@ -171,6 +171,13 @@ func (m *RuntimeManager) PythonPath() string {
 		return filepath.Join(m.VenvDir(), "Scripts", "python.exe")
 	}
 	return filepath.Join(m.VenvDir(), "bin", "python")
+}
+
+func (m *RuntimeManager) uvPath() string {
+	if runtime.GOOS == "windows" {
+		return filepath.Join(m.VenvDir(), "Scripts", "uv.exe")
+	}
+	return filepath.Join(m.VenvDir(), "bin", "uv")
 }
 
 func (m *RuntimeManager) Status(ctx context.Context) RuntimeStatus {
@@ -310,27 +317,11 @@ func (m *RuntimeManager) InstallWithProgressOptions(ctx context.Context, progres
 	}
 
 	python := m.PythonPath()
-	if err := runCommand(ctx, python, "-m", "ensurepip", "--upgrade"); err != nil {
-		return m.Status(ctx), fmt.Errorf("bootstrapping pip: %w", err)
-	}
-	progress("upgrade pip", 4, 6)
-	pipArgs := []string{"-m", "pip", "install", "--upgrade", "pip"}
-	if indexes.PyPIIndexURL != "" {
-		pipArgs = append(pipArgs, "-i", indexes.PyPIIndexURL)
-	}
-	if err := runCommand(ctx, python, pipArgs...); err != nil {
-		return m.Status(ctx), fmt.Errorf("upgrading pip: %w", err)
+	progress("prepare pip and uv", 4, 6)
+	if err := m.ensurePipAndUV(ctx, python, indexes); err != nil {
+		return m.Status(ctx), err
 	}
 	torchPackages := torchPackageSpecs(hardware, indexes)
-	torchArgs := append([]string{"-m", "pip", "install"}, torchPackages...)
-	if indexes.TorchIndexURL != "" {
-		torchArgs = append(torchArgs, "--index-url", indexes.TorchIndexURL)
-	} else if indexes.PyPIIndexURL != "" {
-		torchArgs = append(torchArgs, "-i", indexes.PyPIIndexURL)
-	}
-	if indexes.TorchFindLinksURL != "" {
-		torchArgs = append(torchArgs, "--find-links", indexes.TorchFindLinksURL)
-	}
 	if indexes.TorchIndexURL != "" {
 		progress("install PyTorch from "+indexes.TorchIndexURL, 5, 6)
 	} else if indexes.TorchFindLinksURL != "" && indexes.PyPIIndexURL != "" {
@@ -342,16 +333,11 @@ func (m *RuntimeManager) InstallWithProgressOptions(ctx context.Context, progres
 	} else {
 		progress("install PyTorch", 5, 6)
 	}
-	if err := runCommand(ctx, python, torchArgs...); err != nil {
+	if err := m.uvPipInstall(ctx, python, indexes, torchPackages, false, true); err != nil {
 		return m.Status(ctx), fmt.Errorf("installing PyTorch: %w", err)
 	}
-	deps := []string{"-m", "pip", "install"}
-	if upgradePackages {
-		deps = append(deps, "--upgrade")
-	}
-	deps = append(deps, "diffusers", "transformers", "accelerate", "safetensors", "sentencepiece", "protobuf", "pillow")
+	diffusersDeps := []string{"diffusers>=0.34.0", "transformers>=4.48.0,<5.0", "accelerate", "safetensors", "sentencepiece", "protobuf", "pillow"}
 	if indexes.PyPIIndexURL != "" {
-		deps = append(deps, "-i", indexes.PyPIIndexURL)
 		if upgradePackages {
 			progress("upgrade Diffusers dependencies from "+indexes.PyPIIndexURL, 6, 6)
 		} else {
@@ -364,7 +350,7 @@ func (m *RuntimeManager) InstallWithProgressOptions(ctx context.Context, progres
 			progress("install Diffusers dependencies", 6, 6)
 		}
 	}
-	if err := runCommand(ctx, python, deps...); err != nil {
+	if err := m.uvPipInstall(ctx, python, indexes, diffusersDeps, upgradePackages, false); err != nil {
 		return m.Status(ctx), fmt.Errorf("installing Diffusers dependencies: %w", err)
 	}
 
@@ -400,7 +386,6 @@ func (m *RuntimeManager) InstallASRWithProgressOptions(ctx context.Context, prog
 	}
 
 	python := m.PythonPath()
-	createdVenv := false
 	if _, err := os.Stat(python); err != nil {
 		hostPython, err := findHostPython()
 		if err != nil {
@@ -410,20 +395,6 @@ func (m *RuntimeManager) InstallASRWithProgressOptions(ctx context.Context, prog
 		if err := runCommand(ctx, hostPython, "-m", "venv", m.VenvDir()); err != nil {
 			return m.ASRStatus(ctx), fmt.Errorf("creating Python venv: %w", err)
 		}
-		createdVenv = true
-	}
-
-	if createdVenv || upgradePackages {
-		if err := runCommand(ctx, python, "-m", "ensurepip", "--upgrade"); err != nil {
-			return m.ASRStatus(ctx), fmt.Errorf("bootstrapping pip: %w", err)
-		}
-		pipArgs := []string{"-m", "pip", "install", "--upgrade", "pip"}
-		if indexes.PyPIIndexURL != "" {
-			pipArgs = append(pipArgs, "-i", indexes.PyPIIndexURL)
-		}
-		if err := runCommand(ctx, python, pipArgs...); err != nil {
-			return m.ASRStatus(ctx), fmt.Errorf("upgrading pip: %w", err)
-		}
 	}
 
 	torchPackages := torchPackageSpecs(hardware, indexes)
@@ -432,14 +403,8 @@ func (m *RuntimeManager) InstallASRWithProgressOptions(ctx context.Context, prog
 		return m.ASRStatus(ctx), err
 	}
 	if len(torchMissing) > 0 || upgradePackages {
-		torchArgs := append([]string{"-m", "pip", "install"}, torchPackages...)
-		if indexes.TorchIndexURL != "" {
-			torchArgs = append(torchArgs, "--index-url", indexes.TorchIndexURL)
-		} else if indexes.PyPIIndexURL != "" {
-			torchArgs = append(torchArgs, "-i", indexes.PyPIIndexURL)
-		}
-		if indexes.TorchFindLinksURL != "" {
-			torchArgs = append(torchArgs, "--find-links", indexes.TorchFindLinksURL)
+		if err := m.ensurePipAndUV(ctx, python, indexes); err != nil {
+			return m.ASRStatus(ctx), err
 		}
 		if indexes.TorchIndexURL != "" {
 			progress("install PyTorch from "+indexes.TorchIndexURL, 4, 5)
@@ -452,7 +417,7 @@ func (m *RuntimeManager) InstallASRWithProgressOptions(ctx context.Context, prog
 		} else {
 			progress("install PyTorch", 4, 5)
 		}
-		if err := runCommand(ctx, python, torchArgs...); err != nil {
+		if err := m.uvPipInstall(ctx, python, indexes, torchPackages, upgradePackages, true); err != nil {
 			return m.ASRStatus(ctx), fmt.Errorf("installing PyTorch: %w", err)
 		}
 	}
@@ -465,17 +430,14 @@ func (m *RuntimeManager) InstallASRWithProgressOptions(ctx context.Context, prog
 	if len(asrMissing) == 0 && !upgradePackages {
 		return m.ASRStatus(ctx), nil
 	}
-	deps := []string{"-m", "pip", "install"}
-	if upgradePackages {
-		deps = append(deps, "--upgrade")
+	installPackages := asrPackages
+	if !upgradePackages {
+		installPackages = asrMissing
 	}
-	if upgradePackages {
-		deps = append(deps, asrPackages...)
-	} else {
-		deps = append(deps, asrMissing...)
+	if err := m.ensurePipAndUV(ctx, python, indexes); err != nil {
+		return m.ASRStatus(ctx), err
 	}
 	if indexes.PyPIIndexURL != "" {
-		deps = append(deps, "-i", indexes.PyPIIndexURL)
 		if upgradePackages {
 			progress("upgrade ASR dependencies from "+indexes.PyPIIndexURL, 5, 5)
 		} else {
@@ -488,7 +450,7 @@ func (m *RuntimeManager) InstallASRWithProgressOptions(ctx context.Context, prog
 			progress("install ASR dependencies", 5, 5)
 		}
 	}
-	if err := runCommand(ctx, python, deps...); err != nil {
+	if err := m.uvPipInstall(ctx, python, indexes, installPackages, upgradePackages, false); err != nil {
 		return m.ASRStatus(ctx), fmt.Errorf("installing ASR dependencies: %w", err)
 	}
 
@@ -519,24 +481,23 @@ func (m *RuntimeManager) InstallCommand(hw HardwareKind) []string {
 	if strings.ContainsAny(venv, " \t") {
 		venv = fmt.Sprintf("%q", venv)
 	}
+	pythonPath := m.PythonPath()
+	uvPath := m.uvPath()
 	indexes := ResolvePackageIndexes(hw)
-	cmd := []string{python, "-m", "venv", venv, "&&", m.PythonPath(), "-m", "ensurepip", "--upgrade", "&&", m.PythonPath(), "-m", "pip", "install", "--upgrade", "pip"}
+	cmd := []string{python, "-m", "venv", venv, "&&", pythonPath, "-m", "ensurepip", "--upgrade", "&&", pythonPath, "-m", "pip", "install", "--upgrade", "pip"}
 	if indexes.PyPIIndexURL != "" {
 		cmd = append(cmd, "-i", indexes.PyPIIndexURL)
 	}
-	cmd = append(cmd, "&&", m.PythonPath(), "-m", "pip", "install")
+	cmd = append(cmd, "&&", pythonPath, "-m", "pip", "install", "uv")
+	if indexes.PyPIIndexURL != "" {
+		cmd = append(cmd, "-i", indexes.PyPIIndexURL)
+	}
+	cmd = append(cmd, "&&", uvPath, "pip", "install", "--python", pythonPath)
 	cmd = append(cmd, torchPackageSpecs(hw, indexes)...)
-	if indexes.TorchIndexURL != "" {
-		cmd = append(cmd, "--index-url", indexes.TorchIndexURL)
-	} else if indexes.PyPIIndexURL != "" {
-		cmd = append(cmd, "-i", indexes.PyPIIndexURL)
-	}
-	if indexes.TorchFindLinksURL != "" {
-		cmd = append(cmd, "--find-links", indexes.TorchFindLinksURL)
-	}
-	cmd = append(cmd, "&&", m.PythonPath(), "-m", "pip", "install", "diffusers", "transformers", "accelerate", "safetensors", "sentencepiece", "protobuf", "pillow")
+	cmd = append(cmd, torchInstallIndexArgs(indexes)...)
+	cmd = append(cmd, "&&", uvPath, "pip", "install", "--python", pythonPath, "diffusers>=0.34.0", "transformers>=4.48.0,<5.0", "accelerate", "safetensors", "sentencepiece", "protobuf", "pillow")
 	if indexes.PyPIIndexURL != "" {
-		cmd = append(cmd, "-i", indexes.PyPIIndexURL)
+		cmd = append(cmd, "--index-url", indexes.PyPIIndexURL)
 	}
 	return cmd
 }
@@ -583,7 +544,7 @@ func ResolvePackageIndexes(hw HardwareKind) PackageIndexes {
 		indexes.PyPIIndexURL = aliyunPyPIIndex
 		switch hw {
 		case HardwareCUDA:
-			indexes.TorchFindLinksURL = aliyunTorchRoot + "/cu124"
+			indexes.TorchFindLinksURL = aliyunTorchRoot + "/cu128"
 		case HardwareROCm:
 			indexes.TorchFindLinksURL = aliyunTorchRoot + "/rocm7.1"
 		case HardwareCPU:
@@ -694,8 +655,77 @@ print(json.dumps(missing))
 	return missing, nil
 }
 
+func (m *RuntimeManager) ensurePipAndUV(ctx context.Context, python string, indexes PackageIndexes) error {
+	if err := runCommand(ctx, python, "-m", "ensurepip", "--upgrade"); err != nil {
+		return fmt.Errorf("bootstrapping pip: %w", err)
+	}
+	pipArgs := []string{"-m", "pip", "install", "--upgrade", "pip"}
+	if indexes.PyPIIndexURL != "" {
+		pipArgs = append(pipArgs, "-i", indexes.PyPIIndexURL)
+	}
+	if err := runCommand(ctx, python, pipArgs...); err != nil {
+		return fmt.Errorf("upgrading pip: %w", err)
+	}
+	if _, err := os.Stat(m.uvPath()); err == nil {
+		return nil
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("checking uv: %w", err)
+	}
+	uvArgs := []string{"-m", "pip", "install", "uv"}
+	if indexes.PyPIIndexURL != "" {
+		uvArgs = append(uvArgs, "-i", indexes.PyPIIndexURL)
+	}
+	if err := runCommand(ctx, python, uvArgs...); err != nil {
+		return fmt.Errorf("installing uv: %w", err)
+	}
+	return nil
+}
+
+func (m *RuntimeManager) uvPipInstall(ctx context.Context, python string, indexes PackageIndexes, packages []string, upgrade, torchInstall bool) error {
+	if len(packages) == 0 {
+		return nil
+	}
+	args := []string{"pip", "install", "--python", python}
+	if upgrade {
+		args = append(args, "--upgrade")
+	}
+	args = append(args, packages...)
+	if torchInstall {
+		args = append(args, torchInstallIndexArgs(indexes)...)
+	} else if indexes.PyPIIndexURL != "" {
+		args = append(args, "--index-url", indexes.PyPIIndexURL)
+	}
+	return runCommandEnv(ctx, m.uvInstallEnv(), m.uvPath(), args...)
+}
+
+func torchInstallIndexArgs(indexes PackageIndexes) []string {
+	args := make([]string, 0, 4)
+	if indexes.TorchIndexURL != "" {
+		args = append(args, "--index-url", indexes.TorchIndexURL)
+	} else if indexes.PyPIIndexURL != "" {
+		args = append(args, "--index-url", indexes.PyPIIndexURL)
+	}
+	if indexes.TorchFindLinksURL != "" {
+		args = append(args, "--find-links", indexes.TorchFindLinksURL)
+	}
+	return args
+}
+
+func (m *RuntimeManager) uvInstallEnv() []string {
+	cacheDir := filepath.Join(m.rootDir, "uv-cache")
+	_ = os.MkdirAll(cacheDir, 0o755)
+	return []string{"UV_CACHE_DIR=" + cacheDir}
+}
+
 func runCommand(ctx context.Context, name string, args ...string) error {
+	return runCommandEnv(ctx, nil, name, args...)
+}
+
+func runCommandEnv(ctx context.Context, extraEnv []string, name string, args ...string) error {
 	cmd := exec.CommandContext(ctx, name, args...)
+	if len(extraEnv) > 0 {
+		cmd.Env = append(os.Environ(), extraEnv...)
+	}
 	var output bytes.Buffer
 	cmd.Stdout = io.MultiWriter(os.Stdout, &output)
 	cmd.Stderr = io.MultiWriter(os.Stderr, &output)

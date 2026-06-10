@@ -1,6 +1,11 @@
 import { computed, signal } from "@preact/signals";
-import { pullDataset, pullModel } from "./api/client";
-import type { PullProgress } from "./api/client";
+import {
+  cancelPullJob,
+  createDatasetPullJob,
+  createPullJob,
+  getPullJob,
+} from "./api/client";
+import type { PullJob, PullProgress } from "./api/client";
 
 export type DownloadKind = "model" | "dataset";
 export type DownloadStatus = "downloading" | "paused" | "success" | "error";
@@ -16,6 +21,7 @@ export interface DownloadTask {
   completedBytes: number;
   totalBytes: number;
   error?: string;
+  jobId?: string;
   createdAt: string;
   updatedAt: string;
   completedAt?: string;
@@ -23,7 +29,9 @@ export interface DownloadTask {
 }
 
 const STORAGE_KEY = "csghub-lite-download-tasks";
-const activeControllers = new Map<string, AbortController>();
+const POLL_MS = 1000;
+const activePollers = new Map<string, number>();
+const completionCallbacks = new Map<string, () => void>();
 
 function taskKey(kind: DownloadKind, name: string): string {
   return `${kind}:${name}`;
@@ -37,18 +45,25 @@ function normalizeTask(raw: any): DownloadTask | null {
   if (!raw || (raw.kind !== "model" && raw.kind !== "dataset") || typeof raw.name !== "string" || !raw.name.trim()) {
     return null;
   }
-  const status: DownloadStatus = raw.status === "success" || raw.status === "error" ? raw.status : "paused";
+  const status: DownloadStatus =
+    raw.status === "success" || raw.status === "error" || raw.status === "downloading"
+      ? raw.status
+      : "paused";
   return {
     key: taskKey(raw.kind, raw.name),
     kind: raw.kind,
     name: raw.name,
     status,
     percent: Math.max(0, Math.min(100, Number(raw.percent) || 0)),
-    statusText: status === "paused" ? "interrupted" : String(raw.statusText || status),
+    statusText:
+      status === "paused" && !raw.jobId
+        ? "interrupted"
+        : String(raw.statusText || status),
     currentFile: typeof raw.currentFile === "string" ? raw.currentFile : undefined,
     completedBytes: Math.max(0, Number(raw.completedBytes) || 0),
     totalBytes: Math.max(0, Number(raw.totalBytes) || 0),
     error: typeof raw.error === "string" ? raw.error : undefined,
+    jobId: typeof raw.jobId === "string" ? raw.jobId : undefined,
     createdAt: typeof raw.createdAt === "string" ? raw.createdAt : nowISO(),
     updatedAt: typeof raw.updatedAt === "string" ? raw.updatedAt : nowISO(),
     completedAt: typeof raw.completedAt === "string" ? raw.completedAt : undefined,
@@ -111,12 +126,13 @@ function applyProgress(task: DownloadTask, p: PullProgress): DownloadTask {
   const aggregate = aggregateFiles(files);
   const hasRepositoryProgress = typeof p.total_bytes === "number" && p.total_bytes > 0;
   const totalBytes = hasRepositoryProgress ? Math.max(0, p.total_bytes || 0) : aggregate.total || task.totalBytes;
-  const completedBytes = hasRepositoryProgress ? Math.max(0, p.completed_bytes || 0) : aggregate.total ? aggregate.completed : task.completedBytes;
+  const completedBytes = hasRepositoryProgress
+    ? Math.max(0, p.completed_bytes || 0)
+    : aggregate.total
+      ? aggregate.completed
+      : task.completedBytes;
 
-  // Prefer repository-level bytes from the API so multi-file downloads do not
-  // jump based on the current file's progress.
   let percent = totalBytes > 0 ? Math.min(100, Math.round((completedBytes / totalBytes) * 100)) : task.percent;
-  // Keep the task open until the backend sends the final success event.
   if (percent >= 100 && completedBytes < totalBytes) {
     percent = 99;
   }
@@ -134,15 +150,133 @@ function applyProgress(task: DownloadTask, p: PullProgress): DownloadTask {
   };
 }
 
-function isInterruptedDownloadError(err: any): boolean {
-  const name = String(err?.name || "");
-  const message = String(err?.message || err || "").toLowerCase();
-  return name === "AbortError" ||
-    message.includes("input stream") ||
-    message.includes("network") ||
-    message.includes("failed to fetch") ||
-    message.includes("load failed") ||
-    message.includes("context canceled");
+function applyJobToTask(task: DownloadTask, job: PullJob): DownloadTask {
+  const progress = job.progress || { status: job.status };
+  if (job.status === "succeeded" || progress.status === "success") {
+    const completed = job.completed_at || nowISO();
+    return {
+      ...task,
+      jobId: job.id,
+      status: "success",
+      statusText: "success",
+      percent: 100,
+      error: undefined,
+      updatedAt: completed,
+      completedAt: completed,
+    };
+  }
+  if (job.status === "failed") {
+    return {
+      ...task,
+      jobId: job.id,
+      status: "error",
+      statusText: progress.status || "error",
+      error: job.error || progress.status.replace(/^error:\s*/, "") || "download failed",
+      updatedAt: nowISO(),
+    };
+  }
+  if (job.status === "cancelled") {
+    return {
+      ...task,
+      jobId: job.id,
+      status: "paused",
+      statusText: "paused",
+      error: undefined,
+      updatedAt: nowISO(),
+    };
+  }
+  return applyProgress({ ...task, jobId: job.id }, progress);
+}
+
+function stopPolling(key: string) {
+  const timer = activePollers.get(key);
+  if (timer !== undefined) {
+    clearInterval(timer);
+    activePollers.delete(key);
+  }
+}
+
+async function pollJob(key: string) {
+  const task = downloadTasks.value[key];
+  if (!task?.jobId) {
+    stopPolling(key);
+    return;
+  }
+  try {
+    const job = await getPullJob(task.jobId);
+    const updated = applyJobToTask(task, job);
+    if (job.status === "succeeded") {
+      setTask(updated);
+      stopPolling(key);
+      completionCallbacks.get(key)?.();
+      completionCallbacks.delete(key);
+      removeTask(key);
+      downloadCompletionVersion.value += 1;
+      return;
+    }
+    if (job.status === "failed") {
+      setTask(updated);
+      stopPolling(key);
+      completionCallbacks.delete(key);
+      return;
+    }
+    if (job.status === "cancelled") {
+      setTask(updated);
+      stopPolling(key);
+      completionCallbacks.delete(key);
+      return;
+    }
+    setTask(updated);
+  } catch {
+    stopPolling(key);
+  }
+}
+
+function startPolling(key: string) {
+  if (activePollers.has(key)) return;
+  const timer = window.setInterval(() => void pollJob(key), POLL_MS);
+  activePollers.set(key, timer);
+  void pollJob(key);
+}
+
+async function syncDownloadsFromServer() {
+  for (const task of Object.values(downloadTasks.value)) {
+    if (task.jobId) {
+      try {
+        const job = await getPullJob(task.jobId);
+        if (job.status === "running" || job.status === "queued") {
+          setTask(applyJobToTask({ ...task, status: "downloading" }, job));
+          startPolling(task.key);
+          continue;
+        }
+        if (job.status === "succeeded") {
+          removeTask(task.key);
+          downloadCompletionVersion.value += 1;
+          continue;
+        }
+        setTask(applyJobToTask(task, job));
+      } catch {
+        /* job no longer exists */
+      }
+      continue;
+    }
+
+    const autoResume =
+      task.status === "downloading" ||
+      (task.status === "paused" && task.statusText === "interrupted");
+    if (!autoResume) continue;
+
+    try {
+      const job =
+        task.kind === "model" ? await createPullJob(task.name) : await createDatasetPullJob(task.name);
+      if (job.status === "running" || job.status === "queued") {
+        setTask(applyJobToTask({ ...task, status: "downloading" }, job));
+        startPolling(task.key);
+      }
+    } catch {
+      /* backend may not support pull jobs yet */
+    }
+  }
 }
 
 export const downloadTasks = signal<Record<string, DownloadTask>>(loadTasks());
@@ -152,6 +286,8 @@ export const downloadTaskList = computed(() =>
 );
 export const activeDownload = computed(() => downloadTaskList.value.find((task) => task.status === "downloading"));
 export const hasActiveDownload = computed(() => !!activeDownload.value);
+
+void syncDownloadsFromServer();
 
 export function getDownloadTask(kind: DownloadKind, name: string): DownloadTask | undefined {
   return downloadTasks.value[taskKey(kind, name)];
@@ -163,7 +299,6 @@ export function getDownloadTasks(kind?: DownloadKind): DownloadTask[] {
 
 export function clearDownloadTask(task: DownloadTask) {
   if (task.status === "downloading") {
-    // 先暂停再清除
     pauseDownload(task.kind, task.name);
   }
   removeTask(task.key);
@@ -171,13 +306,13 @@ export function clearDownloadTask(task: DownloadTask) {
 
 export function pauseDownload(kind: DownloadKind, name: string) {
   const key = taskKey(kind, name);
-  const controller = activeControllers.get(key);
-  if (controller) {
-    controller.abort();
-    activeControllers.delete(key);
-  }
+  stopPolling(key);
+  completionCallbacks.delete(key);
 
   const current = downloadTasks.value[key];
+  if (current?.jobId) {
+    void cancelPullJob(current.jobId).catch(() => {});
+  }
   if (current && current.status === "downloading") {
     setTask({
       ...current,
@@ -194,7 +329,7 @@ export function startDownload(kind: DownloadKind, name: string, onComplete?: () 
   if (existingActive && existingActive.key !== key) {
     return false;
   }
-  if (activeControllers.has(key)) {
+  if (activePollers.has(key)) {
     return true;
   }
 
@@ -211,71 +346,58 @@ export function startDownload(kind: DownloadKind, name: string, onComplete?: () 
     currentFile: resumableBase?.currentFile,
     completedBytes: resumableBase?.completedBytes || 0,
     totalBytes: resumableBase?.totalBytes || 0,
+    jobId: resumableBase?.jobId,
     createdAt: base?.createdAt || startedAt,
     updatedAt: startedAt,
     files: resumableBase?.files || {},
   };
   setTask(task);
+  if (onComplete) {
+    completionCallbacks.set(key, onComplete);
+  }
 
-  const controller = new AbortController();
-  activeControllers.set(key, controller);
-  const pull = kind === "model" ? pullModel : pullDataset;
+  void (async () => {
+    try {
+      if (task.jobId) {
+        const existing = await getPullJob(task.jobId);
+        if (existing.status === "running" || existing.status === "queued") {
+          setTask(applyJobToTask(downloadTasks.value[key] || task, existing));
+          startPolling(key);
+          return;
+        }
+        if (existing.status === "succeeded") {
+          const updated = applyJobToTask(downloadTasks.value[key] || task, existing);
+          setTask(updated);
+          completionCallbacks.get(key)?.();
+          completionCallbacks.delete(key);
+          removeTask(key);
+          downloadCompletionVersion.value += 1;
+          return;
+        }
+      }
 
-  pull(
-    name,
-    (progress) => {
-      if (progress.status === "success") {
-        const completed = nowISO();
-        setTask({
-          ...downloadTasks.value[key],
-          status: "success",
-          statusText: "success",
-          percent: 100,
-          error: undefined,
-          updatedAt: completed,
-          completedAt: completed,
-        });
-        onComplete?.();
-        removeTask(key);
-        downloadCompletionVersion.value += 1;
-        return;
-      }
-      if (progress.status.startsWith("error")) {
-        setTask({
-          ...downloadTasks.value[key],
-          status: "error",
-          statusText: progress.status,
-          error: progress.status.replace(/^error:\s*/, ""),
-          updatedAt: nowISO(),
-        });
-        return;
-      }
-      setTask(applyProgress(downloadTasks.value[key] || task, progress));
-    },
-    controller.signal
-  ).catch((err: any) => {
-    const current = downloadTasks.value[key] || task;
-    if (current.status === "success") return;
-    if (isInterruptedDownloadError(err)) {
+      const job =
+        kind === "model" ? await createPullJob(name) : await createDatasetPullJob(name);
       setTask({
-        ...current,
-        status: "paused",
-        statusText: "interrupted",
-        error: undefined,
+        ...(downloadTasks.value[key] || task),
+        jobId: job.id,
+        status: "downloading",
         updatedAt: nowISO(),
       });
-      return;
+      startPolling(key);
+    } catch (err: any) {
+      const current = downloadTasks.value[key] || task;
+      if (current.status === "success") return;
+      setTask({
+        ...current,
+        status: "error",
+        statusText: "error",
+        error: err?.message || "download failed",
+        updatedAt: nowISO(),
+      });
+      completionCallbacks.delete(key);
     }
-    setTask({
-      ...current,
-      status: "error",
-      statusText: "error",
-      error: err?.message || "download failed",
-      updatedAt: nowISO(),
-    });
-  }).finally(() => {
-    activeControllers.delete(key);
-  });
+  })();
 
   return true;
 }

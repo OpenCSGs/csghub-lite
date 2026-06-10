@@ -121,7 +121,7 @@ class Worker:
                 decoded = [decode_image(item) for item in input_images]
                 kwargs["image"] = decoded if len(decoded) > 1 else decoded[0]
 
-        if "width" in params and "height" in params:
+        if "width" in params and "height" in params and req.get("size"):
             width, height = parse_size(req.get("size"))
             kwargs["width"] = width
             kwargs["height"] = height

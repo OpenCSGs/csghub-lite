@@ -118,6 +118,7 @@ type Server struct {
 	asrEngines   map[string]*managedASREngine
 	asrLoading   map[string]*asrEngineLoadState
 	imageJobs    *imageGenerationJobStore
+	pullJobs     *pullJobStore
 	prefsMu      sync.Mutex
 	openclawMu   sync.Mutex
 	csgclawMu    sync.Mutex
@@ -154,6 +155,7 @@ func New(cfg *config.Config, version string) *Server {
 		asrEngines:     make(map[string]*managedASREngine),
 		asrLoading:     make(map[string]*asrEngineLoadState),
 		imageJobs:      newImageGenerationJobStore(),
+		pullJobs:       newPullJobStore(),
 		logBuf:         logBuf,
 	}
 	s.appShells = newAIAppShellManager()

@@ -37,7 +37,7 @@ func TestResolvePackageIndexesAliyun(t *testing.T) {
 		wantTorchLink string
 		wantPyPI      string
 	}{
-		{HardwareCUDA, "https://mirrors.aliyun.com/pytorch-wheels/cu124", "https://mirrors.aliyun.com/pypi/simple"},
+		{HardwareCUDA, "https://mirrors.aliyun.com/pytorch-wheels/cu128", "https://mirrors.aliyun.com/pypi/simple"},
 		{HardwareROCm, "https://mirrors.aliyun.com/pytorch-wheels/rocm7.1", "https://mirrors.aliyun.com/pypi/simple"},
 		{HardwareCPU, "https://mirrors.aliyun.com/pytorch-wheels/cpu", "https://mirrors.aliyun.com/pypi/simple"},
 		{HardwareMPS, "", "https://mirrors.aliyun.com/pypi/simple"},
@@ -68,7 +68,7 @@ func TestResolvePackageIndexesDefaultsToAliyun(t *testing.T) {
 	if got.Mirror != PackageMirrorAliyun {
 		t.Fatalf("default package mirror = %q, want %q", got.Mirror, PackageMirrorAliyun)
 	}
-	if got.TorchFindLinksURL != "https://mirrors.aliyun.com/pytorch-wheels/cu124" {
+	if got.TorchFindLinksURL != "https://mirrors.aliyun.com/pytorch-wheels/cu128" {
 		t.Fatalf("default CUDA torch find-links = %q", got.TorchFindLinksURL)
 	}
 	if got.TorchIndexURL != "" {
@@ -112,6 +112,9 @@ func TestAliyunCUDAPinsTorchPackages(t *testing.T) {
 	}
 	if !hasString(cmd, "--find-links") {
 		t.Fatalf("InstallCommand(CUDA) should use Aliyun wheel links: %#v", cmd)
+	}
+	if !hasString(cmd, "uv") {
+		t.Fatalf("InstallCommand(CUDA) should install packages with uv: %#v", cmd)
 	}
 }
 
@@ -193,6 +196,27 @@ func hasString(values []string, want string) bool {
 		}
 	}
 	return false
+}
+
+func TestTorchInstallIndexArgsAliyunCUDA(t *testing.T) {
+	indexes := PackageIndexes{
+		Mirror:            PackageMirrorAliyun,
+		TorchFindLinksURL: "https://mirrors.aliyun.com/pytorch-wheels/cu128",
+		PyPIIndexURL:      aliyunPyPIIndex,
+	}
+	got := torchInstallIndexArgs(indexes)
+	want := []string{
+		"--index-url", aliyunPyPIIndex,
+		"--find-links", "https://mirrors.aliyun.com/pytorch-wheels/cu128",
+	}
+	if len(got) != len(want) {
+		t.Fatalf("torchInstallIndexArgs() = %#v, want %#v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("torchInstallIndexArgs() = %#v, want %#v", got, want)
+		}
+	}
 }
 
 func TestRequiredPythonPackagesUseImportNames(t *testing.T) {

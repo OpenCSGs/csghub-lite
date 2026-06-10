@@ -25,6 +25,9 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("GET /api/ps", s.handlePs)
 	mux.HandleFunc("POST /api/show", s.handleShow)
 	mux.HandleFunc("POST /api/pull", s.handlePull)
+	mux.HandleFunc("POST /api/pull/jobs", s.handlePullJobCreate)
+	mux.HandleFunc("GET /api/pull/jobs/{jobID}", s.handlePullJobGet)
+	mux.HandleFunc("DELETE /api/pull/jobs/{jobID}", s.handlePullJobCancel)
 	mux.HandleFunc("POST /api/load", s.handleLoad)
 	mux.HandleFunc("POST /api/stop", s.handleStop)
 	mux.HandleFunc("DELETE /api/delete", s.handleDelete)
@@ -38,6 +41,7 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("POST /api/datasets/show", s.handleDatasetShow)
 	mux.HandleFunc("POST /api/datasets/files", s.handleDatasetFiles)
 	mux.HandleFunc("POST /api/datasets/pull", s.handleDatasetPull)
+	mux.HandleFunc("POST /api/datasets/pull/jobs", s.handleDatasetPullJobCreate)
 	mux.HandleFunc("DELETE /api/datasets/delete", s.handleDatasetDelete)
 
 	mux.HandleFunc("POST /v1/chat/completions", s.handleOpenAIChatCompletions)

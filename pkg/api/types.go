@@ -188,6 +188,19 @@ type PullResponse struct {
 	CompletedBytes int64  `json:"completed_bytes,omitempty"`
 }
 
+type PullJobResponse struct {
+	ID          string       `json:"id"`
+	Status      string       `json:"status"`
+	Kind        string       `json:"kind"`
+	Name        string       `json:"name"`
+	Quant       string       `json:"quant,omitempty"`
+	CreatedAt   time.Time    `json:"created_at"`
+	UpdatedAt   time.Time    `json:"updated_at"`
+	CompletedAt *time.Time   `json:"completed_at,omitempty"`
+	Progress    PullResponse `json:"progress"`
+	Error       string       `json:"error,omitempty"`
+}
+
 type PsResponse struct {
 	Models []RunningModel `json:"models"`
 }

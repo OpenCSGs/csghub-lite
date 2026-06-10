@@ -17,6 +17,8 @@ const defaultWidth = "1024";
 const defaultHeight = "1024";
 const defaultSteps = "20";
 const defaultCFGScale = "7.5";
+const defaultEditSteps = "50";
+const defaultEditCFGScale = "4.0";
 const minSize = 256;
 const maxSize = 2048;
 const minSteps = 1;
@@ -260,6 +262,21 @@ function progressPercent(): number {
   return Math.min(92, Math.round((elapsedSeconds.value / estimate) * 100));
 }
 
+function applyModelParameterDefaults(model?: ModelInfo) {
+  if (isImageToImageModel(model)) {
+    steps.value = defaultEditSteps;
+    cfgScale.value = defaultEditCFGScale;
+    negativePrompt.value = "";
+    return;
+  }
+  steps.value = defaultSteps;
+  cfgScale.value = defaultCFGScale;
+}
+
+function historySizeLabel(size: string): string {
+  return size === "input" ? t("image.sizeFollowsInput") : size;
+}
+
 async function readInputImageFile(file: File): Promise<string> {
   const dataUrl = await new Promise<string>((resolve, reject) => {
     const reader = new FileReader();
@@ -338,6 +355,10 @@ export function ImageGeneration() {
   }, []);
 
   useEffect(() => {
+    applyModelParameterDefaults(selectedModelInfo());
+  }, [selectedModel.value]);
+
+  useEffect(() => {
     if (!loading.value || !generationStartedAt.value) return;
     const timer = window.setInterval(() => {
       elapsedSeconds.value = Math.max(0, Math.floor((Date.now() - generationStartedAt.value) / 1000));
@@ -386,7 +407,7 @@ export function ImageGeneration() {
         model: currentModel.model || currentModel.name,
         source: currentModel.source,
         prompt: prompt.value,
-        negative_prompt: negativePrompt.value.trim() || undefined,
+        negative_prompt: editing ? undefined : (negativePrompt.value.trim() || undefined),
         size: requestSize ?? undefined,
         steps: requestSteps,
         seed: requestSeed,
@@ -405,7 +426,7 @@ export function ImageGeneration() {
               createdAt: Date.now(),
               images,
               prompt: prompt.value,
-              negativePrompt: negativePrompt.value.trim(),
+              negativePrompt: editing ? "" : negativePrompt.value.trim(),
               size: requestSize || "input",
               steps: requestSteps,
               seed: requestSeed,
@@ -420,7 +441,7 @@ export function ImageGeneration() {
         if (latest.status === "cancelled") {
           throw new Error(t("image.cancelled"));
         }
-        jobStatus.value = latest.status === "queued" ? t("image.jobQueued") : t("image.jobRunning");
+        jobStatus.value = latest.status === "queued" ? t("image.jobQueued") : (editing ? t("image.jobRunningEdit") : t("image.jobRunning"));
         await sleep(1500);
         latest = await getImageGenerationJob(job.id);
       }
@@ -566,6 +587,8 @@ export function ImageGeneration() {
               )}
             </div>
           )}
+          {!selectedModelIsEdit && (
+          <>
           <label class="block">
             <span class="text-sm font-medium text-gray-700">{t("image.negativePrompt")}</span>
             <textarea
@@ -621,6 +644,8 @@ export function ImageGeneration() {
               ))}
             </div>
           </div>
+          </>
+          )}
 
           <div class="space-y-3">
             {!selectedModelIsEdit && (
@@ -659,7 +684,7 @@ export function ImageGeneration() {
               min={minSteps}
               max={maxSteps}
               onInput={(v) => (steps.value = v)}
-              hint={t("image.stepsHint")}
+              hint={selectedModelIsEdit ? t("image.stepsHintEdit") : t("image.stepsHint")}
             />
             <div>
               <NumberField label={t("image.seed")} value={seed.value} onInput={(v) => (seed.value = v)} hint={t("image.seedHint")} />
@@ -668,13 +693,13 @@ export function ImageGeneration() {
               </button>
             </div>
             <NumberField
-              label={t("image.cfgScale")}
+              label={selectedModelIsEdit ? t("image.cfgScaleEdit") : t("image.cfgScale")}
               value={cfgScale.value}
               min={minCFGScale}
               max={maxCFGScale}
               step="0.5"
               onInput={(v) => (cfgScale.value = v)}
-              hint={t("image.cfgHint")}
+              hint={selectedModelIsEdit ? t("image.cfgHintEdit") : t("image.cfgHint")}
             />
           </div>
           <div class="space-y-2">
@@ -683,7 +708,7 @@ export function ImageGeneration() {
               disabled={loading.value || !selectedModel.value || !prompt.value.trim()}
               class="w-full rounded-lg bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-indigo-700 disabled:opacity-50"
             >
-              {loading.value ? (jobStatus.value || t("image.generating")) : t("image.generate")}
+              {loading.value ? (jobStatus.value || (selectedModelIsEdit ? t("image.editing") : t("image.generating"))) : (selectedModelIsEdit ? t("image.edit") : t("image.generate"))}
             </button>
             {loading.value && (
               <button
@@ -713,7 +738,7 @@ export function ImageGeneration() {
           {loading.value && (
             <div class="mb-4 rounded-xl border border-indigo-100 bg-indigo-50 p-4">
               <div class="flex items-center justify-between text-sm">
-                <span class="font-medium text-indigo-900">{jobStatus.value || t("image.generating")}</span>
+                <span class="font-medium text-indigo-900">{jobStatus.value || (selectedModelIsEdit ? t("image.editing") : t("image.generating"))}</span>
                 <span class="text-indigo-700">{t("image.elapsed", formatClock(elapsedSeconds.value))}</span>
               </div>
               <div class="mt-3 h-2 overflow-hidden rounded-full bg-indigo-100">
@@ -746,7 +771,7 @@ export function ImageGeneration() {
                       </time>
                     </div>
                     <div class="flex flex-wrap gap-2 text-xs text-gray-600">
-                      <span class="rounded-full bg-white px-2.5 py-1 ring-1 ring-gray-200">{item.size}</span>
+                      <span class="rounded-full bg-white px-2.5 py-1 ring-1 ring-gray-200">{historySizeLabel(item.size)}</span>
                       <span class="rounded-full bg-white px-2.5 py-1 ring-1 ring-gray-200">{t("image.steps")}: {item.steps || "-"}</span>
                       <span class="rounded-full bg-white px-2.5 py-1 ring-1 ring-gray-200">{t("image.cfgScale")}: {item.cfgScale || "-"}</span>
                       <span class="rounded-full bg-white px-2.5 py-1 ring-1 ring-gray-200">{t("image.seed")}: {item.seed ?? t("image.random")}</span>
@@ -763,7 +788,7 @@ export function ImageGeneration() {
                           <img src={imageDataURL(img)} alt={item.prompt} class="h-full w-full object-contain transition-opacity duration-200 hover:opacity-95" />
                         </button>
                         <div class="flex items-center justify-between gap-3 bg-white px-3 py-2">
-                          <span class="truncate text-xs text-gray-400">{item.images.length > 1 ? `${i + 1}/${item.images.length}` : item.size}</span>
+                          <span class="truncate text-xs text-gray-400">{item.images.length > 1 ? `${i + 1}/${item.images.length}` : historySizeLabel(item.size)}</span>
                           <button
                             type="button"
                             onClick={() => downloadImage(img, item, i)}
