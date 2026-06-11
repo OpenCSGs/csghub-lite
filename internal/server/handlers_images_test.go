@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"io"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
@@ -163,6 +164,55 @@ func TestHandleOpenAIImagesEditsForwardsInputImage(t *testing.T) {
 	}
 	if fake.lastReq.Image == "" {
 		t.Fatalf("input image was not forwarded: %#v", fake.lastReq)
+	}
+}
+
+func TestHandleOpenAIImagesEditsAvoidsSystemTempDir(t *testing.T) {
+	missingTempDir := filepath.Join(t.TempDir(), "missing-temp")
+	t.Setenv("TMPDIR", missingTempDir)
+	t.Setenv("TMP", missingTempDir)
+	t.Setenv("TEMP", missingTempDir)
+
+	body := &bytes.Buffer{}
+	writer := multipart.NewWriter(body)
+	_ = writer.WriteField("model", "Qwen/Qwen-Image-Edit-2511")
+	_ = writer.WriteField("prompt", "edit")
+	part, err := writer.CreateFormFile("image", "large-input.png")
+	if err != nil {
+		t.Fatalf("create form file: %v", err)
+	}
+	if _, err := io.CopyN(part, zeroReader{}, maxImageUploadMemory+1024); err != nil {
+		t.Fatalf("write form file: %v", err)
+	}
+	_ = writer.Close()
+
+	storageDir := t.TempDir()
+	cfg := &config.Config{
+		ModelDir:   config.ModelDirForStorage(storageDir),
+		DatasetDir: config.DatasetDirForStorage(storageDir),
+	}
+	s := New(cfg, "test")
+	req := httptest.NewRequest(http.MethodPost, "/v1/images/edits", body)
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+	w := httptest.NewRecorder()
+
+	s.handleOpenAIImagesEdits(w, req)
+
+	if strings.Contains(w.Body.String(), "no such file or directory") {
+		t.Fatalf("expected image edits upload to avoid system temp dir, got status=%d body=%s", w.Code, w.Body.String())
+	}
+	if _, err := os.Stat(missingTempDir); !os.IsNotExist(err) {
+		t.Fatalf("expected system temp dir to remain unused, stat err=%v", err)
+	}
+	if _, err := os.Stat(cfg.TempDir()); err != nil {
+		t.Fatalf("expected image edits cache to use lite temp dir: %v", err)
+	}
+	entries, err := os.ReadDir(cfg.TempDir())
+	if err != nil {
+		t.Fatalf("read lite temp dir: %v", err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("expected image edit temp files to be cleaned up, found %d entries", len(entries))
 	}
 }
 

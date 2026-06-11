@@ -5,6 +5,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/opencsgs/csghub-lite/internal/config"
 )
 
 func TestTorchIndexURL(t *testing.T) {
@@ -118,7 +120,7 @@ func TestAliyunCUDAPinsTorchPackages(t *testing.T) {
 	}
 }
 
-func TestOfficialCUDADoesNotPinAliyunTorchPackages(t *testing.T) {
+func TestOfficialCUDAUsesDefaultTorchPackages(t *testing.T) {
 	t.Setenv(mirrorModeEnv, "official")
 	t.Setenv(torchIndexOverrideEnv, "")
 	t.Setenv(pypiIndexOverrideEnv, "")
@@ -145,6 +147,82 @@ func TestRuntimeStatusIsLazyAndDoesNotInstall(t *testing.T) {
 	}
 	if len(status.InstallCommand) == 0 {
 		t.Fatalf("status should include an install command hint")
+	}
+	if hasString(status.InstallCommand, "funasr") {
+		t.Fatalf("image runtime status should not expose ASR install command: %#v", status.InstallCommand)
+	}
+	if !hasString(status.InstallCommand, "diffusers>=0.34.0") {
+		t.Fatalf("image runtime status should include diffusers install command: %#v", status.InstallCommand)
+	}
+}
+
+func TestRuntimeManagersUseSeparateRoots(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+
+	imageRuntime, err := NewRuntimeManager()
+	if err != nil {
+		t.Fatal(err)
+	}
+	asrRuntime, err := NewASRRuntimeManager()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	wantImage := filepath.Join(home, config.AppDir, runtimeDirName)
+	wantASR := filepath.Join(home, config.AppDir, asrRuntimeDirName)
+	if imageRuntime.RootDir() != wantImage {
+		t.Fatalf("image runtime root = %q, want %q", imageRuntime.RootDir(), wantImage)
+	}
+	if asrRuntime.RootDir() != wantASR {
+		t.Fatalf("ASR runtime root = %q, want %q", asrRuntime.RootDir(), wantASR)
+	}
+}
+
+func TestRuntimeManagersShareUVCache(t *testing.T) {
+	root := t.TempDir()
+	imageRuntime := NewRuntimeManagerAt(filepath.Join(root, runtimeDirName))
+	asrRuntime := NewRuntimeManagerAt(filepath.Join(root, asrRuntimeDirName))
+
+	want := "UV_CACHE_DIR=" + filepath.Join(root, uvCacheDirName)
+	if got := imageRuntime.uvInstallEnv(); len(got) != 1 || got[0] != want {
+		t.Fatalf("image runtime uv env = %#v, want %#v", got, []string{want})
+	}
+	if got := asrRuntime.uvInstallEnv(); len(got) != 1 || got[0] != want {
+		t.Fatalf("ASR runtime uv env = %#v, want %#v", got, []string{want})
+	}
+}
+
+func TestBaseASRDependenciesExcludeQwenASR(t *testing.T) {
+	for _, pkg := range requiredASRPythonPackages {
+		if pkg == "qwen_asr" {
+			t.Fatalf("base ASR import requirements should not include qwen_asr: %#v", requiredASRPythonPackages)
+		}
+	}
+	for _, pkg := range asrPythonPackages {
+		if pkg == "qwen-asr" {
+			t.Fatalf("base ASR install packages should not include qwen-asr: %#v", asrPythonPackages)
+		}
+	}
+	manager := NewRuntimeManagerAt(filepath.Join(t.TempDir(), asrRuntimeDirName))
+	cmd := manager.ASRInstallCommand(HardwareCPU)
+	if hasString(cmd, "qwen-asr") {
+		t.Fatalf("ASR install command should not include qwen-asr: %#v", cmd)
+	}
+	if !hasString(cmd, "funasr") {
+		t.Fatalf("ASR install command should include funasr: %#v", cmd)
+	}
+
+	status := manager.ASRStatus(context.Background())
+	if hasString(status.InstallCommand, "diffusers>=0.34.0") {
+		t.Fatalf("ASR status should not expose image runtime install command: %#v", status.InstallCommand)
+	}
+	if hasString(status.InstallCommand, "qwen-asr") {
+		t.Fatalf("ASR status should not include qwen-asr by default: %#v", status.InstallCommand)
+	}
+	if !hasString(status.InstallCommand, "funasr") {
+		t.Fatalf("ASR status install command should include funasr: %#v", status.InstallCommand)
 	}
 }
 

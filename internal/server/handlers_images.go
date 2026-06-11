@@ -10,6 +10,9 @@ import (
 	"io"
 	"mime/multipart"
 	"net/http"
+	"net/url"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -20,6 +23,7 @@ import (
 )
 
 const maxImageUploadMemory = 64 << 20
+const maxImageFormFieldBytes = 1 << 20
 
 type imageInferenceRequest struct {
 	api.OpenAIImagesGenerationRequest
@@ -64,7 +68,7 @@ func (s *Server) handleOpenAIImagesGenerations(w http.ResponseWriter, r *http.Re
 
 // POST /v1/images/edits -- OpenAI-compatible image editing (multipart/form-data).
 func (s *Server) handleOpenAIImagesEdits(w http.ResponseWriter, r *http.Request) {
-	inferenceReq, errMsg := parseOpenAIImagesEditRequest(r)
+	inferenceReq, errMsg := s.parseOpenAIImagesEditRequest(r)
 	if errMsg != "" {
 		writeOpenAIError(w, http.StatusBadRequest, "invalid_request_error", errMsg)
 		return
@@ -157,19 +161,20 @@ func (r imageInferenceRequest) toWorkerRequest() api.OpenAIImagesGenerationReque
 	return req
 }
 
-func parseOpenAIImagesEditRequest(r *http.Request) (imageInferenceRequest, string) {
-	if err := r.ParseMultipartForm(maxImageUploadMemory); err != nil {
+func (s *Server) parseOpenAIImagesEditRequest(r *http.Request) (imageInferenceRequest, string) {
+	form, files, err := s.readImageEditMultipart(r)
+	if err != nil {
 		return imageInferenceRequest{}, "invalid multipart request: " + err.Error()
 	}
 
 	out := imageInferenceRequest{
 		OpenAIImagesGenerationRequest: api.OpenAIImagesGenerationRequest{
-			Model:          strings.TrimSpace(r.FormValue("model")),
-			Prompt:         strings.TrimSpace(r.FormValue("prompt")),
-			Size:           strings.TrimSpace(r.FormValue("size")),
-			ResponseFormat: strings.TrimSpace(r.FormValue("response_format")),
-			NegativePrompt: strings.TrimSpace(r.FormValue("negative_prompt")),
-			Source:         strings.TrimSpace(r.FormValue("source")),
+			Model:          strings.TrimSpace(form.Get("model")),
+			Prompt:         strings.TrimSpace(form.Get("prompt")),
+			Size:           strings.TrimSpace(form.Get("size")),
+			ResponseFormat: strings.TrimSpace(form.Get("response_format")),
+			NegativePrompt: strings.TrimSpace(form.Get("negative_prompt")),
+			Source:         strings.TrimSpace(form.Get("source")),
 		},
 	}
 
@@ -185,28 +190,28 @@ func parseOpenAIImagesEditRequest(r *http.Request) (imageInferenceRequest, strin
 	if out.ResponseFormat != "b64_json" && out.ResponseFormat != "url" {
 		return imageInferenceRequest{}, "response_format must be b64_json or url"
 	}
-	if value := strings.TrimSpace(r.FormValue("n")); value != "" {
+	if value := strings.TrimSpace(form.Get("n")); value != "" {
 		n, err := strconv.Atoi(value)
 		if err != nil || n < 1 || n > 4 {
 			return imageInferenceRequest{}, "n must be between 1 and 4"
 		}
 		out.N = &n
 	}
-	if value := strings.TrimSpace(r.FormValue("seed")); value != "" {
+	if value := strings.TrimSpace(form.Get("seed")); value != "" {
 		seed, err := strconv.Atoi(value)
 		if err != nil {
 			return imageInferenceRequest{}, "seed must be an integer"
 		}
 		out.Seed = &seed
 	}
-	if value := strings.TrimSpace(r.FormValue("steps")); value != "" {
+	if value := strings.TrimSpace(form.Get("steps")); value != "" {
 		steps, err := strconv.Atoi(value)
 		if err != nil || steps < 1 {
 			return imageInferenceRequest{}, "steps must be a positive integer"
 		}
 		out.Steps = &steps
 	}
-	if value := strings.TrimSpace(r.FormValue("cfg_scale")); value != "" {
+	if value := strings.TrimSpace(form.Get("cfg_scale")); value != "" {
 		cfgScale, err := strconv.ParseFloat(value, 64)
 		if err != nil {
 			return imageInferenceRequest{}, "cfg_scale must be a number"
@@ -214,7 +219,7 @@ func parseOpenAIImagesEditRequest(r *http.Request) (imageInferenceRequest, strin
 		out.CFGScale = &cfgScale
 	}
 
-	images, errMsg := readMultipartImageFiles(r, "image", "image[]")
+	images, errMsg := readMultipartImageFiles(files, "image", "image[]")
 	if errMsg != "" {
 		return imageInferenceRequest{}, errMsg
 	}
@@ -223,7 +228,7 @@ func parseOpenAIImagesEditRequest(r *http.Request) (imageInferenceRequest, strin
 	}
 	out.images = images
 
-	maskFiles, errMsg := readMultipartImageFiles(r, "mask")
+	maskFiles, errMsg := readMultipartImageFiles(files, "mask")
 	if errMsg != "" {
 		return imageInferenceRequest{}, errMsg
 	}
@@ -237,22 +242,88 @@ func parseOpenAIImagesEditRequest(r *http.Request) (imageInferenceRequest, strin
 	return out, ""
 }
 
-func readMultipartImageFiles(r *http.Request, keys ...string) ([][]byte, string) {
-	if r.MultipartForm == nil {
-		return nil, ""
+func (s *Server) readImageEditMultipart(r *http.Request) (url.Values, map[string][][]byte, error) {
+	reader, err := r.MultipartReader()
+	if err != nil {
+		return nil, nil, err
 	}
+	form := url.Values{}
+	files := map[string][][]byte{}
+	for {
+		part, err := reader.NextPart()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return nil, nil, err
+		}
+		name := part.FormName()
+		if name == "" {
+			_ = part.Close()
+			continue
+		}
+		if part.FileName() == "" {
+			data, err := io.ReadAll(io.LimitReader(part, maxImageFormFieldBytes+1))
+			_ = part.Close()
+			if err != nil {
+				return nil, nil, err
+			}
+			if len(data) > maxImageFormFieldBytes {
+				return nil, nil, fmt.Errorf("form field %s is too large", name)
+			}
+			form.Add(name, string(data))
+			continue
+		}
+		data, err := s.cacheImageEditPart(part)
+		_ = part.Close()
+		if err != nil {
+			return nil, nil, err
+		}
+		files[name] = append(files[name], data)
+	}
+	return form, files, nil
+}
+
+func (s *Server) cacheImageEditPart(part interface {
+	FileName() string
+	io.Reader
+}) ([]byte, error) {
+	tmpDir := s.cfg.TempDir()
+	if err := os.MkdirAll(tmpDir, 0o755); err != nil {
+		return nil, err
+	}
+	ext := filepath.Ext(part.FileName())
+	if ext == "" {
+		ext = ".image"
+	}
+	tmp, err := os.CreateTemp(tmpDir, "image-edit-*"+ext)
+	if err != nil {
+		return nil, err
+	}
+	tmpPath := tmp.Name()
+	defer os.Remove(tmpPath)
+	written, copyErr := io.Copy(tmp, io.LimitReader(part, maxImageUploadMemory+1))
+	closeErr := tmp.Close()
+	if copyErr != nil {
+		return nil, copyErr
+	}
+	if closeErr != nil {
+		return nil, closeErr
+	}
+	if written > maxImageUploadMemory {
+		return nil, fmt.Errorf("uploaded image %s is too large", part.FileName())
+	}
+	data, err := os.ReadFile(tmpPath)
+	if err != nil {
+		return nil, err
+	}
+	return data, nil
+}
+
+func readMultipartImageFiles(files map[string][][]byte, keys ...string) ([][]byte, string) {
 	var images [][]byte
 	for _, key := range keys {
-		for _, header := range r.MultipartForm.File[key] {
-			file, err := header.Open()
-			if err != nil {
-				return nil, "failed to read uploaded image: " + err.Error()
-			}
-			data, err := io.ReadAll(file)
-			_ = file.Close()
-			if err != nil {
-				return nil, "failed to read uploaded image: " + err.Error()
-			}
+		for _, data := range files[key] {
 			if len(data) == 0 {
 				return nil, "uploaded image is empty"
 			}

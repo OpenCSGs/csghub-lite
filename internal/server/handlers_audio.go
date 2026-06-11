@@ -5,6 +5,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -16,36 +17,33 @@ import (
 )
 
 const maxAudioUploadMemory = 32 << 20
+const maxAudioFormFieldBytes = 1 << 20
 
 // POST /v1/audio/transcriptions -- OpenAI-compatible local audio transcription.
 func (s *Server) handleOpenAIAudioTranscriptions(w http.ResponseWriter, r *http.Request) {
-	if err := r.ParseMultipartForm(maxAudioUploadMemory); err != nil {
-		writeOpenAIError(w, http.StatusBadRequest, "invalid_request_error", "invalid multipart request: "+err.Error())
-		return
-	}
-	modelID := strings.TrimSpace(r.FormValue("model"))
-	if modelID == "" {
-		writeOpenAIError(w, http.StatusBadRequest, "invalid_request_error", "model is required")
-		return
-	}
-
-	audioPath, cleanup, err := s.saveUploadedAudio(r)
+	audioPath, cleanup, form, err := s.saveUploadedAudio(r)
 	if err != nil {
 		writeOpenAIError(w, http.StatusBadRequest, "invalid_request_error", err.Error())
 		return
 	}
 	defer cleanup()
 
+	modelID := strings.TrimSpace(form.Get("model"))
+	if modelID == "" {
+		writeOpenAIError(w, http.StatusBadRequest, "invalid_request_error", "model is required")
+		return
+	}
+
 	req := api.OpenAIAudioTranscriptionRequest{
 		Model:          modelID,
 		FilePath:       audioPath,
-		Language:       strings.TrimSpace(r.FormValue("language")),
-		Prompt:         strings.TrimSpace(r.FormValue("prompt")),
-		ResponseFormat: normalizeAudioResponseFormat(r.FormValue("response_format")),
-		Hotwords:       parseAudioHotwords(r.FormValue("hotwords")),
+		Language:       strings.TrimSpace(form.Get("language")),
+		Prompt:         strings.TrimSpace(form.Get("prompt")),
+		ResponseFormat: normalizeAudioResponseFormat(form.Get("response_format")),
+		Hotwords:       parseAudioHotwords(form.Get("hotwords")),
 	}
-	stream := parseAudioStream(r.FormValue("stream")) || requestWantsSSE(r)
-	if value := strings.TrimSpace(r.FormValue("temperature")); value != "" {
+	stream := parseAudioStream(form.Get("stream")) || requestWantsSSE(r)
+	if value := strings.TrimSpace(form.Get("temperature")); value != "" {
 		temperature, err := strconv.ParseFloat(value, 64)
 		if err != nil {
 			writeOpenAIError(w, http.StatusBadRequest, "invalid_request_error", "temperature must be a number")
@@ -53,7 +51,7 @@ func (s *Server) handleOpenAIAudioTranscriptions(w http.ResponseWriter, r *http.
 		}
 		req.Temperature = &temperature
 	}
-	if value := strings.TrimSpace(r.FormValue("itn")); value != "" {
+	if value := strings.TrimSpace(form.Get("itn")); value != "" {
 		itn, err := strconv.ParseBool(value)
 		if err != nil {
 			writeOpenAIError(w, http.StatusBadRequest, "invalid_request_error", "itn must be a boolean")
@@ -149,7 +147,7 @@ func (s *Server) streamAudioTranscription(w http.ResponseWriter, r *http.Request
 
 // GET /api/asr-runtime -- report the shared Python runtime ASR package status.
 func (s *Server) handleASRRuntimeStatus(w http.ResponseWriter, r *http.Request) {
-	manager, err := imagegen.NewRuntimeManager()
+	manager, err := imagegen.NewASRRuntimeManager()
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -163,7 +161,7 @@ func (s *Server) handleASRRuntimeInstall(w http.ResponseWriter, r *http.Request)
 	if r.Body != nil {
 		_ = json.NewDecoder(r.Body).Decode(&req)
 	}
-	manager, err := imagegen.NewRuntimeManager()
+	manager, err := imagegen.NewASRRuntimeManager()
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -179,31 +177,90 @@ func (s *Server) handleASRRuntimeInstall(w http.ResponseWriter, r *http.Request)
 	writeJSON(w, http.StatusOK, status)
 }
 
-func (s *Server) saveUploadedAudio(r *http.Request) (string, func(), error) {
-	file, header, err := r.FormFile("file")
+func (s *Server) saveUploadedAudio(r *http.Request) (string, func(), url.Values, error) {
+	reader, err := r.MultipartReader()
 	if err != nil {
-		return "", func() {}, err
+		return "", func() {}, nil, err
 	}
-	defer file.Close()
+	form := url.Values{}
+	audioPath := ""
+	cleanup := func() {}
+	for {
+		part, err := reader.NextPart()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			cleanup()
+			return "", func() {}, nil, err
+		}
+		name := part.FormName()
+		if name == "" {
+			_ = part.Close()
+			continue
+		}
+		if name == "file" {
+			if audioPath != "" {
+				_ = part.Close()
+				continue
+			}
+			path, err := s.saveUploadedAudioPart(part)
+			_ = part.Close()
+			if err != nil {
+				cleanup()
+				return "", func() {}, nil, err
+			}
+			audioPath = path
+			cleanup = func() { _ = os.Remove(path) }
+			continue
+		}
+		value, err := readAudioFormField(part)
+		_ = part.Close()
+		if err != nil {
+			cleanup()
+			return "", func() {}, nil, err
+		}
+		form.Add(name, value)
+	}
+	if audioPath == "" {
+		return "", func() {}, nil, http.ErrMissingFile
+	}
+	return audioPath, cleanup, form, nil
+}
 
+func (s *Server) saveUploadedAudioPart(part interface {
+	FileName() string
+	io.Reader
+}) (string, error) {
 	tmpDir := s.cfg.TempDir()
 	if err := os.MkdirAll(tmpDir, 0o755); err != nil {
-		return "", func() {}, err
+		return "", err
 	}
-	ext := filepath.Ext(header.Filename)
+	ext := filepath.Ext(part.FileName())
 	if ext == "" {
 		ext = ".audio"
 	}
 	tmp, err := os.CreateTemp(tmpDir, "asr-*"+ext)
 	if err != nil {
-		return "", func() {}, err
+		return "", err
 	}
 	defer tmp.Close()
-	if _, err := io.Copy(tmp, file); err != nil {
+	if _, err := io.Copy(tmp, part); err != nil {
 		_ = os.Remove(tmp.Name())
-		return "", func() {}, err
+		return "", err
 	}
-	return tmp.Name(), func() { _ = os.Remove(tmp.Name()) }, nil
+	return tmp.Name(), nil
+}
+
+func readAudioFormField(r io.Reader) (string, error) {
+	data, err := io.ReadAll(io.LimitReader(r, maxAudioFormFieldBytes+1))
+	if err != nil {
+		return "", err
+	}
+	if len(data) > maxAudioFormFieldBytes {
+		return "", http.ErrBodyReadAfterClose
+	}
+	return string(data), nil
 }
 
 func normalizeAudioResponseFormat(value string) string {

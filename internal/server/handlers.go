@@ -503,7 +503,7 @@ func (s *Server) handleLoad(w http.ResponseWriter, r *http.Request) {
 				lastLoadProgressLog = time.Now()
 			}
 		}
-		runtimeManager, runtimeErr := imagegen.NewRuntimeManager()
+		runtimeManager, runtimeErr := imagegen.NewASRRuntimeManager()
 		if runtimeErr != nil {
 			err = runtimeErr
 		} else if err = ensureASRRuntimeReady(context.Background(), runtimeManager, asrProgress, false); err == nil {

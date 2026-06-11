@@ -675,7 +675,7 @@ func (s *Server) getOrLoadASREngine(ctx context.Context, modelID string) (asr.En
 		s.mu.Unlock()
 
 		log.Printf("MODEL %s: ASR engine load started", modelID)
-		runtimeManager, err := imagegen.NewRuntimeManager()
+		runtimeManager, err := imagegen.NewASRRuntimeManager()
 		if err == nil {
 			err = ensureASRRuntimeReady(ctx, runtimeManager, nil, false)
 			if err == nil {

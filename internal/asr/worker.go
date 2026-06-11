@@ -14,8 +14,10 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 
+	"github.com/opencsgs/csghub-lite/internal/config"
 	"github.com/opencsgs/csghub-lite/internal/imagegen"
 	"github.com/opencsgs/csghub-lite/pkg/api"
 )
@@ -36,13 +38,18 @@ type PythonEngine struct {
 func NewPythonEngine(ctx context.Context, modelName, modelDir string, runtimeManager *imagegen.RuntimeManager) (*PythonEngine, error) {
 	if runtimeManager == nil {
 		var err error
-		runtimeManager, err = imagegen.NewRuntimeManager()
+		runtimeManager, err = imagegen.NewASRRuntimeManager()
 		if err != nil {
 			return nil, err
 		}
 	}
 	if err := runtimeManager.EnsureASRReady(ctx); err != nil {
 		return nil, err
+	}
+	if requiresQwenASRPackage(modelName, modelDir) {
+		if err := runtimeManager.EnsureQwenASRReady(ctx); err != nil {
+			return nil, err
+		}
 	}
 	if err := writeASRWorkerScript(runtimeManager.RootDir()); err != nil {
 		return nil, err
@@ -54,6 +61,11 @@ func NewPythonEngine(ctx context.Context, modelName, modelDir string, runtimeMan
 	workerPath := filepath.Join(runtimeManager.RootDir(), "asr_worker.py")
 	hardware := string(imagegen.DetectHardware())
 	cmd := exec.Command(runtimeManager.PythonPath(), workerPath, "--model-dir", modelDir, "--model-name", modelName, "--port", strconv.Itoa(port), "--hardware", hardware)
+	tempDir, err := liteTempDir()
+	if err != nil {
+		return nil, err
+	}
+	cmd.Env = withTempDir(os.Environ(), tempDir)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	if err := cmd.Start(); err != nil {
@@ -204,6 +216,52 @@ func writeASRWorkerScript(runtimeDir string) error {
 		return err
 	}
 	return os.WriteFile(filepath.Join(runtimeDir, "asr_worker.py"), asrWorkerScript, 0o644)
+}
+
+func liteTempDir() (string, error) {
+	home, err := config.AppHome()
+	if err != nil {
+		return "", err
+	}
+	tempDir := config.TempDirForStorage(home)
+	if err := os.MkdirAll(tempDir, 0o755); err != nil {
+		return "", err
+	}
+	return tempDir, nil
+}
+
+func withTempDir(env []string, tempDir string) []string {
+	return append(env, "TMPDIR="+tempDir, "TMP="+tempDir, "TEMP="+tempDir)
+}
+
+func requiresQwenASRPackage(modelName, modelDir string) bool {
+	for _, candidate := range []string{modelName, filepath.Base(filepath.Clean(modelDir))} {
+		if strings.Contains(strings.ToLower(candidate), "qwen3-asr") {
+			return true
+		}
+	}
+	cfgPath := filepath.Join(modelDir, "config.json")
+	data, err := os.ReadFile(cfgPath)
+	if err != nil {
+		return false
+	}
+	var cfg struct {
+		ModelType      string   `json:"model_type"`
+		Architectures  []string `json:"architectures"`
+		SupportedArchs []string `json:"supported_archs"`
+	}
+	if err := json.Unmarshal(data, &cfg); err != nil {
+		return false
+	}
+	if strings.EqualFold(strings.ReplaceAll(cfg.ModelType, "-", "_"), "qwen3_asr") {
+		return true
+	}
+	for _, arch := range append(cfg.Architectures, cfg.SupportedArchs...) {
+		if strings.Contains(arch, "Qwen3ASRForConditionalGeneration") {
+			return true
+		}
+	}
+	return false
 }
 
 func findFreePort() (int, error) {

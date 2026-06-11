@@ -25,3 +25,4 @@ this repository. They are written for any coding agent, not only Cursor.
 - `local-preview.md` - local preview port and redeploy workflow.
 - `network-and-secrets.md` - proxy, GitLab, and local secret handling.
 - `release-notes.md` - commit, PR, and release note conventions.
+- `storage.md` - storage root and temporary file placement rules.

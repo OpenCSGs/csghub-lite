@@ -31,6 +31,8 @@ Copilot, and Aider.
   frontend preview servers running.
 - If frontend files change, build `web`, sync `web/dist` into
   `internal/server/static`, then restart the single backend preview.
+- Store all runtime files, including temporary files and subprocess temp output,
+  under the csghub-lite storage root, defaulting to `~/.csghub-lite`.
 - Keep commit, PR, and release notes concise and focused on concrete user-facing
   changes.
 - When syncing llama.cpp binaries: use official `ggml-org/llama.cpp` GitHub
@@ -49,3 +51,4 @@ Copilot, and Aider.
 - `docs/agent-guidelines/local-preview.md`
 - `docs/agent-guidelines/network-and-secrets.md`
 - `docs/agent-guidelines/release-notes.md`
+- `docs/agent-guidelines/storage.md`

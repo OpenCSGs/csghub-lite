@@ -19,6 +19,8 @@ import (
 
 const (
 	runtimeDirName        = "ai-runtime"
+	asrRuntimeDirName     = "asr-runtime"
+	uvCacheDirName        = "uv-cache"
 	legacyRuntimeDirName  = "image-runtime"
 	venvDirName           = "venv"
 	manifestFileName      = "runtime.json"
@@ -45,7 +47,6 @@ var requiredASRPythonPackages = []string{
 	"fastapi",
 	"funasr",
 	"modelscope",
-	"qwen_asr",
 	"transformers",
 	"safetensors",
 	"soundfile",
@@ -54,7 +55,27 @@ var requiredASRPythonPackages = []string{
 	"uvicorn",
 }
 
-var defaultTorchPackages = []string{"torch", "torchvision", "torchaudio"}
+var asrPythonPackages = []string{
+	"fastapi",
+	"funasr",
+	"modelscope",
+	"transformers",
+	"safetensors",
+	"soundfile",
+	"librosa",
+	"imageio-ffmpeg",
+	"uvicorn",
+}
+
+var requiredQwenASRPythonPackages = []string{
+	"qwen_asr",
+}
+
+var defaultTorchPackages = []string{
+	"torch==2.11.0",
+	"torchvision==0.26.0",
+	"torchaudio==2.11.0",
+}
 
 var aliyunCUDATorchPackages = []string{
 	"torch==2.11.0+cu128",
@@ -129,6 +150,14 @@ func NewRuntimeManager() (*RuntimeManager, error) {
 		return nil, err
 	}
 	return NewRuntimeManagerAt(rootDir), nil
+}
+
+func NewASRRuntimeManager() (*RuntimeManager, error) {
+	home, err := config.AppHome()
+	if err != nil {
+		return nil, err
+	}
+	return NewRuntimeManagerAt(filepath.Join(home, asrRuntimeDirName)), nil
 }
 
 func NewRuntimeManagerAt(rootDir string) *RuntimeManager {
@@ -233,7 +262,7 @@ func (m *RuntimeManager) ASRStatus(ctx context.Context) RuntimeStatus {
 		Hardware:      hardware,
 		TorchIndexURL: torchSourceURL(indexes),
 	}
-	status.InstallCommand = m.InstallCommand(status.Hardware)
+	status.InstallCommand = m.ASRInstallCommand(status.Hardware)
 
 	if _, err := os.Stat(status.Python); err != nil {
 		status.Error = "ASR runtime is not installed"
@@ -380,7 +409,7 @@ func (m *RuntimeManager) InstallASRWithProgressOptions(ctx context.Context, prog
 	hardware := DetectHardware()
 	indexes := ResolvePackageIndexes(hardware)
 	progress(fmt.Sprintf("detect system %s/%s %s mirror=%s", runtime.GOOS, runtime.GOARCH, hardware, indexes.Mirror), 1, 5)
-	progress("prepare shared Python runtime", 2, 5)
+	progress("prepare ASR runtime", 2, 5)
 	if err := os.MkdirAll(m.rootDir, 0o755); err != nil {
 		return m.ASRStatus(ctx), fmt.Errorf("creating runtime directory: %w", err)
 	}
@@ -422,7 +451,6 @@ func (m *RuntimeManager) InstallASRWithProgressOptions(ctx context.Context, prog
 		}
 	}
 
-	asrPackages := []string{"fastapi", "funasr", "modelscope", "qwen-asr", "transformers", "safetensors", "soundfile", "librosa", "imageio-ffmpeg", "uvicorn"}
 	asrMissing, err := missingPackages(ctx, python, requiredASRPythonPackages)
 	if err != nil {
 		return m.ASRStatus(ctx), err
@@ -430,7 +458,7 @@ func (m *RuntimeManager) InstallASRWithProgressOptions(ctx context.Context, prog
 	if len(asrMissing) == 0 && !upgradePackages {
 		return m.ASRStatus(ctx), nil
 	}
-	installPackages := asrPackages
+	installPackages := asrPythonPackages
 	if !upgradePackages {
 		installPackages = asrMissing
 	}
@@ -464,12 +492,29 @@ func (m *RuntimeManager) InstallASRWithProgressOptions(ctx context.Context, prog
 		UpdatedAt:   now,
 		TorchIndex:  torchSourceURL(indexes),
 		PyPIIndex:   indexes.PyPIIndexURL,
-		PackageSpec: append(torchPackageSpecs(DetectHardware(), indexes), "fastapi", "funasr", "modelscope", "qwen-asr", "transformers", "safetensors", "soundfile", "librosa", "imageio-ffmpeg", "uvicorn"),
+		PackageSpec: append(torchPackageSpecs(DetectHardware(), indexes), asrPythonPackages...),
 	}
 	if err := writeManifest(filepath.Join(m.rootDir, manifestFileName), manifest); err != nil {
 		return m.ASRStatus(ctx), err
 	}
 	return m.ASRStatus(ctx), nil
+}
+
+func (m *RuntimeManager) EnsureQwenASRReady(ctx context.Context) error {
+	missing, err := missingPackages(ctx, m.PythonPath(), requiredQwenASRPythonPackages)
+	if err != nil {
+		return err
+	}
+	if len(missing) == 0 {
+		return nil
+	}
+	if err := m.ensurePipAndUV(ctx, m.PythonPath(), ResolvePackageIndexes(DetectHardware())); err != nil {
+		return err
+	}
+	if err := m.uvPipInstall(ctx, m.PythonPath(), ResolvePackageIndexes(DetectHardware()), []string{"qwen-asr"}, false, false); err != nil {
+		return fmt.Errorf("installing Qwen ASR dependencies: %w", err)
+	}
+	return nil
 }
 
 func (m *RuntimeManager) InstallCommand(hw HardwareKind) []string {
@@ -496,6 +541,37 @@ func (m *RuntimeManager) InstallCommand(hw HardwareKind) []string {
 	cmd = append(cmd, torchPackageSpecs(hw, indexes)...)
 	cmd = append(cmd, torchInstallIndexArgs(indexes)...)
 	cmd = append(cmd, "&&", uvPath, "pip", "install", "--python", pythonPath, "diffusers>=0.34.0", "transformers>=4.48.0,<5.0", "accelerate", "safetensors", "sentencepiece", "protobuf", "pillow")
+	if indexes.PyPIIndexURL != "" {
+		cmd = append(cmd, "--index-url", indexes.PyPIIndexURL)
+	}
+	return cmd
+}
+
+func (m *RuntimeManager) ASRInstallCommand(hw HardwareKind) []string {
+	python := "python3"
+	if runtime.GOOS == "windows" {
+		python = "py -3"
+	}
+	venv := m.VenvDir()
+	if strings.ContainsAny(venv, " \t") {
+		venv = fmt.Sprintf("%q", venv)
+	}
+	pythonPath := m.PythonPath()
+	uvPath := m.uvPath()
+	indexes := ResolvePackageIndexes(hw)
+	cmd := []string{python, "-m", "venv", venv, "&&", pythonPath, "-m", "ensurepip", "--upgrade", "&&", pythonPath, "-m", "pip", "install", "--upgrade", "pip"}
+	if indexes.PyPIIndexURL != "" {
+		cmd = append(cmd, "-i", indexes.PyPIIndexURL)
+	}
+	cmd = append(cmd, "&&", pythonPath, "-m", "pip", "install", "uv")
+	if indexes.PyPIIndexURL != "" {
+		cmd = append(cmd, "-i", indexes.PyPIIndexURL)
+	}
+	cmd = append(cmd, "&&", uvPath, "pip", "install", "--python", pythonPath)
+	cmd = append(cmd, torchPackageSpecs(hw, indexes)...)
+	cmd = append(cmd, torchInstallIndexArgs(indexes)...)
+	cmd = append(cmd, "&&", uvPath, "pip", "install", "--python", pythonPath)
+	cmd = append(cmd, asrPythonPackages...)
 	if indexes.PyPIIndexURL != "" {
 		cmd = append(cmd, "--index-url", indexes.PyPIIndexURL)
 	}
@@ -712,7 +788,7 @@ func torchInstallIndexArgs(indexes PackageIndexes) []string {
 }
 
 func (m *RuntimeManager) uvInstallEnv() []string {
-	cacheDir := filepath.Join(m.rootDir, "uv-cache")
+	cacheDir := filepath.Join(filepath.Dir(m.rootDir), uvCacheDirName)
 	_ = os.MkdirAll(cacheDir, 0o755)
 	return []string{"UV_CACHE_DIR=" + cacheDir}
 }
