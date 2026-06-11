@@ -348,9 +348,6 @@ export function ImageGeneration() {
     return () => {
       cancelled = true;
       window.removeEventListener(providersChangedEvent, onProvidersChanged);
-      if (activeJobID.value) {
-        cancelImageGenerationJob(activeJobID.value).catch(() => {});
-      }
     };
   }, []);
 
