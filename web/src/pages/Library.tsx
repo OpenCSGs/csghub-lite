@@ -591,7 +591,7 @@ export function Library() {
               <SortHeader label={t("lib.fileSize")} field="size" current={sortField.value} asc={sortAsc.value} onToggle={toggleSort} />
               <th class="px-4 py-3 font-medium">{t("downloads.progress")}</th>
               <SortHeader label={t("lib.dateTime")} field="modified_at" current={sortField.value} asc={sortAsc.value} onToggle={toggleSort} />
-              <th class="px-4 py-3 font-medium text-right">{t("lib.operation")}</th>
+              <th class="px-4 py-3 font-medium text-right w-[220px] min-w-[220px]">{t("lib.operation")}</th>
             </tr>
           </thead>
           <tbody>
@@ -635,8 +635,8 @@ export function Library() {
                   <td class="px-4 py-3 text-gray-500">
                     {new Date(m.modified_at).toLocaleDateString("en-US", { day: "numeric", month: "long" })}
                   </td>
-                  <td class="px-4 py-3">
-                    <div class="flex items-center justify-end gap-3 flex-wrap">
+                  <td class="px-4 py-3 w-[220px] min-w-[220px]">
+                    <div class="flex items-center justify-end gap-3 whitespace-nowrap">
                       <button
                         disabled={task?.status === "downloading"}
                         onClick={() => {
@@ -645,14 +645,14 @@ export function Library() {
                           }
                           handleDelete(m.name);
                         }}
-                        class="text-gray-500 hover:text-red-600 text-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                        class="shrink-0 text-gray-500 hover:text-red-600 text-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                       >
                         {t("lib.delete")}
                       </button>
                       {task?.status === "downloading" ? (
                         <button
                           onClick={() => pauseDownload(task.kind, task.name)}
-                          class="inline-flex items-center justify-center w-16 px-3 py-1 text-xs rounded bg-indigo-600 text-white hover:bg-indigo-700 transition-colors font-medium"
+                          class="inline-flex shrink-0 items-center justify-center w-16 px-3 py-1 text-xs rounded bg-indigo-600 text-white hover:bg-indigo-700 transition-colors font-medium"
                         >
                           {t("downloads.pause")}
                         </button>
@@ -660,23 +660,23 @@ export function Library() {
                         <button
                           onClick={() => startDownload(task.kind, task.name, () => void loadModels())}
                           disabled={hasActiveDownload.value && getDownloadTask("model", task.name)?.status !== "paused"}
-                          class="inline-flex items-center justify-center w-16 px-3 py-1 text-xs rounded bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-50 transition-colors font-medium"
+                          class="inline-flex shrink-0 items-center justify-center w-16 px-3 py-1 text-xs rounded bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-50 transition-colors font-medium"
                         >
                           {t("downloads.resume")}
                         </button>
                       ) : downloadOnly ? (
-                        <span class="inline-flex items-center justify-center w-16 px-3 py-1 text-xs rounded bg-gray-50 text-gray-400 font-medium">
+                        <span class="inline-flex shrink-0 items-center justify-center w-16 px-3 py-1 text-xs rounded bg-gray-50 text-gray-400 font-medium">
                           —
                         </span>
                       ) : runningStatus(m.name) === "running" ? (
                         <>
                           <button
                             onClick={() => (apiDialogModel.value = m)}
-                            class="inline-flex items-center justify-center w-16 px-3 py-1 text-xs rounded border border-indigo-200 bg-white text-indigo-700 hover:bg-indigo-50 transition-colors font-medium"
+                            class="inline-flex shrink-0 items-center justify-center w-16 px-3 py-1 text-xs rounded border border-indigo-200 bg-white text-indigo-700 hover:bg-indigo-50 transition-colors font-medium"
                           >
                             {t("lib.api")}
                           </button>
-                          <span class="inline-flex items-center justify-center w-16 px-3 py-1 text-xs rounded bg-green-50 text-green-700 font-medium">
+                          <span class="inline-flex shrink-0 items-center justify-center w-16 px-3 py-1 text-xs rounded bg-green-50 text-green-700 font-medium">
                             {t("lib.running")}
                           </span>
                         </>
@@ -698,7 +698,7 @@ export function Library() {
                         <button
                           onClick={() => openRunDialog(m)}
                           disabled={!!loadingRun.value || hasActiveDownload.value}
-                          class="inline-flex items-center justify-center w-16 px-3 py-1 text-xs rounded bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-50 transition-colors font-medium"
+                          class="inline-flex shrink-0 items-center justify-center w-16 px-3 py-1 text-xs rounded bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-50 transition-colors font-medium"
                         >
                           {t("lib.run")}
                         </button>

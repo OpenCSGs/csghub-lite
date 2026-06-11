@@ -110,15 +110,16 @@ func (s *Server) handleAPIUsage(w http.ResponseWriter, r *http.Request) {
 	resp := api.APIUsageResponse{
 		Period:       period,
 		TotalHistory: apiUsageTotalTokens(historyState.Records),
-		TotalSummary: s.apiUsageTotalSummary(r.Context(), state.Events, since),
 		Rows:         make([]api.APIUsageRow, 0, len(state.Records)),
 		SourceTotals: make([]api.APIUsageSourceTotal, 0, 4),
 	}
+	sourceHints := apiUsageSourceHints(historyState.Events, historyState.Records)
+	resp.TotalSummary = s.apiUsageTotalSummary(r.Context(), state.Events, since, sourceHints)
 	if since != nil {
 		resp.From = since
 	}
 	for _, record := range state.Records {
-		row := s.apiUsageRow(r.Context(), record)
+		row := s.apiUsageRow(r.Context(), record, sourceHints)
 		resp.Totals.Requests += record.Requests
 		resp.Totals.InputTokens += record.InputTokens
 		resp.Totals.OutputTokens += record.OutputTokens
@@ -142,7 +143,47 @@ func apiUsageTotalTokens(records []config.APIUsageRecord) int64 {
 	return total
 }
 
-func (s *Server) apiUsageTotalSummary(ctx context.Context, events []config.APIUsageEventRecord, since *time.Time) api.APIUsageTotalSummary {
+type apiUsageSourceHint struct {
+	source     string
+	sourceType string
+	sourceName string
+}
+
+func apiUsageSourceHints(events []config.APIUsageEventRecord, records []config.APIUsageRecord) map[string]apiUsageSourceHint {
+	hints := map[string]apiUsageSourceHint{}
+	ambiguous := map[string]struct{}{}
+	add := func(modelID, source, sourceType, sourceName string) {
+		modelID = strings.TrimSpace(modelID)
+		source = strings.TrimSpace(source)
+		sourceType = strings.TrimSpace(sourceType)
+		sourceName = strings.TrimSpace(sourceName)
+		if modelID == "" || source == "" || sourceType == "" {
+			return
+		}
+		if _, ok := ambiguous[modelID]; ok {
+			return
+		}
+		if current, ok := hints[modelID]; ok && (current.source != source || current.sourceType != sourceType) {
+			delete(hints, modelID)
+			ambiguous[modelID] = struct{}{}
+			return
+		}
+		hints[modelID] = apiUsageSourceHint{
+			source:     source,
+			sourceType: sourceType,
+			sourceName: sourceName,
+		}
+	}
+	for _, event := range events {
+		add(event.Model, event.Source, event.SourceType, event.SourceName)
+	}
+	for _, record := range records {
+		add(record.Model, record.Source, record.SourceType, record.SourceName)
+	}
+	return hints
+}
+
+func (s *Server) apiUsageTotalSummary(ctx context.Context, events []config.APIUsageEventRecord, since *time.Time, sourceHints map[string]apiUsageSourceHint) api.APIUsageTotalSummary {
 	summary := api.APIUsageTotalSummary{
 		XAxis: make([]string, 0),
 		Series: []api.APIUsageSummarySeries{
@@ -171,7 +212,11 @@ func (s *Server) apiUsageTotalSummary(ctx context.Context, events []config.APIUs
 
 		sourceType := strings.TrimSpace(event.SourceType)
 		if sourceType == "" {
-			_, sourceType, _ = s.resolveAPIUsageSource(ctx, event.Model, event.Source)
+			if hint, ok := sourceHints[strings.TrimSpace(event.Model)]; ok {
+				sourceType = hint.sourceType
+			} else {
+				_, sourceType, _ = s.resolveAPIUsageSource(ctx, event.Model, event.Source)
+			}
 		}
 		key := day.Format("2006-01-02")
 		totals := daily[key]
@@ -235,12 +280,18 @@ func apiUsagePeriod(r *http.Request) (string, *time.Time) {
 	}
 }
 
-func (s *Server) apiUsageRow(ctx context.Context, record config.APIUsageRecord) api.APIUsageRow {
+func (s *Server) apiUsageRow(ctx context.Context, record config.APIUsageRecord, sourceHints map[string]apiUsageSourceHint) api.APIUsageRow {
 	source := strings.TrimSpace(record.Source)
 	sourceType := strings.TrimSpace(record.SourceType)
 	sourceName := strings.TrimSpace(record.SourceName)
 	if sourceType == "" || source == "" {
-		source, sourceType, sourceName = s.resolveAPIUsageSource(ctx, record.Model, source)
+		if hint, ok := sourceHints[strings.TrimSpace(record.Model)]; ok {
+			source = hint.source
+			sourceType = hint.sourceType
+			sourceName = hint.sourceName
+		} else {
+			source, sourceType, sourceName = s.resolveAPIUsageSource(ctx, record.Model, source)
+		}
 	}
 	return api.APIUsageRow{
 		APIKeyID:     record.APIKeyID,

@@ -6,6 +6,8 @@ import (
 	"strings"
 
 	"github.com/opencsgs/csghub-lite/internal/config"
+	"github.com/opencsgs/csghub-lite/internal/csghub"
+	"github.com/opencsgs/csghub-lite/internal/model"
 	"github.com/opencsgs/csghub-lite/pkg/api"
 )
 
@@ -58,10 +60,8 @@ func (s *Server) resolveAPIUsageSource(ctx context.Context, model, source string
 		return apiUsageSourceCloud, apiUsageSourceCloud, "OpenCSG"
 	}
 
-	if s != nil && s.manager != nil {
-		if _, err := s.manager.Get(model); err == nil {
-			return apiUsageSourceLocal, apiUsageSourceLocal, ""
-		}
+	if s.isLocalAPIUsageModel(model) {
+		return apiUsageSourceLocal, apiUsageSourceLocal, ""
 	}
 	if s != nil && !s.hasCloudCredential() {
 		if providerSource := s.thirdPartyProviderSourceForModel(ctx, model); providerSource != "" {
@@ -75,6 +75,43 @@ func (s *Server) resolveAPIUsageSource(ctx context.Context, model, source string
 		return s.resolveAPIUsageSource(ctx, model, providerSource)
 	}
 	return apiUsageSourceUnknown, apiUsageSourceUnknown, ""
+}
+
+func (s *Server) isLocalAPIUsageModel(modelID string) bool {
+	modelID = strings.TrimSpace(modelID)
+	if s == nil || s.manager == nil || modelID == "" {
+		return false
+	}
+	if _, err := s.manager.Get(modelID); err == nil {
+		return true
+	}
+	if _, err := s.manager.ResolveLocalModel(modelID); err == nil {
+		return true
+	}
+	return s.matchesLegacyLocalAPIUsageModel(modelID)
+}
+
+func (s *Server) matchesLegacyLocalAPIUsageModel(modelID string) bool {
+	_, legacyName, err := csghub.ParseModelID(modelID)
+	if err != nil {
+		return false
+	}
+	models, err := s.manager.List()
+	if err != nil {
+		return false
+	}
+	publicIDs := model.PublicModelIDs(models)
+	matches := 0
+	for _, item := range models {
+		if item == nil {
+			continue
+		}
+		fullName := strings.TrimSpace(item.FullName())
+		if strings.TrimSpace(item.Name) == legacyName || strings.TrimSpace(publicIDs[fullName]) == legacyName {
+			matches++
+		}
+	}
+	return matches == 1
 }
 
 func countMessageTokens(messages []api.Message) int {

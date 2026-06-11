@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/opencsgs/csghub-lite/internal/config"
+	"github.com/opencsgs/csghub-lite/internal/model"
 	"github.com/opencsgs/csghub-lite/pkg/api"
 )
 
@@ -194,6 +195,97 @@ func TestAPIUsageRecordsBuiltinClientWithoutAPIKey(t *testing.T) {
 	}
 	if resp.Rows[0].SourceType != "provider" || resp.Totals.TotalTokens != 10 || resp.Totals.CloudTokens != 10 {
 		t.Fatalf("unexpected usage row: %#v totals=%#v", resp.Rows[0], resp.Totals)
+	}
+}
+
+func TestAPIUsageBackfillsLegacyMissingSourceFromModelHistory(t *testing.T) {
+	s := newTestServer(t)
+	record, _, err := s.apiKeys.Create("client")
+	if err != nil {
+		t.Fatalf("create key: %v", err)
+	}
+
+	for _, event := range []config.APIUsageEvent{
+		{
+			APIKeyID:     record.ID,
+			APIKeyName:   record.Name,
+			Model:        "Qwen/Qwen3-0.6B",
+			InputTokens:  9,
+			OutputTokens: 97,
+		},
+		{
+			APIKeyID:     apiUsageBuiltinKeyID,
+			APIKeyName:   apiUsageBuiltinKeyName,
+			Model:        "Qwen/Qwen3-0.6B",
+			Source:       apiUsageSourceLocal,
+			SourceType:   apiUsageSourceLocal,
+			InputTokens:  10,
+			OutputTokens: 20,
+		},
+	} {
+		if err := s.apiUsage.Add(event); err != nil {
+			t.Fatalf("add usage: %v", err)
+		}
+	}
+
+	w := httptest.NewRecorder()
+	s.handleAPIUsage(w, httptest.NewRequest(http.MethodGet, "/api/api-usage", nil))
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s, want 200", w.Code, w.Body.String())
+	}
+	var resp api.APIUsageResponse
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode usage: %v", err)
+	}
+	if len(resp.Rows) != 2 {
+		t.Fatalf("rows = %d, want 2: %#v", len(resp.Rows), resp.Rows)
+	}
+	for _, row := range resp.Rows {
+		if row.SourceType != apiUsageSourceLocal {
+			t.Fatalf("row source_type = %q, want local: %#v", row.SourceType, row)
+		}
+	}
+	if len(resp.SourceTotals) != 1 || resp.SourceTotals[0].SourceType != apiUsageSourceLocal || resp.SourceTotals[0].TotalTokens != 136 {
+		t.Fatalf("unexpected source totals: %#v", resp.SourceTotals)
+	}
+	if resp.Totals.LocalTokens != 136 || resp.Totals.CloudTokens != 0 {
+		t.Fatalf("unexpected source token totals: %#v", resp.Totals)
+	}
+}
+
+func TestAPIUsageSourceHintsIgnoreAmbiguousModel(t *testing.T) {
+	hints := apiUsageSourceHints([]config.APIUsageEventRecord{
+		{
+			Model:      "shared/model",
+			Source:     apiUsageSourceCloud,
+			SourceType: apiUsageSourceCloud,
+		},
+		{
+			Model:      "shared/model",
+			Source:     "provider:test",
+			SourceType: apiUsageSourceProvider,
+			SourceName: "Provider",
+		},
+	}, nil)
+
+	if _, ok := hints["shared/model"]; ok {
+		t.Fatalf("ambiguous model source hint was retained: %#v", hints["shared/model"])
+	}
+}
+
+func TestAPIUsageResolvesLegacyLocalModelID(t *testing.T) {
+	s := newTestServer(t)
+	if err := model.SaveManifest(s.cfg.ModelDir, &model.LocalModel{
+		Namespace: "NewQwen",
+		Name:      "Qwen3-0.6B",
+		Format:    model.FormatGGUF,
+	}); err != nil {
+		t.Fatalf("save manifest: %v", err)
+	}
+
+	_, sourceType, _ := s.resolveAPIUsageSource(context.Background(), "Qwen/Qwen3-0.6B", "")
+	if sourceType != apiUsageSourceLocal {
+		t.Fatalf("sourceType = %q, want local", sourceType)
 	}
 }
 
