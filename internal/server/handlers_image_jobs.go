@@ -1,10 +1,14 @@
 package server
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"image"
+	"image/jpeg"
+	_ "image/png"
 	"log"
 	"net/http"
 	"os"
@@ -26,9 +30,11 @@ const (
 	imageJobFailed    = "failed"
 	imageJobCancelled = "cancelled"
 
-	imageJobHistoryDirName  = "image-jobs"
-	imageJobHistoryFileName = "jobs.json"
-	maxCompletedImageJobs   = 50
+	imageJobHistoryDirName   = "image-jobs"
+	imageJobHistoryFileName  = "jobs.json"
+	maxCompletedImageJobs    = 50
+	imageJobThumbnailMaxSide = 384
+	imageJobThumbnailQuality = 78
 )
 
 type imageGenerationJob struct {
@@ -46,14 +52,16 @@ type imageGenerationJob struct {
 }
 
 type imageGenerationJobStore struct {
-	mu       sync.Mutex
-	jobs     map[string]*imageGenerationJob
-	filePath string
+	mu             sync.Mutex
+	jobs           map[string]*imageGenerationJob
+	filePath       string
+	thumbnailCache map[string]*api.OpenAIImagesGenerationResponse
 }
 
 func newImageGenerationJobStore(storageDir string) *imageGenerationJobStore {
 	store := &imageGenerationJobStore{
-		jobs: map[string]*imageGenerationJob{},
+		jobs:           map[string]*imageGenerationJob{},
+		thumbnailCache: map[string]*api.OpenAIImagesGenerationResponse{},
 	}
 	if storageDir != "" {
 		store.filePath = filepath.Join(storageDir, imageJobHistoryDirName, imageJobHistoryFileName)
@@ -83,7 +91,7 @@ func (s *Server) handleImageGenerationJobCreate(w http.ResponseWriter, r *http.R
 }
 
 func (s *Server) handleImageGenerationJobList(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, api.ImageGenerationJobListResponse{Jobs: s.imageJobs.list()})
+	writeJSON(w, http.StatusOK, api.ImageGenerationJobListResponse{Jobs: s.imageJobs.listSummaries()})
 }
 
 func (s *Server) handleImageGenerationJobGet(w http.ResponseWriter, r *http.Request) {
@@ -133,7 +141,9 @@ func (s *Server) handleImageGenerationJobCancel(w http.ResponseWriter, r *http.R
 		return
 	}
 	job.mu.Unlock()
-	writeJSON(w, http.StatusOK, imageJobResponse(job))
+	resp := imageJobResponse(job)
+	s.imageJobs.delete(job.id)
+	writeJSON(w, http.StatusOK, resp)
 }
 
 func (s *Server) createImageGenerationJob(req api.OpenAIImagesGenerationRequest) (*imageGenerationJob, error) {
@@ -216,6 +226,21 @@ func (s *imageGenerationJobStore) get(id string) *imageGenerationJob {
 	return s.jobs[id]
 }
 
+func (s *imageGenerationJobStore) delete(id string) {
+	s.mu.Lock()
+	delete(s.jobs, id)
+	for key := range s.thumbnailCache {
+		if strings.HasPrefix(key, id+":") {
+			delete(s.thumbnailCache, key)
+		}
+	}
+	err := s.saveLocked()
+	s.mu.Unlock()
+	if err != nil {
+		log.Printf("IMAGE JOBS: failed to save history after delete: %v", err)
+	}
+}
+
 func (s *imageGenerationJobStore) list() []api.ImageGenerationJobResponse {
 	s.mu.Lock()
 	jobs := make([]*imageGenerationJob, 0, len(s.jobs))
@@ -226,6 +251,23 @@ func (s *imageGenerationJobStore) list() []api.ImageGenerationJobResponse {
 	out := make([]api.ImageGenerationJobResponse, 0, len(jobs))
 	for _, job := range jobs {
 		out = append(out, imageJobResponse(job))
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		return out[i].UpdatedAt.After(out[j].UpdatedAt)
+	})
+	return out
+}
+
+func (s *imageGenerationJobStore) listSummaries() []api.ImageGenerationJobResponse {
+	s.mu.Lock()
+	jobs := make([]*imageGenerationJob, 0, len(s.jobs))
+	for _, job := range s.jobs {
+		jobs = append(jobs, job)
+	}
+	s.mu.Unlock()
+	out := make([]api.ImageGenerationJobResponse, 0, len(jobs))
+	for _, job := range jobs {
+		out = append(out, imageJobResponseWithThumbnail(job, s))
 	}
 	sort.SliceStable(out, func(i, j int) bool {
 		return out[i].UpdatedAt.After(out[j].UpdatedAt)
@@ -246,6 +288,101 @@ func imageJobResponse(job *imageGenerationJob) api.ImageGenerationJobResponse {
 		Result:      job.result,
 		Error:       job.err,
 	}
+}
+
+func imageJobResponseWithThumbnail(job *imageGenerationJob, store *imageGenerationJobStore) api.ImageGenerationJobResponse {
+	resp := imageJobResponse(job)
+	if resp.Result != nil {
+		resp.Result = store.thumbnailResult(job, resp.Result, resp.UpdatedAt)
+	}
+	return resp
+}
+
+func (s *imageGenerationJobStore) thumbnailResult(job *imageGenerationJob, result *api.OpenAIImagesGenerationResponse, updatedAt time.Time) *api.OpenAIImagesGenerationResponse {
+	if result == nil {
+		return nil
+	}
+	cacheKey := job.id + ":" + updatedAt.Format(time.RFC3339Nano)
+	s.mu.Lock()
+	if cached := s.thumbnailCache[cacheKey]; cached != nil {
+		s.mu.Unlock()
+		return cached
+	}
+	s.mu.Unlock()
+
+	thumbnail := &api.OpenAIImagesGenerationResponse{
+		Created: result.Created,
+		Data:    make([]api.OpenAIImage, 0, len(result.Data)),
+	}
+	for _, item := range result.Data {
+		thumbnail.Data = append(thumbnail.Data, thumbnailImage(item))
+	}
+
+	s.mu.Lock()
+	s.thumbnailCache[cacheKey] = thumbnail
+	s.mu.Unlock()
+	return thumbnail
+}
+
+func thumbnailImage(item api.OpenAIImage) api.OpenAIImage {
+	out := api.OpenAIImage{
+		URL:           item.URL,
+		RevisedPrompt: item.RevisedPrompt,
+	}
+	encoded := strings.TrimSpace(item.B64JSON)
+	if encoded == "" {
+		return out
+	}
+	data, err := base64.StdEncoding.DecodeString(encoded)
+	if err != nil {
+		return out
+	}
+	img, _, err := image.Decode(bytes.NewReader(data))
+	if err != nil {
+		return out
+	}
+	thumb := resizeImageMaxSide(img, imageJobThumbnailMaxSide)
+	var buf bytes.Buffer
+	if err := jpeg.Encode(&buf, thumb, &jpeg.Options{Quality: imageJobThumbnailQuality}); err != nil {
+		return out
+	}
+	out.B64JSON = base64.StdEncoding.EncodeToString(buf.Bytes())
+	return out
+}
+
+func resizeImageMaxSide(src image.Image, maxSide int) image.Image {
+	bounds := src.Bounds()
+	width := bounds.Dx()
+	height := bounds.Dy()
+	if width <= 0 || height <= 0 || maxSide <= 0 {
+		return src
+	}
+	if width <= maxSide && height <= maxSide {
+		return src
+	}
+	newWidth, newHeight := width, height
+	if width >= height {
+		newWidth = maxSide
+		newHeight = maxSide * height / width
+	} else {
+		newHeight = maxSide
+		newWidth = maxSide * width / height
+	}
+	if newWidth < 1 {
+		newWidth = 1
+	}
+	if newHeight < 1 {
+		newHeight = 1
+	}
+	dst := image.NewRGBA(image.Rect(0, 0, newWidth, newHeight))
+	for y := 0; y < newHeight; y++ {
+		srcY := bounds.Min.Y + y*height/newHeight
+		for x := 0; x < newWidth; x++ {
+			srcX := bounds.Min.X + x*width/newWidth
+			dst.Set(x, y, src.At(srcX, srcY))
+		}
+	}
+	return dst
 }
 
 func (j *imageGenerationJob) setRunning() {

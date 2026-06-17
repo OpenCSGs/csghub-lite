@@ -1,17 +1,21 @@
 import { useEffect } from "preact/hooks";
 import { signal } from "@preact/signals";
-import { listImageGenerationJobs } from "../api/client";
+import { deleteImageGenerationJob, getImageGenerationJobResult, listImageGenerationJobs } from "../api/client";
 import type { ImageGenerationJobResponse } from "../api/client";
 import { locale, t } from "../i18n";
 
 const jobs = signal<ImageGenerationJobResponse[]>([]);
 const error = signal("");
 const loading = signal(false);
-const preview = signal<{ src: string; title: string } | null>(null);
+const deletingJobID = signal("");
+const loadingImageKey = signal("");
+const preview = signal<{ jobID: string; src: string; title: string } | null>(null);
 
 function imageDataURL(image: string): string {
   if (/^(https?:|blob:)/i.test(image)) return image;
-  return image.startsWith("data:") ? image : `data:image/png;base64,${image}`;
+  if (image.startsWith("data:")) return image;
+  const mime = image.startsWith("/9j/") ? "image/jpeg" : "image/png";
+  return `data:${mime};base64,${image}`;
 }
 
 function jobImages(job: ImageGenerationJobResponse): string[] {
@@ -51,6 +55,48 @@ function downloadImage(image: string, job: ImageGenerationJobResponse, index: nu
   a.remove();
 }
 
+async function loadFullImage(job: ImageGenerationJobResponse, index: number): Promise<string> {
+  const result = await getImageGenerationJobResult(job.id);
+  const image = result.data?.[index];
+  return image?.b64_json || image?.url || jobImages(job)[index] || "";
+}
+
+async function openPreview(job: ImageGenerationJobResponse, index: number) {
+  const key = `${job.id}:${index}`;
+  loadingImageKey.value = key;
+  error.value = "";
+  try {
+    const image = await loadFullImage(job, index);
+    if (image) {
+      preview.value = { jobID: job.id, src: imageDataURL(image), title: job.request.prompt };
+    }
+  } catch (err: any) {
+    error.value = err?.message || t("image.loadFullImageFailed");
+  } finally {
+    if (loadingImageKey.value === key) {
+      loadingImageKey.value = "";
+    }
+  }
+}
+
+async function downloadFullImage(job: ImageGenerationJobResponse, index: number) {
+  const key = `${job.id}:${index}`;
+  loadingImageKey.value = key;
+  error.value = "";
+  try {
+    const image = await loadFullImage(job, index);
+    if (image) {
+      downloadImage(image, job, index);
+    }
+  } catch (err: any) {
+    error.value = err?.message || t("image.loadFullImageFailed");
+  } finally {
+    if (loadingImageKey.value === key) {
+      loadingImageKey.value = "";
+    }
+  }
+}
+
 async function refreshJobs() {
   loading.value = true;
   error.value = "";
@@ -61,6 +107,24 @@ async function refreshJobs() {
     error.value = err?.message || String(err);
   } finally {
     loading.value = false;
+  }
+}
+
+async function deleteJob(job: ImageGenerationJobResponse) {
+  if (deletingJobID.value) return;
+  if (!confirm(t("image.deleteJobConfirm"))) return;
+  deletingJobID.value = job.id;
+  error.value = "";
+  try {
+    await deleteImageGenerationJob(job.id);
+    jobs.value = jobs.value.filter((item) => item.id !== job.id);
+    if (preview.value?.jobID === job.id) {
+      preview.value = null;
+    }
+  } catch (err: any) {
+    error.value = err?.message || t("image.deleteJobFailed");
+  } finally {
+    deletingJobID.value = "";
   }
 }
 
@@ -111,9 +175,19 @@ export function ImageHistory() {
                       </div>
                       <p class="line-clamp-2 text-sm font-semibold leading-6 text-gray-900">{job.request.prompt}</p>
                     </div>
-                    <time class="shrink-0 text-left text-xs text-gray-400 sm:text-right" dateTime={job.created_at}>
-                      {new Date(job.created_at).toLocaleString()}
-                    </time>
+                    <div class="flex shrink-0 items-center gap-2 sm:flex-col sm:items-end">
+                      <time class="text-left text-xs text-gray-400 sm:text-right" dateTime={job.created_at}>
+                        {new Date(job.created_at).toLocaleString()}
+                      </time>
+                      <button
+                        type="button"
+                        onClick={() => void deleteJob(job)}
+                        disabled={deletingJobID.value === job.id}
+                        class="rounded-lg border border-red-200 px-3 py-1.5 text-xs font-medium text-red-600 hover:bg-red-50 disabled:opacity-50"
+                      >
+                        {deletingJobID.value === job.id ? t("image.deletingJob") : t("image.deleteJob")}
+                      </button>
+                    </div>
                   </div>
                   <div class="flex flex-wrap gap-2 text-xs text-gray-600">
                     <span class="rounded-full bg-white px-2.5 py-1 ring-1 ring-gray-200">{size}</span>
@@ -128,7 +202,7 @@ export function ImageHistory() {
                       <div key={`${job.id}-${i}`} class="overflow-hidden rounded-xl border border-gray-200 bg-gray-50">
                         <button
                           type="button"
-                          onClick={() => (preview.value = { src: imageDataURL(img), title: job.request.prompt })}
+                          onClick={() => void openPreview(job, i)}
                           class={`block w-full overflow-hidden bg-gray-100 ${historyImageClass(size)}`}
                         >
                           <img src={imageDataURL(img)} alt={job.request.prompt} class="h-full w-full object-contain transition-opacity duration-200 hover:opacity-95" />
@@ -137,10 +211,11 @@ export function ImageHistory() {
                           <span class="truncate text-xs text-gray-400">{images.length > 1 ? `${i + 1}/${images.length}` : size}</span>
                           <button
                             type="button"
-                            onClick={() => downloadImage(img, job, i)}
-                            class="rounded-lg border border-gray-200 px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-50"
+                            onClick={() => void downloadFullImage(job, i)}
+                            disabled={loadingImageKey.value === `${job.id}:${i}`}
+                            class="rounded-lg border border-gray-200 px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-50 disabled:opacity-50"
                           >
-                            {t("image.download")}
+                            {loadingImageKey.value === `${job.id}:${i}` ? t("image.loadingFullImage") : t("image.download")}
                           </button>
                         </div>
                       </div>

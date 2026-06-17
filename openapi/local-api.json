@@ -2016,7 +2016,7 @@
           "Images"
         ],
         "summary": "List image generation jobs",
-        "description": "Returns persisted image generation and editing jobs, including running jobs and retained completed history.",
+        "description": "Returns persisted image generation and editing jobs, including running jobs and retained completed history. Completed job results in this list contain lightweight thumbnail image data; use the job detail or result endpoint for full-quality images.",
         "operationId": "listImageGenerationJobs",
         "responses": {
           "200": {
@@ -2102,7 +2102,8 @@
         "tags": [
           "Images"
         ],
-        "summary": "Cancel image generation job",
+        "summary": "Cancel or delete image generation job",
+        "description": "Cancels a queued or running image job. For completed, failed, or cancelled jobs, removes the persisted history item.",
         "operationId": "cancelImageGenerationJob",
         "parameters": [
           {
@@ -2116,7 +2117,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Cancelled job status.",
+            "description": "Cancelled or deleted job status.",
             "content": {
               "application/json": {
                 "schema": {
@@ -7422,6 +7423,7 @@
       },
       "ImageGenerationJobListResponse": {
         "type": "object",
+        "description": "Image generation jobs. List responses use lightweight thumbnail image data in completed job results to keep history loading fast.",
         "additionalProperties": false,
         "required": [
           "jobs"
@@ -7475,6 +7477,7 @@
             "$ref": "#/components/schemas/OpenAIImagesGenerationRequest"
           },
           "result": {
+            "description": "Image result data. In list responses this may contain thumbnail-sized image data; job detail and result endpoints return full-quality image data.",
             "$ref": "#/components/schemas/OpenAIImagesGenerationResponse"
           },
           "error": {

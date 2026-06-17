@@ -235,7 +235,9 @@ function appendNegativeTerm(term: string) {
 
 function imageDataURL(image: string): string {
   if (/^(https?:|blob:)/i.test(image)) return image;
-  return image.startsWith("data:") ? image : `data:image/png;base64,${image}`;
+  if (image.startsWith("data:")) return image;
+  const mime = image.startsWith("/9j/") ? "image/jpeg" : "image/png";
+  return `data:${mime};base64,${image}`;
 }
 
 function hasCloudAuth(status: CloudAuthStatus | null | undefined): boolean {
@@ -404,7 +406,12 @@ async function refreshRuntime() {
 
 async function refreshImageJobs() {
   const list = await listImageGenerationJobs();
-  imageJobs.value = list.jobs || [];
+  const fullCurrentResult = currentResultJobID.value
+    ? imageJobs.value.find((job) => job.id === currentResultJobID.value && job.result)
+    : undefined;
+  imageJobs.value = (list.jobs || []).map((job) => (
+    fullCurrentResult && job.id === fullCurrentResult.id ? fullCurrentResult : job
+  ));
 }
 
 async function refreshCloudAuth(): Promise<CloudAuthStatus> {
@@ -441,6 +448,7 @@ export function ImageGeneration() {
     refreshImageJobs().catch((err) => (error.value = err.message || String(err)));
     refreshCloudAuth().catch(() => {});
     const jobsTimer = window.setInterval(() => {
+      if (loading.value) return;
       refreshImageJobs().catch(() => {});
     }, 3000);
     const onProvidersChanged = () => {
@@ -545,8 +553,9 @@ export function ImageGeneration() {
       let latest = job;
       while (loading.value) {
         if (latest.status === "succeeded") {
-          await refreshImageJobs();
+          imageJobs.value = [latest, ...imageJobs.value.filter((item) => item.id !== latest.id)];
           currentResultJobID.value = latest.id;
+          refreshImageJobs().catch(() => {});
           break;
         }
         if (latest.status === "failed") {

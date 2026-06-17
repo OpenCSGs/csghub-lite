@@ -3,7 +3,11 @@ package server
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
+	"image"
+	"image/color"
+	"image/png"
 	"io"
 	"mime/multipart"
 	"net/http"
@@ -32,6 +36,20 @@ func (e *fakeImageEngine) Generate(_ context.Context, req api.OpenAIImagesGenera
 			B64JSON: "ZmFrZS1wbmc=",
 		}},
 	}, nil
+}
+
+func testPNGBase64(t *testing.T) string {
+	t.Helper()
+	img := image.NewRGBA(image.Rect(0, 0, 2, 2))
+	img.Set(0, 0, color.RGBA{R: 255, A: 255})
+	img.Set(1, 0, color.RGBA{G: 255, A: 255})
+	img.Set(0, 1, color.RGBA{B: 255, A: 255})
+	img.Set(1, 1, color.RGBA{R: 255, G: 255, B: 255, A: 255})
+	var buf bytes.Buffer
+	if err := png.Encode(&buf, img); err != nil {
+		t.Fatalf("encode png: %v", err)
+	}
+	return base64.StdEncoding.EncodeToString(buf.Bytes())
 }
 
 func (e *fakeImageEngine) Close() error { return nil }
@@ -430,6 +448,7 @@ func TestHandleImageGenerationJobLifecycle(t *testing.T) {
 }
 
 func TestHandleImageGenerationJobListPersistsHistory(t *testing.T) {
+	imageData := testPNGBase64(t)
 	apiServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/v1/images/generations" {
 			t.Fatalf("unexpected path: %s", r.URL.Path)
@@ -438,7 +457,7 @@ func TestHandleImageGenerationJobListPersistsHistory(t *testing.T) {
 		_ = json.NewEncoder(w).Encode(api.OpenAIImagesGenerationResponse{
 			Created: 999,
 			Data: []api.OpenAIImage{{
-				B64JSON: "cGVyc2lzdGVkLWltYWdl",
+				B64JSON: imageData,
 			}},
 		})
 	}))
@@ -508,7 +527,45 @@ func TestHandleImageGenerationJobListPersistsHistory(t *testing.T) {
 	if err := json.Unmarshal(w.Body.Bytes(), &list); err != nil {
 		t.Fatalf("decode reloaded list response: %v", err)
 	}
-	if len(list.Jobs) != 1 || list.Jobs[0].ID != job.ID || list.Jobs[0].Result == nil || list.Jobs[0].Result.Data[0].B64JSON != "cGVyc2lzdGVkLWltYWdl" {
-		t.Fatalf("reloaded list = %#v, want persisted result", list)
+	if len(list.Jobs) != 1 || list.Jobs[0].ID != job.ID || list.Jobs[0].Result == nil || list.Jobs[0].Result.Data[0].B64JSON == "" || list.Jobs[0].Result.Data[0].B64JSON == imageData {
+		t.Fatalf("reloaded list = %#v, want thumbnail result", list)
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/api/images/jobs/"+job.ID+"/result", nil)
+	req.SetPathValue("jobID", job.ID)
+	w = httptest.NewRecorder()
+	reloaded.handleImageGenerationJobResult(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("reloaded result status = %d body=%s", w.Code, w.Body.String())
+	}
+	var result api.OpenAIImagesGenerationResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &result); err != nil {
+		t.Fatalf("decode reloaded result response: %v", err)
+	}
+	if len(result.Data) != 1 || result.Data[0].B64JSON != imageData {
+		t.Fatalf("reloaded result = %#v, want full persisted result", result)
+	}
+
+	req = httptest.NewRequest(http.MethodDelete, "/api/images/jobs/"+job.ID, nil)
+	req.SetPathValue("jobID", job.ID)
+	w = httptest.NewRecorder()
+	reloaded.handleImageGenerationJobCancel(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("delete status = %d body=%s", w.Code, w.Body.String())
+	}
+
+	afterDelete := New(cfg, "test")
+	req = httptest.NewRequest(http.MethodGet, "/api/images/jobs", nil)
+	w = httptest.NewRecorder()
+	afterDelete.handleImageGenerationJobList(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("after delete list status = %d body=%s", w.Code, w.Body.String())
+	}
+	list = api.ImageGenerationJobListResponse{}
+	if err := json.Unmarshal(w.Body.Bytes(), &list); err != nil {
+		t.Fatalf("decode after delete list response: %v", err)
+	}
+	if len(list.Jobs) != 0 {
+		t.Fatalf("after delete list = %#v, want empty history", list)
 	}
 }

@@ -946,6 +946,10 @@ export async function cancelImageGenerationJob(id: string): Promise<ImageGenerat
   });
 }
 
+export async function deleteImageGenerationJob(id: string): Promise<ImageGenerationJobResponse> {
+  return cancelImageGenerationJob(id);
+}
+
 export async function saveSettings(patch: {
   storage_dir?: string;
   model_dir?: string;
