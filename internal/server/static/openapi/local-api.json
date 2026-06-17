@@ -7653,6 +7653,11 @@
           "parallel_tool_calls": {
             "type": "boolean"
           },
+          "chat_template_kwargs": {
+            "type": "object",
+            "additionalProperties": true,
+            "description": "llama.cpp chat template variables, such as {\"enable_thinking\": false} for Qwen thinking models."
+          },
           "stream": {
             "type": "boolean",
             "default": false

@@ -134,6 +134,32 @@ func TestBuildLlamaChatRequestBodyDisablesThinkingForQwen3Family(t *testing.T) {
 	}
 }
 
+func TestApplyLlamaThinkingControlsPreservesExplicitEnableThinking(t *testing.T) {
+	reqBody := map[string]interface{}{
+		"chat_template_kwargs": map[string]interface{}{"enable_thinking": true},
+	}
+
+	applyLlamaThinkingControls("Qwen3.5-2B", reqBody, false)
+
+	kwargs := reqBody["chat_template_kwargs"].(map[string]interface{})
+	if got, ok := kwargs["enable_thinking"].(bool); !ok || !got {
+		t.Fatalf("enable_thinking = %#v, want true", kwargs["enable_thinking"])
+	}
+}
+
+func TestApplyLlamaThinkingControlsForceDisableOverridesExplicitValue(t *testing.T) {
+	reqBody := map[string]interface{}{
+		"chat_template_kwargs": map[string]interface{}{"enable_thinking": true},
+	}
+
+	applyLlamaThinkingControls("Qwen3.5-2B", reqBody, true)
+
+	kwargs := reqBody["chat_template_kwargs"].(map[string]interface{})
+	if got, ok := kwargs["enable_thinking"].(bool); !ok || got {
+		t.Fatalf("enable_thinking = %#v, want false", kwargs["enable_thinking"])
+	}
+}
+
 func TestBuildLlamaChatRequestBodyLeavesLlamaModelsUntouched(t *testing.T) {
 	reqBody := buildLlamaChatRequestBody("meta-llama/Llama-3.1-8B-Instruct", []Message{{Role: "user", Content: "hi"}}, DefaultOptions(), false)
 

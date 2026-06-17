@@ -535,6 +535,7 @@ func (e *llamaEngine) baseURL() string {
 }
 
 func (e *llamaEngine) ChatCompletion(ctx context.Context, reqBody map[string]interface{}) (*http.Response, error) {
+	applyLlamaThinkingControls(e.modelName, reqBody, false)
 	body, err := json.Marshal(reqBody)
 	if err != nil {
 		return nil, fmt.Errorf("marshaling request: %w", err)
@@ -749,14 +750,24 @@ func buildLlamaChatRequestBody(modelName string, messages []Message, opts Option
 	if len(opts.Stop) > 0 {
 		reqBody["stop"] = opts.Stop
 	}
-	if opts.DisableThinking || shouldDisableQwenThinkingByDefault(modelName) {
+	applyLlamaThinkingControls(modelName, reqBody, opts.DisableThinking)
+	return reqBody
+}
+
+func applyLlamaThinkingControls(modelName string, reqBody map[string]interface{}, forceDisable bool) {
+	if reqBody == nil || (!forceDisable && !shouldDisableQwenThinkingByDefault(modelName)) {
+		return
+	}
+	kwargs, _ := reqBody["chat_template_kwargs"].(map[string]interface{})
+	if kwargs == nil {
+		kwargs = map[string]interface{}{}
+		reqBody["chat_template_kwargs"] = kwargs
+	}
+	if _, exists := kwargs["enable_thinking"]; !exists || forceDisable {
 		// Qwen thinking-capable templates support `enable_thinking`; defaulting it
 		// to false reduces first-token latency in Lite chat and web-search routing.
-		reqBody["chat_template_kwargs"] = map[string]interface{}{
-			"enable_thinking": false,
-		}
+		kwargs["enable_thinking"] = false
 	}
-	return reqBody
 }
 
 func trimOldestNonSystemMessage(messages []Message) ([]Message, bool) {

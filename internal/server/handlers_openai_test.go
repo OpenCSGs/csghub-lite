@@ -599,6 +599,85 @@ func TestHandleModelsAnthropicFormatUsesCloudTokenLimits(t *testing.T) {
 	}
 }
 
+func TestHandleOpenAIChatCompletionsForwardsChatTemplateKwargs(t *testing.T) {
+	engine := &fakeChatCompletionEngine{
+		resp: api.OpenAIChatResponse{
+			ID:      "chatcmpl-test",
+			Object:  "chat.completion",
+			Created: 123,
+			Model:   "Qwen3.5-2B",
+			Choices: []api.OpenAIChoice{{
+				Index:   0,
+				Message: &api.Message{Role: "assistant", Content: "ok"},
+			}},
+		},
+	}
+	cfg := &config.Config{ModelDir: t.TempDir()}
+	s := New(cfg, "test")
+	s.engines["Qwen3.5-2B"] = &managedEngine{engine: engine, numCtx: 8192, numParallel: 1}
+
+	body := `{
+	  "model": "Qwen3.5-2B",
+	  "messages": [{"role":"user","content":"hi"}],
+	  "stream": false,
+	  "chat_template_kwargs": {"enable_thinking": false, "custom": "value"}
+	}`
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(body))
+	w := httptest.NewRecorder()
+
+	s.handleOpenAIChatCompletions(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("unexpected status code: %d body=%s", w.Code, w.Body.String())
+	}
+	kwargs, ok := engine.lastReq["chat_template_kwargs"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("chat_template_kwargs missing or wrong type: %#v", engine.lastReq)
+	}
+	if got, ok := kwargs["enable_thinking"].(bool); !ok || got {
+		t.Fatalf("enable_thinking = %#v, want false", kwargs["enable_thinking"])
+	}
+	if got := kwargs["custom"]; got != "value" {
+		t.Fatalf("custom = %#v, want value", got)
+	}
+}
+
+func TestHandleOpenAIChatCompletionsDisableThinkingHeaderSetsTemplateKwargs(t *testing.T) {
+	engine := &fakeChatCompletionEngine{
+		resp: api.OpenAIChatResponse{
+			ID:      "chatcmpl-test",
+			Object:  "chat.completion",
+			Created: 123,
+			Model:   "Qwen3.5-2B",
+			Choices: []api.OpenAIChoice{{
+				Index:   0,
+				Message: &api.Message{Role: "assistant", Content: "ok"},
+			}},
+		},
+	}
+	cfg := &config.Config{ModelDir: t.TempDir()}
+	s := New(cfg, "test")
+	s.engines["Qwen3.5-2B"] = &managedEngine{engine: engine, numCtx: 8192, numParallel: 1}
+
+	body := `{"model":"Qwen3.5-2B","messages":[{"role":"user","content":"hi"}],"chat_template_kwargs":{"enable_thinking":true}}`
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(body))
+	req.Header.Set("X-CSGHUB-Disable-Thinking", "true")
+	w := httptest.NewRecorder()
+
+	s.handleOpenAIChatCompletions(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("unexpected status code: %d body=%s", w.Code, w.Body.String())
+	}
+	kwargs, ok := engine.lastReq["chat_template_kwargs"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("chat_template_kwargs missing or wrong type: %#v", engine.lastReq)
+	}
+	if got, ok := kwargs["enable_thinking"].(bool); !ok || got {
+		t.Fatalf("enable_thinking = %#v, want false", kwargs["enable_thinking"])
+	}
+}
+
 func TestHandleModelsAnthropicFormatUsesLoadedContextWhenLarger(t *testing.T) {
 	cfg := &config.Config{ModelDir: t.TempDir()}
 	if err := model.SaveManifest(cfg.ModelDir, &model.LocalModel{

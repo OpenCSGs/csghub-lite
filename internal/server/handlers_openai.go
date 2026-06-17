@@ -66,6 +66,9 @@ func (s *Server) handleOpenAIChatCompletions(w http.ResponseWriter, r *http.Requ
 	if len(req.Stop) > 0 {
 		opts.Stop = req.Stop
 	}
+	if requestDisablesThinking(r) {
+		opts.DisableThinking = true
+	}
 
 	eng, err := s.getChatEngine(r.Context(), req.Model, req.Source, requestedNumCtx, requestedNumParallel, requestedNGPULayers, requestedCacheTypeK, requestedCacheTypeV, requestedDType)
 	if err != nil {
@@ -368,6 +371,17 @@ func openAIChatRequestToProxyBody(req api.OpenAIChatRequest, opts inference.Opti
 	}
 	if req.ParallelToolCalls != nil {
 		body["parallel_tool_calls"] = *req.ParallelToolCalls
+	}
+	if len(req.ChatTemplateKwargs) > 0 {
+		body["chat_template_kwargs"] = req.ChatTemplateKwargs
+	}
+	if opts.DisableThinking {
+		kwargs, _ := body["chat_template_kwargs"].(map[string]interface{})
+		if kwargs == nil {
+			kwargs = map[string]interface{}{}
+			body["chat_template_kwargs"] = kwargs
+		}
+		kwargs["enable_thinking"] = false
 	}
 	return body, nil
 }

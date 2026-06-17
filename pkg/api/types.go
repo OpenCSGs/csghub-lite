@@ -558,24 +558,25 @@ type AIAppOpenResponse struct {
 // -- OpenAI-compatible types --
 
 type OpenAIChatRequest struct {
-	Model             string      `json:"model"`
-	Source            string      `json:"source,omitempty"`
-	Messages          []Message   `json:"messages"`
-	Tools             []Tool      `json:"tools,omitempty"`
-	ToolChoice        interface{} `json:"tool_choice,omitempty"`
-	ParallelToolCalls *bool       `json:"parallel_tool_calls,omitempty"`
-	Stream            *bool       `json:"stream,omitempty"`
-	Temperature       *float64    `json:"temperature,omitempty"`
-	TopP              *float64    `json:"top_p,omitempty"`
-	MaxTokens         *int        `json:"max_tokens,omitempty"`
-	NumCtx            *int        `json:"num_ctx,omitempty"`
-	NumParallel       *int        `json:"num_parallel,omitempty"`
-	NGPULayers        *int        `json:"n_gpu_layers,omitempty"`
-	CacheTypeK        *string     `json:"cache_type_k,omitempty"`
-	CacheTypeV        *string     `json:"cache_type_v,omitempty"`
-	DType             *string     `json:"dtype,omitempty"`
-	Seed              *int        `json:"seed,omitempty"`
-	Stop              []string    `json:"stop,omitempty"`
+	Model              string                 `json:"model"`
+	Source             string                 `json:"source,omitempty"`
+	Messages           []Message              `json:"messages"`
+	Tools              []Tool                 `json:"tools,omitempty"`
+	ToolChoice         interface{}            `json:"tool_choice,omitempty"`
+	ParallelToolCalls  *bool                  `json:"parallel_tool_calls,omitempty"`
+	ChatTemplateKwargs map[string]interface{} `json:"chat_template_kwargs,omitempty"`
+	Stream             *bool                  `json:"stream,omitempty"`
+	Temperature        *float64               `json:"temperature,omitempty"`
+	TopP               *float64               `json:"top_p,omitempty"`
+	MaxTokens          *int                   `json:"max_tokens,omitempty"`
+	NumCtx             *int                   `json:"num_ctx,omitempty"`
+	NumParallel        *int                   `json:"num_parallel,omitempty"`
+	NGPULayers         *int                   `json:"n_gpu_layers,omitempty"`
+	CacheTypeK         *string                `json:"cache_type_k,omitempty"`
+	CacheTypeV         *string                `json:"cache_type_v,omitempty"`
+	DType              *string                `json:"dtype,omitempty"`
+	Seed               *int                   `json:"seed,omitempty"`
+	Stop               []string               `json:"stop,omitempty"`
 }
 
 type OpenAIEmbeddingsRequest struct {
