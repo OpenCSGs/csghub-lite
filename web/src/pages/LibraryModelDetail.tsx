@@ -116,6 +116,7 @@ export function LibraryModelDetail({ model }: LibraryModelDetailProps) {
         <div class="space-y-6 mt-6">
           <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
             <SummaryTile label={t("lib.format")} value={manifest.details.format?.toUpperCase() || t("lib.notAvailable")} />
+            <SummaryTile label={t("lib.origin")} value={modelOriginLabel(manifest.details.origin)} />
             <SummaryTile
               label={t(localInferenceLabelKey("lib"))}
               value={t(localInferenceValueKey(localInferenceMode, "lib"))}
@@ -307,6 +308,12 @@ function decodeModelParam(model: string): string {
   } catch {
     return model;
   }
+}
+
+function modelOriginLabel(origin?: string): string {
+  if (origin === "upload") return t("lib.originUpload");
+  if (origin === "marketplace") return t("lib.originMarketplace");
+  return t("lib.notAvailable");
 }
 
 function absoluteURL(path: string): string {

@@ -264,6 +264,7 @@ type ModelInfo struct {
 	Label            string        `json:"label,omitempty"`
 	DisplayName      string        `json:"display_name,omitempty"`
 	Source           string        `json:"source,omitempty"`
+	Origin           string        `json:"origin,omitempty"`
 	Provider         string        `json:"provider,omitempty"`
 	Category         string        `json:"category,omitempty"`
 	PipelineTag      string        `json:"pipeline_tag,omitempty"`

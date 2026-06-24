@@ -10,6 +10,7 @@ export interface ModelInfo {
   label?: string;
   display_name?: string;
   source?: string;
+  origin?: string;
   provider?: string;
   category?: string;
   pipeline_tag?: string;

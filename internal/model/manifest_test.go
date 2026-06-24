@@ -18,6 +18,7 @@ func TestSaveAndLoadManifest(t *testing.T) {
 		Size:         1024 * 1024 * 100,
 		Files:        []string{"model.gguf", "config.json"},
 		DownloadedAt: time.Now().Truncate(time.Second),
+		Origin:       LocalModelOriginMarketplace,
 		Description:  "A test model",
 		License:      "MIT",
 	}
@@ -48,6 +49,9 @@ func TestSaveAndLoadManifest(t *testing.T) {
 	}
 	if loaded.Size != original.Size {
 		t.Errorf("Size = %d, want %d", loaded.Size, original.Size)
+	}
+	if loaded.Origin != original.Origin {
+		t.Errorf("Origin = %q, want %q", loaded.Origin, original.Origin)
 	}
 	if len(loaded.Files) != len(original.Files) {
 		t.Errorf("Files len = %d, want %d", len(loaded.Files), len(original.Files))

@@ -186,6 +186,12 @@ function isCloudModel(model: Pick<ModelInfo, "source">): boolean {
   return model.source === "cloud";
 }
 
+function modelOriginLabel(origin?: string): string {
+  if (origin === "upload") return t("lib.originUpload");
+  if (origin === "marketplace") return t("lib.originMarketplace");
+  return t("lib.notAvailable");
+}
+
 function modelDetailHref(modelID: string): string {
   return `/library/detail/${encodeURIComponent(modelID)}`;
 }
@@ -588,6 +594,7 @@ export function Library() {
             <tr class="border-b border-gray-100 text-left text-gray-500 bg-gray-50">
               <SortHeader label={t("lib.modelName")} field="name" current={sortField.value} asc={sortAsc.value} onToggle={toggleSort} />
               <th class="px-4 py-3 font-medium">{t("lib.format")}</th>
+              <th class="px-4 py-3 font-medium">{t("lib.origin")}</th>
               <SortHeader label={t("lib.fileSize")} field="size" current={sortField.value} asc={sortAsc.value} onToggle={toggleSort} />
               <th class="px-4 py-3 font-medium">{t("downloads.progress")}</th>
               <SortHeader label={t("lib.dateTime")} field="modified_at" current={sortField.value} asc={sortAsc.value} onToggle={toggleSort} />
@@ -597,13 +604,13 @@ export function Library() {
           <tbody>
             {modelsLoading.value ? (
               <tr>
-                <td colSpan={6} class="text-center py-12 text-gray-400">
+                <td colSpan={7} class="text-center py-12 text-gray-400">
                   {t("lib.searching")}
                 </td>
               </tr>
             ) : rows.length === 0 ? (
               <tr>
-                <td colSpan={6} class="text-center py-12 text-gray-400">
+                <td colSpan={7} class="text-center py-12 text-gray-400">
                   {hasActiveFilters ? t("lib.noSearchResults") : t("lib.noModels")}
                 </td>
               </tr>
@@ -623,6 +630,9 @@ export function Library() {
                     >
                       {m.format?.toUpperCase() || (downloadOnly ? t("downloads.downloading") : "—")}
                     </span>
+                  </td>
+                  <td class="px-4 py-3 text-gray-600 whitespace-nowrap">
+                    {downloadOnly ? "—" : modelOriginLabel(m.origin)}
                   </td>
                   <td class="px-4 py-3">
                     <span class="bg-indigo-50 text-indigo-700 px-2 py-0.5 rounded text-xs font-medium">

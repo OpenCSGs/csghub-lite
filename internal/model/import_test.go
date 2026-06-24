@@ -44,6 +44,9 @@ func TestManagerImport_Directory(t *testing.T) {
 	if lm.PipelineTag != "image-text-to-text" {
 		t.Fatalf("pipeline_tag = %q, want image-text-to-text", lm.PipelineTag)
 	}
+	if lm.Origin != LocalModelOriginUpload {
+		t.Fatalf("origin = %q, want upload", lm.Origin)
+	}
 	if _, err := os.Stat(filepath.Join(mgr.cfg.ModelDir, "local", "demo", "weights", "model.gguf")); err != nil {
 		t.Fatalf("imported model file: %v", err)
 	}

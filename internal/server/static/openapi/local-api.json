@@ -5803,6 +5803,14 @@
           "source": {
             "type": "string"
           },
+          "origin": {
+            "type": "string",
+            "enum": [
+              "upload",
+              "marketplace"
+            ],
+            "description": "Local model origin. `upload` means imported by the user; `marketplace` means downloaded from the marketplace."
+          },
           "provider": {
             "type": "string",
             "description": "Normalized provider name for filtering `/api/tags`, such as `local`, `csghub`, or a third-party provider name."

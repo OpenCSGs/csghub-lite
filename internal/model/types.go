@@ -11,6 +11,13 @@ const (
 	FormatUnknown     Format = "unknown"
 )
 
+type LocalModelOrigin string
+
+const (
+	LocalModelOriginUpload      LocalModelOrigin = "upload"
+	LocalModelOriginMarketplace LocalModelOrigin = "marketplace"
+)
+
 type LocalModel struct {
 	Namespace    string           `json:"namespace"`
 	Name         string           `json:"name"`
@@ -19,6 +26,7 @@ type LocalModel struct {
 	Files        []string         `json:"files"`
 	FileEntries  []LocalModelFile `json:"file_entries,omitempty"`
 	DownloadedAt time.Time        `json:"downloaded_at"`
+	Origin       LocalModelOrigin `json:"origin,omitempty"`
 	Description  string           `json:"description,omitempty"`
 	License      string           `json:"license,omitempty"`
 	PipelineTag  string           `json:"pipeline_tag,omitempty"`

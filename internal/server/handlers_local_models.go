@@ -120,6 +120,7 @@ func (s *Server) localModelInfo(item *model.LocalModel) api.ModelInfo {
 		Label:         inferenceID,
 		DisplayName:   inferenceID,
 		Source:        "local",
+		Origin:        string(item.Origin),
 		Provider:      "local",
 		Category:      categoryForPipelineTag(pipelineTag),
 		PipelineTag:   pipelineTag,
@@ -231,6 +232,7 @@ func matchesLocalModelSearch(item api.ModelInfo, query, formatFilter, pipelineTa
 		item.License,
 		item.Format,
 		item.PipelineTag,
+		item.Origin,
 	}
 	for _, field := range fields {
 		if strings.Contains(strings.ToLower(field), query) {

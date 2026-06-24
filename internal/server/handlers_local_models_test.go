@@ -24,6 +24,7 @@ func TestHandleLocalModelSearch_QueryAndPagination(t *testing.T) {
 		Size:         1024,
 		Files:        []string{"model.gguf"},
 		DownloadedAt: time.Unix(200, 0),
+		Origin:       model.LocalModelOriginMarketplace,
 		Description:  "Fast coding assistant",
 		License:      "apache-2.0",
 		PipelineTag:  "text-generation",
@@ -89,6 +90,9 @@ func TestHandleLocalModelSearch_QueryAndPagination(t *testing.T) {
 	}
 	if resp.Models[0].License != "apache-2.0" {
 		t.Fatalf("license = %q, want apache-2.0", resp.Models[0].License)
+	}
+	if resp.Models[0].Origin != string(model.LocalModelOriginMarketplace) {
+		t.Fatalf("origin = %q, want marketplace", resp.Models[0].Origin)
 	}
 
 	req = httptest.NewRequest(http.MethodGet, "/api/models/search?q=qwen&limit=1&offset=1", nil)

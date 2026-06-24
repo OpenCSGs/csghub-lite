@@ -82,6 +82,7 @@ func (m *Manager) Import(opts ImportOptions) (*LocalModel, error) {
 		Namespace:    namespace,
 		Name:         name,
 		DownloadedAt: time.Now(),
+		Origin:       LocalModelOriginUpload,
 		PipelineTag:  DetectPipelineTag(preparedDir),
 	}
 	if changed, err := EnsureLocalModelFiles(preparedDir, lm); err != nil {
@@ -130,6 +131,7 @@ func (m *Manager) ImportPreparedDirectory(opts ImportOptions) (*LocalModel, erro
 		Namespace:    namespace,
 		Name:         name,
 		DownloadedAt: time.Now(),
+		Origin:       LocalModelOriginUpload,
 		PipelineTag:  DetectPipelineTag(preparedDir),
 	}
 	if changed, err := EnsureLocalModelFiles(preparedDir, lm); err != nil {
