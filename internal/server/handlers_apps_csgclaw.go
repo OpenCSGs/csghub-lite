@@ -193,7 +193,7 @@ func csgclawSandboxProvider() string {
 
 func csgclawSandboxProviderForGOOS(goos string) string {
 	if goos == "windows" {
-		return "csghub"
+		return "docker"
 	}
 	return "boxlite-cli"
 }

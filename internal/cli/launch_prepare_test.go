@@ -632,8 +632,8 @@ func TestPrepareCSGClawLaunchWritesConfigAndDefaultsToServe(t *testing.T) {
 }
 
 func TestCSGClawLaunchSandboxProviderIsPlatformAware(t *testing.T) {
-	if got := csgClawLaunchSandboxProviderForGOOS("windows"); got != "csghub" {
-		t.Fatalf("windows sandbox provider = %q, want csghub", got)
+	if got := csgClawLaunchSandboxProviderForGOOS("windows"); got != "docker" {
+		t.Fatalf("windows sandbox provider = %q, want docker", got)
 	}
 	if got := csgClawLaunchSandboxProviderForGOOS("darwin"); got != "boxlite-cli" {
 		t.Fatalf("darwin sandbox provider = %q, want boxlite-cli", got)

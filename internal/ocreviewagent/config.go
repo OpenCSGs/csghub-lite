@@ -11,7 +11,10 @@ import (
 	"github.com/opencsgs/csghub-lite/pkg/api"
 )
 
-const ProviderID = "csghub-lite"
+const (
+	ProviderID      = "csghub-lite"
+	DefaultLanguage = "Chinese"
+)
 
 var UnsetEnvKeys = []string{
 	"OCR_LLM_URL",
@@ -52,6 +55,9 @@ func SyncConfig(storageRoot, serverURL, apiKey, selectedModelID string, models [
 	}
 	payload["provider"] = ProviderID
 	payload["model"] = strings.TrimSpace(selectedModelID)
+	if value, ok := payload["language"].(string); !ok || strings.TrimSpace(value) == "" {
+		payload["language"] = DefaultLanguage
+	}
 	payload["custom_providers"] = mergeProviderConfig(payload["custom_providers"], map[string]interface{}{
 		ProviderID: map[string]interface{}{
 			"name":        "OpenCSG",

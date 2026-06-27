@@ -943,7 +943,7 @@ func csgClawLaunchSandboxProvider() string {
 
 func csgClawLaunchSandboxProviderForGOOS(goos string) string {
 	if goos == "windows" {
-		return "csghub"
+		return "docker"
 	}
 	return "boxlite-cli"
 }

@@ -549,8 +549,8 @@ models = ["glm-5"]
 }
 
 func TestCSGClawSandboxProviderIsPlatformAware(t *testing.T) {
-	if got := csgclawSandboxProviderForGOOS("windows"); got != "csghub" {
-		t.Fatalf("windows sandbox provider = %q, want csghub", got)
+	if got := csgclawSandboxProviderForGOOS("windows"); got != "docker" {
+		t.Fatalf("windows sandbox provider = %q, want docker", got)
 	}
 	if got := csgclawSandboxProviderForGOOS("darwin"); got != "boxlite-cli" {
 		t.Fatalf("darwin sandbox provider = %q, want boxlite-cli", got)
