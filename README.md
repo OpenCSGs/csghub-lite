@@ -1,4 +1,4 @@
-# csghub-lite
+# CSGLite
 
 <p align="center">
   <img src="docs/images/apps.png" alt="AI Apps" width="80%">
@@ -6,7 +6,7 @@
 
 A lightweight tool for running large language models locally, powered by models from the [CSGHub](https://opencsg.com) platform.
 
-Inspired by [Ollama](https://ollama.com), csghub-lite provides model download, local inference, interactive chat, and an OpenAI-compatible REST API — all from a single binary.
+Inspired by [Ollama](https://ollama.com), CSGLite provides model download, local inference, interactive chat, and an OpenAI-compatible REST API — all from a single binary.
 
 ## Features
 
@@ -34,8 +34,8 @@ Inspired by [Ollama](https://ollama.com), csghub-lite provides model download, l
 ### Integrations
 
 - **Third-Party Providers** — integrate OpenAI, DeepSeek, MiMo, Kimi, BigModel, Qianfan, MiniMax, OpenRouter, and any OpenAI-compatible API
-- **Coding Agents** — one-click config for Claude Code, Codex, Pi, OpenCode
-- **AI Applications** — one-click setup for OpenClaw, CSGClaw, Dify, AnythingLLM
+- **Coding Agents** — one-click config for Claude Code, Codex, Pi, OpenCode, and Open Code Review
+- **AI Applications** — one-click setup for Claude Code, OpenCode, Open Code Review, Codex, Codex App, Pi, OpenClaw, CSGClaw, Dify, and AnythingLLM
 
 ### Dataset Support
 
@@ -102,7 +102,7 @@ csghub-lite login
 
 ## Local Inference Capabilities
 
-csghub-lite can run several model families locally today, with more runtime
+CSGLite can run several model families locally today, with more runtime
 types planned. The model detail page shows whether a downloaded model is
 currently supported for local inference.
 
@@ -122,7 +122,7 @@ currently supported for local inference.
 
 ### Third-Party Model Providers
 
-csghub-lite supports integrating third-party OpenAI-compatible API providers. Configure providers in Settings, and their models appear alongside local and OpenCSG models in Chat.
+CSGLite supports integrating third-party OpenAI-compatible API providers. Configure providers in Settings, and their models appear alongside local and OpenCSG models in Chat.
 
 Supported providers include:
 
@@ -149,7 +149,7 @@ One-click configuration for popular coding agents. Models from local, OpenCSG, o
 | **Pi** | `~/.pi/agent/settings.json` | `csghub-lite launch pi --model <model>` |
 | **OpenCode** | `~/.opencode.json` | `csghub-lite launch open-code --model <model>` |
 
-After the first launch via csghub-lite, subsequent runs use the configured settings automatically — no manual API key or base URL setup needed.
+After the first launch via CSGLite, subsequent runs use the configured settings automatically — no manual API key or base URL setup needed.
 
 Example:
 ```bash
@@ -180,7 +180,7 @@ One-click setup for AI assistant applications:
 | **Dify** | LLM app development platform | Web UI → AI Apps |
 | **AnythingLLM** | Private document chat | Web UI → AI Apps |
 
-Managed apps auto-configure to use csghub-lite's OpenAI-compatible API endpoint with your selected models.
+Managed apps auto-configure to use CSGLite's OpenAI-compatible API endpoint with your selected models.
 
 ## CLI Commands
 
@@ -201,7 +201,7 @@ Managed apps auto-configure to use csghub-lite's OpenAI-compatible API endpoint 
 | `csghub-lite config set <key> <value>` | Set configuration |
 | `csghub-lite config get <key>` | Get a configuration value |
 | `csghub-lite config show` | Show current configuration |
-| `csghub-lite uninstall` | Remove csghub-lite and llama-server, preserving local data unless `--all` is set |
+| `csghub-lite uninstall` | Remove CSGLite and llama-server, preserving local data unless `--all` is set |
 | `csghub-lite --version` | Show version information |
 
 Model names use the format `namespace/name`, e.g. `Qwen/Qwen3-0.6B-GGUF`.
@@ -272,7 +272,7 @@ If the local server is running, you can also open the interactive API docs in yo
 
 ## Logs
 
-By default, csghub-lite writes logs under `~/.csghub-lite/logs/`:
+By default, CSGLite writes logs under `~/.csghub-lite/logs/`:
 
 - `csghub-lite.log` — API server logs
 - `llama-server.log` — llama-server subprocess logs
@@ -281,7 +281,7 @@ By default, csghub-lite writes logs under `~/.csghub-lite/logs/`:
 
 Configuration is stored at `~/.csghub-lite/config.json`.
 
-The CLI and Web UI expose a convenience `storage_dir` setting. When you set it, csghub-lite expands it into the persisted `model_dir` and `dataset_dir`.
+The CLI and Web UI expose a convenience `storage_dir` setting. When you set it, CSGLite expands it into the persisted `model_dir` and `dataset_dir`.
 
 | Key | Default | Description |
 |---|---|---|
