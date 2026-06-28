@@ -1620,7 +1620,7 @@ export function Chat() {
       : Boolean(inputText.value.trim() && selectedModelInfo.value);
 
   return (
-    <div class="flex h-full min-h-0 gap-0 bg-[#f7f8fb] p-4">
+    <div class="flex h-full min-h-0 gap-0 bg-[#f7f8fb] p-8">
       {/* Conversation history */}
       {showSidebar.value && (
         <aside class="mr-4 flex h-full min-h-0 w-[280px] flex-shrink-0 flex-col rounded-[22px] border border-gray-200 bg-white shadow-sm">

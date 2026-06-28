@@ -528,7 +528,7 @@ export function Library() {
   const rows = modelRows(filtered.value);
 
   return (
-    <div class="p-4 sm:p-6 lg:p-8 max-w-6xl mx-auto">
+    <div class="p-8 max-w-6xl mx-auto">
       <div class="flex items-center justify-between mb-1">
         <div>
           <h1 class="text-2xl font-bold text-gray-900">{t("lib.title")}</h1>

@@ -182,7 +182,7 @@ export function Marketplace() {
   };
 
   return (
-    <div class="p-8 max-w-5xl mx-auto">
+    <div class="p-8 max-w-6xl mx-auto">
       <h1 class="text-2xl font-bold text-gray-900">{t("mp.title")}</h1>
       <p class="text-gray-500 text-sm mt-1 mb-6">{t("mp.subtitle")}</p>
 
