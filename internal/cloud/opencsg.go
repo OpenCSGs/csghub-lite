@@ -1,6 +1,7 @@
 package cloud
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -38,6 +39,16 @@ type Service struct {
 type ModelTokenLimits struct {
 	MaxInputTokens int
 	MaxTokens      int
+}
+
+// ClientEvent mirrors the OpenCSG /events payload shape.
+type ClientEvent struct {
+	Module    string `json:"m"`
+	ID        string `json:"id"`
+	Value     string `json:"v"`
+	ClientID  string `json:"c_id,omitempty"`
+	ClientIP  string `json:"c_ip,omitempty"`
+	Extension string `json:"ext,omitempty"`
 }
 
 type modelListResponse struct {
@@ -190,6 +201,38 @@ func (s *Service) ChatModelTokenLimits(modelID string) (ModelTokenLimits, bool) 
 		return ModelTokenLimits{}, false
 	}
 	return limits, limits.MaxInputTokens > 0 || limits.MaxTokens > 0
+}
+
+func (s *Service) ReportClientEvents(ctx context.Context, events []ClientEvent) error {
+	if s == nil || s.BaseURL() == "" || len(events) == 0 {
+		return nil
+	}
+	body, err := json.Marshal(events)
+	if err != nil {
+		return fmt.Errorf("encoding client events: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, s.BaseURL()+"/events", bytes.NewReader(body))
+	if err != nil {
+		return fmt.Errorf("creating client events request: %w", err)
+	}
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("Content-Type", "application/json")
+	if token := s.currentAccessToken(); token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
+
+	resp, err := s.client.Do(req)
+	if err != nil {
+		return fmt.Errorf("reporting client events: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		return fmt.Errorf("client events returned %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+	return nil
 }
 
 func (s *Service) cachedModels() ([]api.ModelInfo, bool) {

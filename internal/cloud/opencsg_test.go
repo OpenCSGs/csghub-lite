@@ -433,3 +433,45 @@ func TestRefreshChatModelsCachesTokenLimits(t *testing.T) {
 		t.Fatalf("MaxTokens = %d, want 12288", limits.MaxTokens)
 	}
 }
+
+func TestReportClientEventsPostsEvents(t *testing.T) {
+	apiServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/events" {
+			t.Fatalf("path = %q, want /events", r.URL.Path)
+		}
+		if r.Method != http.MethodPost {
+			t.Fatalf("method = %q, want POST", r.Method)
+		}
+		if got := r.Header.Get("Authorization"); got != "Bearer access-token" {
+			t.Fatalf("Authorization = %q, want bearer token", got)
+		}
+		if got := r.Header.Get("Content-Type"); got != "application/json" {
+			t.Fatalf("Content-Type = %q, want application/json", got)
+		}
+
+		var events []ClientEvent
+		if err := json.NewDecoder(r.Body).Decode(&events); err != nil {
+			t.Fatalf("decode events: %v", err)
+		}
+		if len(events) != 1 {
+			t.Fatalf("events length = %d, want 1", len(events))
+		}
+		if events[0].Module != "csghub-lite" || events[0].ID != "model_download_failed" || events[0].Value != "missing/model" {
+			t.Fatalf("event = %#v, want model download failure with model id", events[0])
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer apiServer.Close()
+
+	svc := NewService(apiServer.URL)
+	svc.SetAccessToken(" access-token ")
+	err := svc.ReportClientEvents(context.Background(), []ClientEvent{{
+		Module:    "csghub-lite",
+		ID:        "model_download_failed",
+		Value:     "missing/model",
+		Extension: `{"error":"not found"}`,
+	}})
+	if err != nil {
+		t.Fatalf("ReportClientEvents returned error: %v", err)
+	}
+}

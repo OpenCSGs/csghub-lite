@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/opencsgs/csglite/internal/cloud"
 	"github.com/opencsgs/csglite/internal/csghub"
 	"github.com/opencsgs/csglite/pkg/api"
 )
@@ -190,7 +191,64 @@ func (s *Server) runPullJob(ctx context.Context, job *pullJob) {
 		return
 	}
 	job.setFailed(err)
+	s.reportModelDownloadFailure(job, err)
 	log.Printf("PULL JOB %s: failed kind=%s name=%q error=%v", job.id, job.kind, job.name, err)
+}
+
+type modelDownloadFailureEventExtension struct {
+	ReportFrom string `json:"report_from"`
+	Error      string `json:"error,omitempty"`
+	JobID      string `json:"job_id,omitempty"`
+	Quant      string `json:"quant,omitempty"`
+	Version    string `json:"version,omitempty"`
+}
+
+func (s *Server) reportModelDownloadFailure(job *pullJob, pullErr error) {
+	if s == nil || job == nil || job.kind != "model" {
+		return
+	}
+	modelID := strings.TrimSpace(job.name)
+	if modelID == "" {
+		return
+	}
+	baseURL := strings.TrimRight(strings.TrimSpace(s.cfg.ServerURL), "/")
+	if baseURL == "" {
+		return
+	}
+
+	ext, err := json.Marshal(modelDownloadFailureEventExtension{
+		ReportFrom: "csglite",
+		Error:      errorString(pullErr),
+		JobID:      job.id,
+		Quant:      strings.TrimSpace(job.quant),
+		Version:    strings.TrimSpace(s.version),
+	})
+	if err != nil {
+		log.Printf("PULL JOB %s: failed to encode model download failure event: %v", job.id, err)
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	eventSvc := cloud.NewService(baseURL)
+	err = eventSvc.ReportClientEvents(ctx, []cloud.ClientEvent{{
+		Module:    "csghub-lite",
+		ID:        "model_download_failed",
+		Value:     modelID,
+		Extension: string(ext),
+	}})
+	if err != nil {
+		log.Printf("PULL JOB %s: failed to report model download failure event: %v", job.id, err)
+		return
+	}
+	log.Printf("PULL JOB %s: reported model download failure event model=%q", job.id, modelID)
+}
+
+func errorString(err error) string {
+	if err == nil {
+		return ""
+	}
+	return err.Error()
 }
 
 func (s *pullJobStore) add(job *pullJob) {
