@@ -21,6 +21,7 @@ import (
 	"github.com/charmbracelet/x/xpty"
 	"github.com/gorilla/websocket"
 
+	"github.com/opencsgs/csglite/internal/apps"
 	"github.com/opencsgs/csglite/internal/claudeagent"
 	"github.com/opencsgs/csglite/internal/codexagent"
 	"github.com/opencsgs/csglite/internal/config"
@@ -910,7 +911,7 @@ func openCodeReviewShellLaunch(modelID string) (string, []string, map[string]str
 }
 
 func (s *Server) prepareAIAppShellLaunch(target aiAppOpenTarget, modelID string, modelIDs []string, requestedWorkDir string) (aiAppPreparedLaunch, error) {
-	binary, err := resolveAIAppLaunchBinary(target.Binaries)
+	binary, err := resolveAIAppLaunchBinary(target.AppID, target.Binaries)
 	if err != nil {
 		return aiAppPreparedLaunch{}, fmt.Errorf("%s is installed, but the launch command was not found on PATH", target.DisplayName)
 	}
@@ -1220,21 +1221,13 @@ func aiAppLaunchDir() (string, error) {
 	return filepath.Join(appHome, "apps", "launch"), nil
 }
 
-func resolveAIAppLaunchBinary(candidates []string) (string, error) {
+func resolveAIAppLaunchBinary(appID string, candidates []string) (string, error) {
 	pathEnv := prependMissingPathEntries(os.Getenv("PATH"), commonAIAppBinDirs())
 	_ = os.Setenv("PATH", pathEnv)
 
 	for _, name := range candidates {
-		if path, err := exec.LookPath(name); err == nil {
+		if path, ok := apps.ResolveLaunchBinary(appID, name); ok {
 			return path, nil
-		}
-	}
-
-	for _, dir := range commonAIAppBinDirs() {
-		for _, name := range candidates {
-			if path, ok := lookupAIAppBinaryInDir(dir, name); ok {
-				return path, nil
-			}
 		}
 	}
 

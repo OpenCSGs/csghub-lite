@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/opencsgs/csglite/internal/apps"
 	"github.com/opencsgs/csglite/internal/cloud"
 	"github.com/opencsgs/csglite/internal/config"
 	"github.com/opencsgs/csglite/internal/codexagent"
@@ -89,12 +90,12 @@ func TestCodexAppLaunchTarget(t *testing.T) {
 		t.Fatalf("write launch target: %v", err)
 	}
 
-	got, err := codexAppLaunchTarget()
+	got, err := apps.CodexAppLaunchTarget()
 	if err != nil {
-		t.Fatalf("codexAppLaunchTarget() error: %v", err)
+		t.Fatalf("CodexAppLaunchTarget() error: %v", err)
 	}
 	if got != target {
-		t.Fatalf("codexAppLaunchTarget() = %q, want %q", got, target)
+		t.Fatalf("CodexAppLaunchTarget() = %q, want %q", got, target)
 	}
 }
 

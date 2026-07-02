@@ -6,17 +6,14 @@ import (
 	"log"
 	"net"
 	"net/http"
-	"os"
 	"os/exec"
-	"path/filepath"
 	"runtime"
 	"strings"
 
+	"github.com/opencsgs/csglite/internal/apps"
 	"github.com/opencsgs/csglite/internal/codexagent"
 	"github.com/opencsgs/csglite/pkg/api"
 )
-
-const codexAppLaunchTargetFile = "launch-target"
 
 func isLocalhostBrowserAccess(r *http.Request) bool {
 	if r == nil {
@@ -73,7 +70,7 @@ func (s *Server) launchCodexDesktopApp(ctx context.Context) error {
 		return fmt.Errorf("Codex App can only be opened from localhost")
 	}
 
-	target, err := codexAppLaunchTarget()
+	target, err := apps.CodexAppLaunchTarget()
 	if err != nil {
 		return err
 	}
@@ -122,28 +119,4 @@ func isLocalhostBrowserAccessFromContext(ctx context.Context) bool {
 	}
 	allowed, ok := ctx.Value(localhostAccessContextKey{}).(bool)
 	return ok && allowed
-}
-
-func codexAppLaunchTarget() (string, error) {
-	home, err := os.UserHomeDir()
-	if err != nil || home == "" {
-		return "", fmt.Errorf("Codex App is installed, but the user home directory was not found")
-	}
-
-	targetPath := filepath.Join(home, ".local", "share", "codex-app", codexAppLaunchTargetFile)
-	data, err := os.ReadFile(targetPath)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return "", fmt.Errorf("Codex App is installed, but its launch target was not found at %s", targetPath)
-		}
-		return "", fmt.Errorf("reading Codex App launch target: %w", err)
-	}
-	target := strings.TrimSpace(string(data))
-	if target == "" {
-		return "", fmt.Errorf("Codex App launch target is empty")
-	}
-	if _, err := os.Stat(target); err != nil {
-		return "", fmt.Errorf("Codex App launch target is missing: %s", target)
-	}
-	return target, nil
 }

@@ -15,7 +15,7 @@ this repository. They are written for any coding agent, not only Cursor.
 ## Files
 
 - `api-swagger-sync.md` - local API and OpenAPI sync requirements.
-- `app-installs.md` - user-scoped AI app installer behavior.
+- `app-installs.md` - user-scoped AI app installer behavior and install detection.
 - `ai-app-oss-mirror.md` - AI app OSS mirror workflow (claude-code, open-code, codex).
 - `cross-platform.md` - macOS, Linux, and Windows compatibility rules.
 - `frontend-i18n.md` - web UI localization rules.

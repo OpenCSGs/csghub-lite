@@ -8,12 +8,12 @@ import (
 	"io"
 	"net/http"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"time"
 
+	"github.com/opencsgs/csglite/internal/apps"
 	"github.com/opencsgs/csglite/internal/config"
 	"github.com/opencsgs/csglite/pkg/api"
 	"github.com/spf13/cobra"
@@ -456,20 +456,12 @@ func renderAIAppInstallLine(target launchTarget, app api.AIAppInfo) string {
 	return fmt.Sprintf("Installing %s...", target.DisplayName)
 }
 
-func resolveLaunchBinary(candidates []string) (string, error) {
+func resolveLaunchBinary(appID string, candidates []string) (string, error) {
 	ensureCommonAppBinDirsOnPath()
 
 	for _, name := range candidates {
-		if path, err := exec.LookPath(name); err == nil {
+		if path, ok := apps.ResolveLaunchBinary(appID, name); ok {
 			return path, nil
-		}
-	}
-
-	for _, dir := range commonAppBinDirs() {
-		for _, name := range candidates {
-			if path, ok := lookupBinaryInDir(dir, name); ok {
-				return path, nil
-			}
 		}
 	}
 

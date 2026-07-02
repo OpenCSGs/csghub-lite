@@ -1275,30 +1275,6 @@ func (m *Manager) currentScriptSource(spec appSpec, action string) (*scriptSourc
 	return spec.unix, nil
 }
 
-func detectInstalled(ctx context.Context, spec appSpec) (string, string, bool) {
-	if spec.id == "codex-app" {
-		return detectCodexAppInstall()
-	}
-	if spec.binaryName == "" {
-		return "", "", false
-	}
-	path, ok := detectInstalledBinaryPath(spec.binaryName)
-	if !ok {
-		return "", "", false
-	}
-	version := path
-	if len(spec.versionArgs) > 0 {
-		cmdCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
-		defer cancel()
-		out, err := exec.CommandContext(cmdCtx, path, spec.versionArgs...).CombinedOutput()
-		if err == nil {
-			version = strings.TrimSpace(string(out))
-		}
-	}
-	version = appDisplayVersion(spec, version)
-	return path, version, true
-}
-
 func appDisplayVersion(spec appSpec, version string) string {
 	version = strings.TrimSpace(version)
 	if spec.id != "open-code-review" {
@@ -1442,47 +1418,6 @@ func inferLegacyManagedInstall(spec appSpec, installPath string) bool {
 	default:
 		return false
 	}
-}
-
-func detectCodexAppInstall() (string, string, bool) {
-	home, err := os.UserHomeDir()
-	if err != nil || home == "" {
-		return "", "", false
-	}
-	launcherPath := filepath.Join(home, ".local", "bin", launcherBinaryName("codex-app"))
-	if _, err := os.Stat(launcherPath); err != nil {
-		return "", "", false
-	}
-	versionPath := filepath.Join(home, ".local", "share", "codex-app", "version")
-	version := launcherPath
-	if data, err := os.ReadFile(versionPath); err == nil {
-		if trimmed := strings.TrimSpace(string(data)); trimmed != "" {
-			version = trimmed
-		}
-	}
-	return launcherPath, version, true
-}
-
-func looksLikeCodexAppInstall(installPath string) bool {
-	home, err := os.UserHomeDir()
-	if err != nil || home == "" || installPath == "" {
-		return false
-	}
-	launcherPath := filepath.Join(home, ".local", "bin", launcherBinaryName("codex-app"))
-	if !samePath(installPath, launcherPath) {
-		return false
-	}
-	targetPath := filepath.Join(home, ".local", "share", "codex-app", "launch-target")
-	data, err := os.ReadFile(targetPath)
-	if err != nil {
-		return false
-	}
-	target := strings.TrimSpace(string(data))
-	if target == "" {
-		return false
-	}
-	_, err = os.Stat(target)
-	return err == nil
 }
 
 func looksLikeLegacyRuntimeInstall(installPath, binaryName, runtimeDir string) bool {

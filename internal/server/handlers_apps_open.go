@@ -79,7 +79,7 @@ func (s *Server) openClawChatURL(ctx context.Context, modelID, modelSource strin
 	s.openclawMu.Lock()
 	defer s.openclawMu.Unlock()
 
-	binary, err := resolveAIAppLaunchBinary([]string{"openclaw"})
+	binary, err := resolveAIAppLaunchBinary("openclaw", []string{"openclaw"})
 	if err != nil {
 		return "", fmt.Errorf("OpenClaw is installed, but its launch command was not found on PATH")
 	}

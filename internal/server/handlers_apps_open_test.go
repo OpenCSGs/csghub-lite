@@ -1490,6 +1490,35 @@ func TestPrepareAIAppShellLaunchUsesPiProviderConfig(t *testing.T) {
 	}
 }
 
+func TestResolveAIAppLaunchBinaryUsesInstallDetectionFallback(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	t.Setenv("PATH", "")
+
+	binDir := filepath.Join(home, ".local", "share", "codex", "versions", "1.2.3")
+	if err := os.MkdirAll(binDir, 0o755); err != nil {
+		t.Fatalf("mkdir bin dir: %v", err)
+	}
+	binaryPath := filepath.Join(binDir, "codex")
+	content := "#!/bin/sh\nexit 0\n"
+	if runtime.GOOS == "windows" {
+		binaryPath = filepath.Join(binDir, "codex.exe")
+		content = "@echo off\r\nexit /b 0\r\n"
+	}
+	if err := os.WriteFile(binaryPath, []byte(content), 0o755); err != nil {
+		t.Fatalf("write fake binary: %v", err)
+	}
+
+	got, err := resolveAIAppLaunchBinary("codex", []string{"codex"})
+	if err != nil {
+		t.Fatalf("resolveAIAppLaunchBinary returned error: %v", err)
+	}
+	if got != binaryPath {
+		t.Fatalf("resolveAIAppLaunchBinary = %q, want %q", got, binaryPath)
+	}
+}
+
 func TestWriteOpenCodeWebLaunchConfigIncludesAllModels(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)

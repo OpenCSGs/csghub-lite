@@ -1,6 +1,6 @@
 ---
 description: Keep AI app installers within current user permissions by default
-globs: internal/apps/scripts/*,internal/apps/manager.go,web/src/data/aiApps.ts
+globs: internal/apps/scripts/*,internal/apps/manager.go,internal/apps/detect.go,internal/apps/codex_app.go,web/src/data/aiApps.ts
 alwaysApply: false
 ---
 

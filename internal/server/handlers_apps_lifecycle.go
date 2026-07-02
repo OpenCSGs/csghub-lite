@@ -58,7 +58,7 @@ func (s *Server) stopAIAppRuntime(ctx context.Context, appID string) (api.AIAppI
 
 	switch appID {
 	case "openclaw":
-		binary, err := resolveAIAppLaunchBinary([]string{"openclaw"})
+		binary, err := resolveAIAppLaunchBinary("openclaw", []string{"openclaw"})
 		if err != nil {
 			return api.AIAppInfo{}, fmt.Errorf("OpenClaw is installed, but its launch command was not found on PATH")
 		}
@@ -66,7 +66,7 @@ func (s *Server) stopAIAppRuntime(ctx context.Context, appID string) (api.AIAppI
 			return api.AIAppInfo{}, err
 		}
 	case "csgclaw":
-		binary, err := resolveAIAppLaunchBinary([]string{"csgclaw"})
+		binary, err := resolveAIAppLaunchBinary("csgclaw", []string{"csgclaw"})
 		if err != nil {
 			return api.AIAppInfo{}, fmt.Errorf("CSGClaw is installed, but its launch command was not found on PATH")
 		}
@@ -101,7 +101,7 @@ func validateAIAppRuntimeAction(info api.AIAppInfo) error {
 func (s *Server) aiAppRuntimeRunning(ctx context.Context, appID string) (bool, error) {
 	switch appID {
 	case "openclaw":
-		binary, err := resolveAIAppLaunchBinary([]string{"openclaw"})
+		binary, err := resolveAIAppLaunchBinary("openclaw", []string{"openclaw"})
 		if err != nil {
 			return false, nil
 		}

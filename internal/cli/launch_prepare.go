@@ -239,7 +239,7 @@ func prepareLaunchExecution(target launchTarget, serverURL, modelID string, user
 }
 
 func prepareClaudeLaunch(target launchTarget, serverURL, modelID string, userArgs []string) (preparedLaunch, error) {
-	binary, err := resolveLaunchBinary(target.Binaries)
+	binary, err := resolveLaunchBinary(target.AppID, target.Binaries)
 	if err != nil {
 		return preparedLaunch{}, fmt.Errorf("%s is installed, but the launch command was not found on PATH", target.DisplayName)
 	}
@@ -261,7 +261,7 @@ func prepareClaudeLaunch(target launchTarget, serverURL, modelID string, userArg
 }
 
 func prepareOpenCodeLaunch(target launchTarget, serverURL, modelID string, userArgs []string) (preparedLaunch, error) {
-	binary, err := resolveLaunchBinary(target.Binaries)
+	binary, err := resolveLaunchBinary(target.AppID, target.Binaries)
 	if err != nil {
 		return preparedLaunch{}, fmt.Errorf("%s is installed, but the launch command was not found on PATH", target.DisplayName)
 	}
@@ -278,7 +278,7 @@ func prepareOpenCodeLaunch(target launchTarget, serverURL, modelID string, userA
 }
 
 func prepareOpenCodeReviewLaunch(target launchTarget, serverURL, modelID string, userArgs []string) (preparedLaunch, error) {
-	binary, err := resolveLaunchBinary(target.Binaries)
+	binary, err := resolveLaunchBinary(target.AppID, target.Binaries)
 	if err != nil {
 		return preparedLaunch{}, fmt.Errorf("%s is installed, but the launch command was not found on PATH", target.DisplayName)
 	}
@@ -299,7 +299,7 @@ func prepareOpenCodeReviewLaunch(target launchTarget, serverURL, modelID string,
 }
 
 func prepareCodexLaunch(target launchTarget, serverURL, modelID string, userArgs []string) (preparedLaunch, error) {
-	binary, err := resolveLaunchBinary(target.Binaries)
+	binary, err := resolveLaunchBinary(target.AppID, target.Binaries)
 	if err != nil {
 		return preparedLaunch{}, fmt.Errorf("%s is installed, but the launch command was not found on PATH", target.DisplayName)
 	}
@@ -320,7 +320,7 @@ func prepareCodexLaunch(target launchTarget, serverURL, modelID string, userArgs
 }
 
 func preparePiLaunch(target launchTarget, serverURL, modelID string, userArgs []string) (preparedLaunch, error) {
-	binary, err := resolveLaunchBinary(target.Binaries)
+	binary, err := resolveLaunchBinary(target.AppID, target.Binaries)
 	if err != nil {
 		return preparedLaunch{}, fmt.Errorf("%s is installed, but the launch command was not found on PATH", target.DisplayName)
 	}
@@ -340,7 +340,7 @@ func preparePiLaunch(target launchTarget, serverURL, modelID string, userArgs []
 }
 
 func prepareOpenClawLaunch(target launchTarget, serverURL, modelID string, userArgs []string) (preparedLaunch, error) {
-	binary, err := resolveLaunchBinary(target.Binaries)
+	binary, err := resolveLaunchBinary(target.AppID, target.Binaries)
 	if err != nil {
 		return preparedLaunch{}, fmt.Errorf("%s is installed, but the launch command was not found on PATH", target.DisplayName)
 	}
@@ -355,7 +355,7 @@ func prepareOpenClawLaunch(target launchTarget, serverURL, modelID string, userA
 }
 
 func prepareCSGClawLaunch(target launchTarget, serverURL, modelID string, userArgs []string) (preparedLaunch, error) {
-	binary, err := resolveLaunchBinary(target.Binaries)
+	binary, err := resolveLaunchBinary(target.AppID, target.Binaries)
 	if err != nil {
 		return preparedLaunch{}, fmt.Errorf("%s is installed, but the launch command was not found on PATH", target.DisplayName)
 	}
